@@ -7,14 +7,3 @@ crash.log
 
 # Historical whole-file snapshots are retained outside Git.
 /backups/
-
-# Local agent state.
-/.agents/
-/.codex/
-/.antigravitycli/
-
-# Separate AnimeXin project sharing this workspace.
-/axcli/
-/tests/test_scraper.py
-/README.md
-/pyproject.toml
