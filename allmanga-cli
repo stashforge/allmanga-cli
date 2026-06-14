@@ -3,10 +3,9 @@
 allmanga-cli — Terminal anime stream player (AllAnime / AllManga)
 """
 
-import sys, shutil, threading, os, re, ssl, json, base64, time, socket, math
+import sys, shutil, threading, os, re, ssl, json, base64, time, socket
 import hashlib, subprocess, urllib.request, urllib.parse, urllib.error
 import tty, termios, select, signal, atexit, tempfile, getpass, traceback, uuid
-from xml.sax.saxutils import escape as xml_escape
 from typing import Optional
 
 from allmanga_cli.cli_args import (
@@ -15,6 +14,7 @@ from allmanga_cli.cli_args import (
     build_legacy_parser,
     parse_cli_args,
 )
+from allmanga_cli.dash import generate_dash_mpd, resolve_dash_raw_urls
 from allmanga_cli.episodes import (
     episode_id_at,
     episode_index_for_id,
@@ -46,6 +46,44 @@ from allmanga_cli.metadata import (
     set_next_airing_fields,
     should_refresh_anilist,
 )
+from allmanga_cli.playback_rules import (
+    episode_transition_osd,
+    marked_watched_osd,
+    minimum_played_for_completion,
+    pending_completion_osd,
+    playback_is_actively_advancing,
+    playback_looks_complete,
+    playback_updates_history,
+    prefetch_matches_request,
+    should_clear_query_on_child_left,
+    sync_queued_osd,
+)
+from allmanga_cli.processes import (
+    MAX_YTDLP_JSON_BYTES,
+    communicate_with_cleanup,
+    read_bounded_process_stdout,
+)
+from allmanga_cli.proxy_rules import (
+    new_proxy_secret_path as _new_proxy_secret_path,
+    proxy_filtered_headers as _proxy_filtered_headers,
+    proxy_method_allowed as _proxy_method_allowed,
+    proxy_path_authorized as _proxy_path_authorized,
+    proxy_range_header as _proxy_range_header,
+    proxy_response_headers as _proxy_response_headers,
+)
+from allmanga_cli.sorting import (
+    ANILIST_SORT_LABELS,
+    ANILIST_SORT_MODES,
+    anilist_history_timestamps,
+    next_anilist_sort_mode,
+    normalize_anilist_sort_mode,
+    sort_anilist_shows,
+)
+from allmanga_cli.source_helpers import (
+    decrypt_url,
+    expand_wixmp,
+    source_priority,
+)
 from allmanga_cli.terminal import (
     absolute_terminal_frame as _absolute_terminal_frame,
     bottom_align_panel_lines as _bottom_align_panel_lines,
@@ -57,6 +95,12 @@ from allmanga_cli.terminal import (
     split_display_prefix as _split_display_prefix,
     strip_ansi as _strip_ansi,
     truncate_display as _truncate_display,
+)
+from allmanga_cli.urls import (
+    is_supported_image,
+    validate_http_url,
+    validate_optional_referer,
+    validate_stream_url,
 )
 
 INCOGNITO_MODE = "--incognito" in sys.argv[1:]
@@ -163,9 +207,6 @@ def set_navigation_context(search_prev=None, ep_prev=None, action_prev=None):
 
 def get_search_prev(default="SEARCH"):
     return globals().get("_search_prev_state", default)
-
-def should_clear_query_on_child_left(previous, direct_single):
-    return bool(direct_single) and previous in ("SEARCH", "ANILIST_SEARCH")
 
 def get_ep_prev(default="SEARCH"):
     return globals().get("_ep_prev_state", default)
@@ -302,63 +343,6 @@ def _render_item(raw, query, selected, max_w=0):
     after  = plain[e:]
     hl = _C_MATCH if not selected else f"\033[1;97m\033[4m"
     return f"{base}{before}{_RST}{hl}{middle}{_RST}{base}{after}{_RST}"
-
-_PROXY_HOP_HEADERS = {
-    "connection",
-    "keep-alive",
-    "proxy-authenticate",
-    "proxy-authorization",
-    "te",
-    "trailer",
-    "transfer-encoding",
-    "upgrade",
-}
-
-def _proxy_filtered_headers(headers):
-    filtered = {}
-    for key, value in (headers or {}).items():
-        name = str(key or "").strip()
-        text = str(value or "")
-        if (
-            not name
-            or name.casefold() in _PROXY_HOP_HEADERS
-            or name.casefold() in ("host", "content-length")
-            or any(ord(ch) < 32 for ch in name + text)
-        ):
-            continue
-        filtered[name] = text
-    return filtered
-
-def _proxy_path_authorized(request_path, secret_path):
-    return urllib.parse.urlsplit(str(request_path or "")).path == secret_path
-
-def _proxy_method_allowed(method):
-    return str(method or "").upper() in ("GET", "HEAD")
-
-def _proxy_range_header(value):
-    value = str(value or "").strip()
-    return (
-        value
-        if value and re.fullmatch(r"bytes=\d*-\d*(?:,\d*-\d*)*", value)
-        else ""
-    )
-
-def _proxy_response_headers(headers):
-    connection_tokens = set()
-    connection = headers.get("Connection", "") if headers else ""
-    for token in str(connection).split(","):
-        token = token.strip().casefold()
-        if token:
-            connection_tokens.add(token)
-    blocked = _PROXY_HOP_HEADERS | connection_tokens
-    return [
-        (key, value)
-        for key, value in (headers.items() if headers else [])
-        if str(key).casefold() not in blocked
-    ]
-
-def _new_proxy_secret_path():
-    return f"/{uuid.uuid4().hex}/stream.mp4"
 
 def start_local_proxy(target_url, referer, headers=None, timeout=15):
     import http.server
@@ -864,38 +848,6 @@ def _poster_symbol_lines(raw, height, columns):
     # Append SGR reset so background colors don't bleed across the full
     # terminal width when the line is shorter than the terminal.
     return [_fit_terminal_line(line, columns) + "\033[0m" for line in lines]
-
-def validate_http_url(url):
-    if not isinstance(url, str) or any(ord(ch) < 32 for ch in url):
-        raise ValueError("Invalid URL")
-    parsed = urllib.parse.urlparse(url)
-    if parsed.scheme.lower() not in ("http", "https") or not parsed.hostname:
-        raise ValueError("Only HTTP(S) URLs are allowed")
-    if parsed.username is not None or parsed.password is not None:
-        raise ValueError("URLs with embedded credentials are not allowed")
-    return url
-
-def validate_stream_url(url):
-    """Accept only credential-free HTTP(S) media and extractor destinations."""
-    return validate_http_url(url)
-
-def validate_optional_referer(referer):
-    if not referer:
-        return ""
-    return validate_http_url(referer)
-
-def is_supported_image(data):
-    if data.startswith(b"\xff\xd8\xff"):
-        return True
-    if data.startswith(b"\x89PNG\r\n\x1a\n"):
-        return True
-    if data.startswith((b"GIF87a", b"GIF89a")):
-        return True
-    if len(data) >= 12 and data.startswith(b"RIFF") and data[8:12] == b"WEBP":
-        return True
-    if len(data) >= 12 and data[4:8] == b"ftyp" and data[8:12] in (b"avif", b"avis"):
-        return True
-    return False
 
 def fetch_cover_bytes(url, max_bytes=MAX_COVER_BYTES):
     validate_http_url(url)
@@ -2219,68 +2171,6 @@ def playback_ep_from_history_entry(h, ttype=None):
     next_ep = history_ep + 1
     return min(next_ep, total_eps) if total_eps else next_ep
 
-def minimum_played_for_completion(duration):
-    try:
-        duration = max(0.0, float(duration))
-    except (TypeError, ValueError):
-        return 0.0
-    return min(300.0, duration * 0.25)
-
-def playback_is_actively_advancing(props, started):
-    if not started:
-        return False
-    try:
-        position = float((props or {}).get("playback-time") or 0)
-    except (TypeError, ValueError):
-        return False
-    return bool(
-        position > 0
-        and not (props or {}).get("pause")
-        and not (props or {}).get("paused-for-cache")
-    )
-
-def playback_looks_complete(result, percent, time_pos, duration, played_seconds=0):
-    try:
-        duration = max(0.0, float(duration))
-        time_pos = max(0.0, float(time_pos))
-        percent = max(0.0, float(percent))
-        played_seconds = max(0.0, float(played_seconds))
-    except (TypeError, ValueError):
-        return False
-    if duration <= 0:
-        return False
-
-    minimum_played = minimum_played_for_completion(duration)
-    if played_seconds < minimum_played:
-        return False
-
-    remaining = max(0.0, duration - time_pos)
-    position_ratio = min(1.0, time_pos / duration)
-    near_end = percent >= 90 or position_ratio >= 0.90
-    ending_reached = (
-        (percent >= 80 or position_ratio >= 0.80)
-        and remaining <= 250
-    )
-    return result == "EOF" or near_end or ending_reached
-
-def playback_updates_history(result, percent, time_pos, duration, played_seconds=0):
-    return (
-        playback_looks_complete(
-            result, percent, time_pos, duration, played_seconds
-        )
-        or played_seconds >= 30
-    )
-
-def marked_watched_osd(ep, synced=False):
-    target = " • synced to AniList" if synced else " • local only"
-    return f"EP {ep} marked as watched{target}"
-
-def sync_queued_osd(ep):
-    return f"EP {ep} marked as watched • AniList sync queued"
-
-def pending_completion_osd(ep, next_ep):
-    return f"EP {ep} will be marked after EP {next_ep} plays 2 min"
-
 _history_cache = None  # in-memory cache for watch history
 _search_history_cache = None  # in-memory cache for search history
 
@@ -2580,68 +2470,6 @@ def filter_history_entries(history, mode):
         return list(history)
     want_completed = mode == "Completed"
     return [entry for entry in history if history_entry_is_completed(entry) == want_completed]
-
-ANILIST_SORT_MODES = ("recent", "anilist", "title", "progress")
-ANILIST_SORT_LABELS = {
-    "recent": "Recent",
-    "anilist": "AniList",
-    "title": "Title",
-    "progress": "Progress",
-}
-
-def normalize_anilist_sort_mode(mode):
-    mode = str(mode or "").strip().casefold()
-    return mode if mode in ANILIST_SORT_MODES else "recent"
-
-def next_anilist_sort_mode(mode):
-    mode = normalize_anilist_sort_mode(mode)
-    index = ANILIST_SORT_MODES.index(mode)
-    return ANILIST_SORT_MODES[(index + 1) % len(ANILIST_SORT_MODES)]
-
-def _sort_int(value):
-    try:
-        return int(value or 0)
-    except (TypeError, ValueError):
-        return 0
-
-def anilist_history_timestamps(history):
-    timestamps = {}
-    for entry in history or []:
-        show = entry.get("show") or {}
-        media_id = get_anilist_media_id(show)
-        if not media_id:
-            continue
-        key = str(media_id)
-        timestamp = _sort_int(entry.get("timestamp"))
-        timestamps[key] = max(timestamps.get(key, 0), timestamp)
-    return timestamps
-
-def sort_anilist_shows(shows, mode, history=None):
-    items = list(shows or [])
-    mode = normalize_anilist_sort_mode(mode)
-    if mode == "anilist":
-        return items
-    if mode == "title":
-        return sorted(
-            items,
-            key=lambda show: str(
-                show.get("name") or show.get("englishName") or ""
-            ).casefold(),
-        )
-    if mode == "progress":
-        return sorted(
-            items,
-            key=lambda show: -_sort_int(show.get("_anilist_progress")),
-        )
-
-    local_timestamps = anilist_history_timestamps(history)
-    return sorted(
-        items,
-        key=lambda show: -max(
-            local_timestamps.get(str(get_anilist_media_id(show) or ""), 0),
-            _sort_int(show.get("_anilist_updated_at")),
-        ),
-    )
 
 # ── SSL / constants ───────────────────────────────────────────────────────────
 SSL_CTX = ssl.create_default_context()
@@ -3778,21 +3606,6 @@ def match_allanime_show_to_anilist(allanime_show, token, manual_on_fail=False):
         return _run_manual_anilist_match(allanime_show, token)
     return None
 
-# ── Cipher ────────────────────────────────────────────────────────────────────
-CIPHER = {
-    "79":"A","7a":"B","7b":"C","7c":"D","7d":"E","7e":"F","7f":"G","70":"H",
-    "71":"I","72":"J","73":"K","74":"L","75":"M","76":"N","77":"O","68":"P",
-    "69":"Q","6a":"R","6b":"S","6c":"T","6d":"U","6e":"V","6f":"W","60":"X",
-    "61":"Y","62":"Z","59":"a","5a":"b","5b":"c","5c":"d","5d":"e","5e":"f",
-    "5f":"g","50":"h","51":"i","52":"j","53":"k","54":"l","55":"m","56":"n",
-    "57":"o","48":"p","49":"q","4a":"r","4b":"s","4c":"t","4d":"u","4e":"v",
-    "4f":"w","40":"x","41":"y","42":"z","08":"0","09":"1","0a":"2","0b":"3",
-    "0c":"4","0d":"5","0e":"6","0f":"7","00":"8","01":"9","15":"-","16":".",
-    "67":"_","46":"~","02":":","17":"/","07":"?","1b":"#","63":"[","65":"]",
-    "78":"@","19":"!","1c":"$","1e":"&","10":"(","11":")","12":"*","13":"+",
-    "14":",","03":";","05":"=","1d":"%"
-}
-
 # ── Platform ──────────────────────────────────────────────────────────────────
 def is_termux():
     return (os.environ.get("PREFIX","").startswith("/data/data/com.termux")
@@ -4079,12 +3892,6 @@ def decrypt_tobeparsed(b64):
     except Exception:
         return None
 
-def decrypt_url(hex_str):
-    r = []
-    for i in range(0, len(hex_str), 2):
-        r.append(CIPHER.get(hex_str[i:i+2], hex_str[i:i+2]))
-    return "".join(r).replace("/clock","/clock.json")
-
 def get_episode_data(show_id, ep, ttype="sub"):
     q_hash = "d405d0edd690624b66baba3068e0edc3ac90f1597d898a1ec8db4e5c43c00fec"
     qv = {"showId":show_id,"translationType":ttype,"episodeString":str(ep)}
@@ -4107,223 +3914,6 @@ def get_clock_links(path):
         return _req(f"https://{CLOCK_BASE}{path}").get("links",[])
     except Exception:
         return []
-
-def expand_wixmp(url):
-    m = re.search(r'/,([^/]*),/mp4', url)
-    if not m: return {"original": url}
-    base = re.sub(r'\.urlset.*$','',url.replace("repackager.wixmp.com/",""))
-    return {r: base.replace(m.group(0), f'/{r}/mp4')
-            for r in m.group(1).split(',') if r}
-
-# ── Source priority ───────────────────────────────────────────────────────────
-def source_priority(src):
-    name = src.get("sourceName","").lower()
-    url  = src.get("sourceUrl","")
-    if "yt-mp4" in name or "fast4speed" in url or "wixstatic" in url: return 1
-    if url.startswith("--"):                                            return 2
-    if any(x in name for x in ("fm-hls","filemoon","mp4upload","mp4")): return 3
-    return 4
-
-def _dash_range(value):
-    text = str(value or "")
-    return text if re.fullmatch(r"\d+-\d+", text) else "0-0"
-
-def _dash_int(value):
-    try:
-        return max(0, int(value))
-    except (TypeError, ValueError, OverflowError):
-        return 0
-
-def _xml_attribute(value):
-    return xml_escape(str(value or ""), {'"': "&quot;", "'": "&apos;"})
-
-def generate_dash_mpd(video, audio, duration):
-    video_url = validate_stream_url(video.get("url", ""))
-    audio_url = validate_stream_url(audio.get("url", ""))
-    try:
-        duration = max(0.001, float(duration))
-    except (TypeError, ValueError):
-        duration = 0.001
-    if not math.isfinite(duration):
-        duration = 0.001
-    duration_iso = f"PT{duration:.3f}S"
-    video_segment = video.get("segment_base") or {}
-    audio_segment = audio.get("segment_base") or {}
-    return f'''<?xml version="1.0" encoding="UTF-8"?>
-<MPD xmlns="urn:mpeg:dash:schema:mpd:2011"
-     profiles="urn:mpeg:dash:profile:isoff-on-demand:2011"
-     type="static" mediaPresentationDuration="{duration_iso}"
-     minBufferTime="PT2S">
-  <Period duration="{duration_iso}">
-    <AdaptationSet mimeType="video/mp4" startWithSAP="1" segmentAlignment="true">
-      <Representation id="video" bandwidth="{_dash_int(video.get("bandwidth"))}"
-                      width="{_dash_int(video.get("width"))}"
-                      height="{_dash_int(video.get("height"))}"
-                      codecs="{_xml_attribute(video.get("codecs"))}">
-        <BaseURL>{xml_escape(video_url)}</BaseURL>
-        <SegmentBase indexRange="{_dash_range(video_segment.get("index_range"))}">
-          <Initialization range="{_dash_range(video_segment.get("range"))}"/>
-        </SegmentBase>
-      </Representation>
-    </AdaptationSet>
-    <AdaptationSet mimeType="audio/mp4" startWithSAP="1" segmentAlignment="true">
-      <Representation id="audio" bandwidth="{_dash_int(audio.get("bandwidth"))}"
-                      codecs="{_xml_attribute(audio.get("codecs"))}">
-        <BaseURL>{xml_escape(audio_url)}</BaseURL>
-        <SegmentBase indexRange="{_dash_range(audio_segment.get("index_range"))}">
-          <Initialization range="{_dash_range(audio_segment.get("range"))}"/>
-        </SegmentBase>
-      </Representation>
-    </AdaptationSet>
-  </Period>
-</MPD>
-'''
-
-def resolve_dash_raw_urls(item, name, priority):
-    raw_urls = item.get("rawUrls")
-    if not isinstance(raw_urls, dict):
-        return []
-    videos = raw_urls.get("vids") or []
-    audios = raw_urls.get("audios") or []
-    avc_videos = [
-        video for video in videos
-        if "avc" in str(video.get("codecs") or "").casefold()
-    ]
-    candidates = avc_videos or videos
-    valid_audio = [
-        audio for audio in audios
-        if str(audio.get("url") or "").startswith(("http://", "https://"))
-    ]
-    if not candidates or not valid_audio:
-        return []
-
-    best_audio = max(
-        valid_audio,
-        key=lambda audio: _dash_int(audio.get("bandwidth")),
-    )
-    best_by_height = {}
-    for video in candidates:
-        if not str(video.get("url") or "").startswith(("http://", "https://")):
-            continue
-        height = _dash_int(video.get("height"))
-        current = best_by_height.get(height)
-        if (
-            current is None
-            or _dash_int(video.get("bandwidth"))
-            > _dash_int(current.get("bandwidth"))
-        ):
-            best_by_height[height] = video
-
-    streams = []
-    for height in sorted(best_by_height, reverse=True):
-        video = best_by_height[height]
-        try:
-            video_url = validate_stream_url(video.get("url", ""))
-            audio_url = validate_stream_url(best_audio.get("url", ""))
-        except ValueError:
-            continue
-        resolution = f"{height}p" if height else "Adaptive"
-        streams.append({
-            "source_name": f"{name} DASH ({resolution})",
-            "link": video_url,
-            "type": "dash",
-            "resolution": resolution,
-            "referer": "",
-            "headers": {},
-            "source_priority": priority,
-            "android_safe": False,
-            "audio_url": audio_url,
-            "dash_video": video,
-            "dash_audio": best_audio,
-            "dash_duration": raw_urls.get("duration"),
-        })
-    return streams
-
-def communicate_with_cleanup(process, timeout, shutdown_timeout=2):
-    try:
-        return process.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        process.terminate()
-        try:
-            process.communicate(timeout=shutdown_timeout)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.communicate()
-        raise
-
-MAX_YTDLP_JSON_BYTES = 8 * 1024 * 1024
-
-def _stop_process(process, shutdown_timeout=2):
-    if process.poll() is not None:
-        return
-    process.terminate()
-    try:
-        process.wait(timeout=shutdown_timeout)
-    except subprocess.TimeoutExpired:
-        process.kill()
-        process.wait()
-
-def _close_process_stdout(process):
-    stdout = getattr(process, "stdout", None)
-    if stdout is not None:
-        try:
-            stdout.close()
-        except Exception:
-            pass
-
-def read_bounded_process_stdout(
-        process, timeout, max_bytes=MAX_YTDLP_JSON_BYTES,
-        shutdown_timeout=2):
-    max_bytes = max(1, int(max_bytes))
-    chunks = []
-    reader_errors = []
-    oversized = threading.Event()
-
-    def reader():
-        remaining = max_bytes + 1
-        try:
-            while remaining > 0:
-                chunk = process.stdout.read(min(65536, remaining))
-                if not chunk:
-                    break
-                chunks.append(chunk)
-                remaining -= len(chunk)
-            if sum(len(chunk) for chunk in chunks) > max_bytes:
-                oversized.set()
-                try:
-                    process.kill()
-                except Exception:
-                    pass
-        except Exception as exc:
-            reader_errors.append(exc)
-
-    reader_thread = threading.Thread(
-        target=reader,
-        name="bounded-process-stdout",
-        daemon=True,
-    )
-    reader_thread.start()
-    try:
-        process.wait(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        _stop_process(process, shutdown_timeout)
-        reader_thread.join(shutdown_timeout)
-        _close_process_stdout(process)
-        raise
-
-    reader_thread.join(shutdown_timeout)
-    if reader_thread.is_alive():
-        _stop_process(process, shutdown_timeout)
-        _close_process_stdout(process)
-        raise RuntimeError("Subprocess output reader did not stop")
-    _close_process_stdout(process)
-    if reader_errors:
-        raise reader_errors[0]
-
-    output = b"".join(chunks)
-    if oversized.is_set() or len(output) > max_bytes:
-        raise ValueError("yt-dlp JSON output is too large")
-    return output
 
 # ── Stream resolver ───────────────────────────────────────────────────────────
 def resolve_source(src, silent=False):
@@ -4640,28 +4230,6 @@ def create_mpv_runtime():
 def cleanup_mpv_runtime(runtime_dir):
     if runtime_dir:
         shutil.rmtree(runtime_dir, ignore_errors=True)
-
-def episode_transition_osd(action, state):
-    direction = "previous" if str(action).upper() == "PREV" else "next"
-    if state == "loading":
-        return f"Loading {direction} episode..."
-    if state == "starting":
-        return (
-            f"{direction.capitalize()} episode is ready\n"
-            f"Starting {direction} episode..."
-        )
-    if state == "ready":
-        return f"{direction.capitalize()} episode is ready"
-    if state == "failed":
-        return f"{direction.capitalize()} episode is not available"
-    return ""
-
-def prefetch_matches_request(prefetched_ep, requested_ep):
-    return (
-        prefetched_ep is not None
-        and requested_ep is not None
-        and str(prefetched_ep) == str(requested_ep)
-    )
 
 TRANSITION_OSD_MS = 60 * 60 * 1000
 
