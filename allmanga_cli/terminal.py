@@ -75,3 +75,47 @@ def split_display_prefix(value, max_width):
         output.append(char)
         used += width
     return "".join(output), ""
+
+
+def fit_terminal_line(line, columns):
+    """Keep a trusted ANSI-styled TUI line from triggering terminal autowrap."""
+    return truncate_display(str(line or ""), max(1, int(columns) - 1))
+
+
+def absolute_terminal_frame(lines, rows, columns):
+    """Render exactly one bounded line at each absolute terminal row."""
+    frame = []
+    bounded_rows = max(1, int(rows))
+    for row in range(1, bounded_rows + 1):
+        line = lines[row - 1] if row - 1 < len(lines) else ""
+        frame.append(f"\033[{row};1H\033[2K{fit_terminal_line(line, columns)}")
+    return "".join(frame)
+
+
+def picker_vertical_layout(
+    rows,
+    header_count,
+    poster_count,
+    poster_margin,
+    gap,
+    item_count,
+):
+    fixed = 1 + header_count + poster_count + poster_margin + gap
+    max_visible = max(1, rows - fixed)
+    shown = min(max(0, item_count), max_visible)
+    padding = max(
+        0,
+        rows
+        - poster_count
+        - poster_margin
+        - gap
+        - shown
+        - 1
+        - header_count,
+    )
+    return max_visible, shown, padding
+
+
+def bottom_align_panel_lines(lines, height):
+    visible = list(lines)[-height:] if height > 0 else []
+    return ([""] * max(0, height - len(visible))) + visible
