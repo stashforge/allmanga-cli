@@ -8,6 +8,14 @@ import hashlib, subprocess, urllib.request, urllib.parse, urllib.error
 import tty, termios, select, signal, atexit, tempfile, getpass, traceback, uuid
 from typing import Optional
 
+from allmanga_cli.api_utils import (
+    MAX_API_JSON_BYTES,
+    SearchFailure,
+    anilist_account_cache_key,
+    read_json_response,
+    read_limited_response,
+    search_failure_message,
+)
 from allmanga_cli.cli_args import (
     build_anilist_search_parser,
     build_command_parser,
@@ -95,6 +103,20 @@ from allmanga_cli.terminal import (
     split_display_prefix as _split_display_prefix,
     strip_ansi as _strip_ansi,
     truncate_display as _truncate_display,
+)
+from allmanga_cli.titles import (
+    extract_title_parts as _extract_title_parts,
+    get_display_titles,
+    get_show_display_title,
+    wrap_title as _wrap_title,
+)
+from allmanga_cli.tracking import (
+    apply_tracking_progress_local,
+    completed_media_total,
+    mark_tracking_progress_local,
+    tracking_progress_for_sync,
+    tracking_status_for_play,
+    tracking_status_for_progress,
 )
 from allmanga_cli.urls import (
     is_supported_image,
@@ -499,105 +521,6 @@ def cleanup_active_local_proxy():
 
 atexit.register(cleanup_active_local_proxy)
 
-def _wrap_title(text, cols, max_lines=2):
-    """Wrap text to fit in max_lines of cols width. Truncate with … if needed."""
-    if _display_width(text) <= cols:
-        return text
-    lines = []
-    rem = text
-    for i in range(max_lines):
-        if not rem:
-            break
-        if i == max_lines - 1:
-            lines.append(_truncate_display(rem, cols))
-        else:
-            line, rem = _split_display_prefix(rem, cols)
-            lines.append(line)
-            
-    return "\n".join(lines)
-
-def _extract_title_parts(title):
-    """Extract (clean_title, season, show_type) from a title string.
-    e.g. 'Youkoso... Season 2 (TV)' -> ('Youkoso...', '2', 'TV')
-    """
-    if not title:
-        return ("", "", "")
-    t = title
-    # Extract type: (TV), (Movie), (OVA), (ONA), (Special), (TV Short), etc.
-    show_type = ""
-    m = re.search(r'\s*\(([A-Z][A-Za-z ]+)\)\s*$', t)
-    if m:
-        show_type = m.group(1)
-        t = t[:m.start()].strip()
-    # Extract season
-    season = ""
-    m = re.search(r'(?i)\s*(?::?\s*|-\s*)season\s*(\d+)(?:[:\-]?\s*.*)?$', t)
-    if m:
-        season = m.group(1)
-        t = t[:m.start()].strip()
-    else:
-        # Try patterns like "2nd Season", "3rd Season"
-        m = re.search(r'(?i)\s*(?::?\s*|-\s*)(\d+)(?:st|nd|rd|th)\s+season\s*$', t)
-        if m:
-            season = m.group(1)
-            t = t[:m.start()].strip()
-    return (t, season, show_type)
-
-def get_display_titles(show, main_title):
-    romaji = show.get("name")
-    if romaji: romaji = romaji.strip()
-    english = show.get("englishName")
-    if english: english = english.strip()
-    
-    alt = ""
-    if english and romaji and english.lower() != romaji.lower():
-        alt = romaji if main_title.lower() == english.lower() else english
-        
-    if not alt and show.get("altNames"):
-        excl = main_title.lower()
-        cands = [n.strip() for n in show["altNames"] if n and n.strip().lower() != excl]
-        
-        non_lat_pat = re.compile(r'[^\x00-\x7F]')
-        romaji_pat = re.compile(r'\b(no|wo|wa|ga|ni|de|to|na|shi|tsu|chi|shita|datta|naru|suru|kara)\b', re.IGNORECASE)
-        pinyin_pat = re.compile(r'\b(dou|po|cang|qiong|nian|fan|zhi|lan|yuan|qi|sha|xiao|zhan|chen|tang|yao|xuan|jing|feng|lei|ming|hong|ling|wang|liu|zhang|yang|wei|jun|xue|long|shen|wu|zhou|dao|tian|bei|nan|dong|xi)\b', re.IGNORECASE)
-        
-        eng_l, rom_l, pin_l, nat_l = [], [], [], []
-        
-        for n in cands:
-            if non_lat_pat.search(n):
-                nat_l.append(n)
-            elif romaji_pat.search(n):
-                rom_l.append(n)
-            elif pinyin_pat.search(n):
-                pin_l.append(n)
-            else:
-                eng_l.append(n)
-                
-        if eng_l: alt = eng_l[0]
-        elif rom_l: alt = rom_l[0]
-        elif pin_l: alt = pin_l[0]
-        elif nat_l: alt = nat_l[0]
-        
-    if not alt:
-        native = show.get("nativeName")
-        if native and native.strip().lower() != main_title.lower():
-            alt = native.strip()
-            
-    return sanitize_terminal_text(alt)
-
-def get_show_display_title(show, fallback="Unknown", sync_enabled=None):
-    if not show:
-        return sanitize_terminal_text(fallback)
-    if show.get("_anilist_context"):
-        sync_enabled = True
-    if sync_enabled is None:
-        sync_enabled = bool(show.get("_sync_enabled"))
-    if sync_enabled:
-        title = show.get("_display_name") or show.get("name") or fallback
-    else:
-        title = show.get("_allanime_name") or show.get("name") or fallback
-    return sanitize_terminal_text(title)
-
 def buildEpStr(show, ttype):
     return format_progress(show) or format_available_episodes(show, ttype)
 
@@ -608,71 +531,6 @@ def buildYearStr(show):
 
 def buildInfoMetadataLine(show, ttype, override_ep_str=None):
     return format_info_metadata_line(show, ttype, override_ep_str=override_ep_str)
-
-def tracking_status_for_play(show):
-    status = str(show.get("_anilist_list") or "").upper()
-    if status == "COMPLETED":
-        return "REPEATING"
-    if status not in ("CURRENT", "WATCHING", "REPEATING", "REWATCHING"):
-        return "CURRENT"
-    return None
-
-def tracking_status_for_progress(show, progress):
-    status = str(show.get("_anilist_list") or "").upper()
-    total = _positive_int(show.get("episodeCount"))
-    if not total:
-        episode_ids = show.get("_episode_ids") or []
-        total = len(episode_ids) or None
-    if not total:
-        available = show.get("availableEpisodes") or {}
-        totals = [_positive_int(value) for value in available.values()]
-        total = max((value for value in totals if value), default=None)
-    try:
-        progress = max(0, int(progress))
-    except (TypeError, ValueError):
-        progress = 0
-    if total and progress >= total:
-        return "COMPLETED"
-    return tracking_status_for_play(show)
-
-def completed_media_total(show, ttype="sub"):
-    if str(show.get("status") or "").upper() != "FINISHED":
-        return None
-    total = _positive_int(show.get("episodeCount"))
-    if total:
-        return total
-    episode_ids = show.get("_episode_ids") or []
-    if episode_ids:
-        return len(episode_ids)
-    available = show.get("availableEpisodes") or {}
-    total = _positive_int(available.get(ttype))
-    if total:
-        return total
-    totals = [_positive_int(value) for value in available.values()]
-    return max((value for value in totals if value), default=None)
-
-def apply_tracking_progress_local(show, progress, status=None):
-    if status:
-        show["_anilist_list"] = status
-    show["_anilist_progress"] = progress
-
-def mark_tracking_progress_local(show, progress):
-    status = tracking_status_for_play(show)
-    apply_tracking_progress_local(show, progress, status)
-    return status
-
-def tracking_progress_for_sync(show, progress, status=None):
-    try:
-        progress = max(0, int(progress))
-    except (TypeError, ValueError):
-        return 0
-    if status == "REPEATING":
-        return progress
-    try:
-        current = max(0, int(show.get("_anilist_progress") or 0))
-    except (TypeError, ValueError):
-        current = 0
-    return max(current, progress)
 
 def sync_progress_and_checkpoint(token, title, progress, media_id, show, ttype, status=None):
     status = tracking_status_for_progress(show, progress) if status is None else status
@@ -2479,29 +2337,6 @@ SSL_CTX.verify_mode    = ssl.CERT_NONE
 # Secure context for API calls.
 SSL_CTX_SECURE = ssl.create_default_context()
 ANILIST_TIMEOUT = 15
-MAX_API_JSON_BYTES = 8 * 1024 * 1024
-
-def read_limited_response(response, max_bytes=MAX_API_JSON_BYTES):
-    try:
-        max_bytes = max(1, int(max_bytes))
-    except (TypeError, ValueError):
-        raise ValueError("Invalid response size limit")
-    content_length = response.headers.get("Content-Length")
-    if content_length:
-        try:
-            if int(content_length) > max_bytes:
-                raise ValueError("API response is too large")
-        except ValueError as exc:
-            if str(exc) == "API response is too large":
-                raise
-    data = response.read(max_bytes + 1)
-    if len(data) > max_bytes:
-        raise ValueError("API response is too large")
-    return data
-
-def read_json_response(response, max_bytes=MAX_API_JSON_BYTES):
-    return json.loads(read_limited_response(response, max_bytes))
-
 def anilist_urlopen(request, data):
     return urllib.request.urlopen(
         request,
@@ -2999,34 +2834,6 @@ def reconcile_progress(show, ttype, token, *, anilist_source=False, sync_enabled
 
 _anilist_list_cache = {}
 _anilist_search_cache = {}
-
-class SearchFailure(RuntimeError):
-    pass
-
-def search_failure_message(source, exc):
-    source = sanitize_terminal_text(source or "Search")
-    if isinstance(exc, urllib.error.HTTPError):
-        if exc.code in (401, 403):
-            return f"{source} authentication or access was rejected."
-        if exc.code == 429:
-            return f"{source} rate limit reached. Try again later."
-        if 500 <= exc.code <= 599:
-            return f"{source} service is temporarily unavailable."
-        return f"{source} request failed (HTTP {exc.code})."
-    reason = exc.reason if isinstance(exc, urllib.error.URLError) else exc
-    if isinstance(reason, (TimeoutError, socket.timeout)):
-        return f"{source} request timed out."
-    if isinstance(exc, urllib.error.URLError):
-        return f"Could not connect to {source}."
-    if isinstance(exc, (json.JSONDecodeError, KeyError, TypeError)):
-        return f"{source} returned an invalid response."
-    return f"{source} search failed."
-
-def anilist_account_cache_key(token):
-    token = str(token or "").strip()
-    if not token:
-        return "anonymous"
-    return "token:" + hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 def fetch_anilist_list(token, status=None, force_refresh=False):
     cache_key = (

@@ -6,6 +6,11 @@ from unittest.mock import patch
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "allmanga-cli"
+API_UTILS = (
+    Path(__file__).resolve().parents[1]
+    / "allmanga_cli"
+    / "api_utils.py"
+)
 namespace = runpy.run_path(str(SCRIPT))
 anilist_urlopen = namespace["anilist_urlopen"]
 account_cache_key = namespace["anilist_account_cache_key"]
@@ -103,7 +108,10 @@ class AniListHttpTests(unittest.TestCase):
         )
 
     def test_api_json_reads_use_bounded_decoder(self):
-        source = SCRIPT.read_text(encoding="utf-8")
+        source = (
+            SCRIPT.read_text(encoding="utf-8")
+            + API_UTILS.read_text(encoding="utf-8")
+        )
 
         self.assertNotRegex(source, r"json\.loads\([^\\n]*\.read\(")
         self.assertGreaterEqual(source.count("read_json_response("), 8)
