@@ -2,7 +2,7 @@
 
 import re
 
-from .terminal import (
+from ..core.terminal import (
     display_width,
     sanitize_terminal_text,
     split_display_prefix,

@@ -1,6 +1,6 @@
 import unittest
 
-from allmanga_cli.metadata import (
+from allmanga_cli.domain.metadata import (
     format_available_episodes,
     format_info_metadata_line,
     format_next_airing,

@@ -6,10 +6,12 @@ from unittest.mock import patch
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "allmanga-cli"
+APP = Path(__file__).resolve().parents[1] / "allmanga_cli" / "app.py"
 API_UTILS = (
     Path(__file__).resolve().parents[1]
     / "allmanga_cli"
-    / "api_utils.py"
+    / "core"
+    / "api.py"
 )
 namespace = runpy.run_path(str(SCRIPT))
 anilist_urlopen = namespace["anilist_urlopen"]
@@ -51,12 +53,17 @@ class AniListHttpTests(unittest.TestCase):
         )
 
     def test_all_anilist_calls_use_shared_request_helper(self):
-        source = SCRIPT.read_text(encoding="utf-8")
+        app_source = APP.read_text(encoding="utf-8")
+        service_source = (
+            APP.parent / "services" / "anilist.py"
+        ).read_text(encoding="utf-8")
 
-        self.assertEqual(source.count("with anilist_urlopen("), 6)
-        self.assertNotIn("data=data, context=SSL_CTX_SECURE) as r", source)
-        self.assertNotIn("data=data_mut, context=SSL_CTX_SECURE) as r", source)
-        self.assertNotIn("data=data_list, context=SSL_CTX_SECURE) as r", source)
+        self.assertIn("anilist_service.fetch_media(", app_source)
+        self.assertIn("anilist_service.fetch_list(", app_source)
+        self.assertIn("anilist_service.search(", app_source)
+        self.assertIn("with urlopen(_request(token)", service_source)
+        self.assertNotIn("urllib.request.urlopen(", service_source)
+        self.assertNotIn("context=SSL_CTX_SECURE", service_source)
 
     def test_account_cache_key_is_stable_and_account_specific(self):
         first = account_cache_key("token-one")
@@ -68,7 +75,7 @@ class AniListHttpTests(unittest.TestCase):
         self.assertEqual(account_cache_key(""), "anonymous")
 
     def test_list_and_search_cache_keys_include_account_scope(self):
-        source = SCRIPT.read_text(encoding="utf-8")
+        source = APP.read_text(encoding="utf-8")
 
         self.assertIn(
             "anilist_account_cache_key(token),\n"
@@ -108,13 +115,31 @@ class AniListHttpTests(unittest.TestCase):
         )
 
     def test_api_json_reads_use_bounded_decoder(self):
-        source = (
-            SCRIPT.read_text(encoding="utf-8")
-            + API_UTILS.read_text(encoding="utf-8")
+        package_root = APP.parent
+        source = "".join(
+            path.read_text(encoding="utf-8")
+            for path in package_root.rglob("*.py")
         )
 
         self.assertNotRegex(source, r"json\.loads\([^\\n]*\.read\(")
-        self.assertGreaterEqual(source.count("read_json_response("), 8)
+        self.assertIn(
+            "anilist_service.fetch_media(\n"
+            "            anilist_urlopen,\n"
+            "            read_json_response,",
+            source,
+        )
+        self.assertIn(
+            "anilist_service.fetch_list(\n"
+            "            anilist_urlopen,\n"
+            "            read_json_response,",
+            source,
+        )
+        self.assertIn(
+            "anilist_service.search(\n"
+            "            anilist_urlopen,\n"
+            "            read_json_response,",
+            source,
+        )
 
 
 if __name__ == "__main__":

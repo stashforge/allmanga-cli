@@ -24,7 +24,10 @@ class AndroidProxyLifecycleTests(unittest.TestCase):
     def setUp(self):
         self.ns = runpy.run_path(str(SCRIPT))
         self.globals = self.ns["play_android"].__globals__
-        self.globals["_active_local_proxy"] = None
+        self.proxy_globals = self.ns[
+            "replace_active_local_proxy"
+        ].__globals__
+        self.proxy_globals["_active_server"] = None
         self.original_subprocess_run = self.globals["subprocess"].run
 
     def tearDown(self):
@@ -40,7 +43,7 @@ class AndroidProxyLifecycleTests(unittest.TestCase):
 
         self.assertEqual(first.shutdown_calls, 1)
         self.assertEqual(first.close_calls, 1)
-        self.assertIs(self.globals["_active_local_proxy"], second)
+        self.assertIs(self.proxy_globals["_active_server"], second)
 
     def test_cleanup_closes_active_proxy_once(self):
         server = FakeServer()
@@ -51,7 +54,7 @@ class AndroidProxyLifecycleTests(unittest.TestCase):
 
         self.assertEqual(server.shutdown_calls, 1)
         self.assertEqual(server.close_calls, 1)
-        self.assertIsNone(self.globals["_active_local_proxy"])
+        self.assertIsNone(self.proxy_globals["_active_server"])
 
     def test_successful_android_launch_keeps_proxy_for_player(self):
         server = FakeServer()
@@ -72,7 +75,7 @@ class AndroidProxyLifecycleTests(unittest.TestCase):
                 "Test", "1", stream, None, player="mpv"
             )
         )
-        self.assertIs(self.globals["_active_local_proxy"], server)
+        self.assertIs(self.proxy_globals["_active_server"], server)
         self.assertEqual(server.shutdown_calls, 0)
 
     def test_failed_android_launch_closes_new_proxy(self):
@@ -96,7 +99,7 @@ class AndroidProxyLifecycleTests(unittest.TestCase):
         )
         self.assertEqual(server.shutdown_calls, 1)
         self.assertEqual(server.close_calls, 1)
-        self.assertIsNone(self.globals["_active_local_proxy"])
+        self.assertIsNone(self.proxy_globals["_active_server"])
 
     def test_direct_stream_launch_closes_previous_proxy(self):
         previous = FakeServer()
@@ -116,7 +119,7 @@ class AndroidProxyLifecycleTests(unittest.TestCase):
             )
         )
         self.assertEqual(previous.shutdown_calls, 1)
-        self.assertIsNone(self.globals["_active_local_proxy"])
+        self.assertIsNone(self.proxy_globals["_active_server"])
 
 
 class AndroidProxySecurityTests(unittest.TestCase):

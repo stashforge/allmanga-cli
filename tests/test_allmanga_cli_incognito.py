@@ -65,8 +65,8 @@ class IncognitoModeTests(unittest.TestCase):
 
     def test_anilist_mutation_is_blocked_before_network(self):
         with patch.object(
-            self.globals["urllib"].request,
-            "urlopen",
+            self.globals["anilist_service"],
+            "update_entry",
             side_effect=AssertionError("network mutation attempted"),
         ):
             self.assertFalse(

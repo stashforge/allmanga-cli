@@ -4,6 +4,7 @@ from pathlib import Path
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "allmanga-cli"
+APP = Path(__file__).resolve().parents[1] / "allmanga_cli" / "app.py"
 namespace = runpy.run_path(str(SCRIPT))
 
 
@@ -78,11 +79,13 @@ class AniListSortTests(unittest.TestCase):
         self.assertEqual(next_mode("progress"), "recent")
 
     def test_anilist_list_query_requests_entry_update_time(self):
-        source = SCRIPT.read_text(encoding="utf-8")
+        source = (
+            APP.parent / "services" / "anilist.py"
+        ).read_text(encoding="utf-8")
 
-        self.assertIn("progress\n                updatedAt", source)
+        self.assertIn("progress\n            updatedAt", source)
         self.assertIn(
-            '"_anilist_updated_at": entry.get("updatedAt")',
+            'show["_anilist_updated_at"] = entry.get("updatedAt")',
             source,
         )
 

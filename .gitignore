@@ -4,6 +4,9 @@ __pycache__/
 .coverage
 htmlcov/
 crash.log
+build/
+dist/
+*.egg-info/
 
 # Historical whole-file snapshots are retained outside Git.
 /backups/
