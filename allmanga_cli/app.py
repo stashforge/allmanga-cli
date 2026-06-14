@@ -39,6 +39,7 @@ from allmanga_cli.domain.episodes import (
     normalize_episode_ids as _normalize_episode_ids,
 )
 from allmanga_cli.domain import history as history_domain
+from allmanga_cli.domain import reconciliation as reconciliation_domain
 from allmanga_cli.domain.matching import (
     best_allanime_match as _best_allanime_match,
     choose_confident_match as _choose_confident_match,
@@ -157,6 +158,7 @@ from allmanga_cli.state.paths import (
 )
 from allmanga_cli.state import preferences as preference_state
 from allmanga_cli.state import anilist_queue as anilist_queue_state
+from allmanga_cli.state import lists as list_state
 from allmanga_cli.ui.fallback import fallback_pick as fallback_tui_pick
 from allmanga_cli.ui.help import picker_help, search_input_help
 from allmanga_cli.ui.covers import (
@@ -1132,29 +1134,11 @@ def set_title_sync(show, enabled: bool):
     show["_sync_enabled"] = bool(enabled)
 
 def get_local_progress(show, ttype="sub"):
-    if not show:
-        return None
-    show_id = str(show.get("_id") or "")
-    if not show_id:
-        return None
-    for entry in load_history():
-        entry_show = entry.get("show", {})
-        if (str(entry_show.get("_id") or "") == show_id
-                and entry.get("translation_type", "sub") == ttype):
-            episode_id = entry.get("episode", 0)
-            if str(episode_id) in ("0", "0.0"):
-                return 0
-            episode_ids = show.get("_episode_ids") or entry_show.get("_episode_ids") or []
-            if episode_ids:
-                episode_index = episode_index_for_id(
-                    [str(ep) for ep in episode_ids], episode_id
-                )
-                return episode_index + 1 if episode_index is not None else None
-            try:
-                return max(0, int(float(str(episode_id))))
-            except (TypeError, ValueError):
-                return None
-    return None
+    return history_domain.local_progress(
+        load_history(),
+        show,
+        ttype,
+    )
 
 def get_history_entry(show, ttype="sub"):
     show_id = str((show or {}).get("_id") or "")
@@ -1338,35 +1322,14 @@ def clear_al_match(al_id: str):
 
 def playback_ep_from_history_entry(h, ttype=None):
     show = h.get("show", {})
-    show_id = show.get("_id")
-    history_ep = h.get("episode", 1)
     tt = ttype or h.get("translation_type", "sub")
     episode_ids = ensure_episode_ids(show, tt)
-    if episode_ids:
-        if str(history_ep) in ("0", "0.0"):
-            return episode_id_at(episode_ids, 0)
-        history_index = episode_index_for_id(episode_ids, history_ep)
-        if history_index is None:
-            return None
-        if show_id and get_resume_time(show_id, history_ep) > 0:
-            return episode_id_at(episode_ids, history_index)
-        return episode_id_at(episode_ids, min(history_index + 1, len(episode_ids) - 1))
-
-    try:
-        history_ep = max(1, int(float(str(history_ep))))
-    except (TypeError, ValueError):
-        history_ep = 1
-    total_eps = show.get("availableEpisodes", {}).get(tt, 0)
-    try:
-        total_eps = int(total_eps) if total_eps else 0
-    except (TypeError, ValueError):
-        total_eps = 0
-
-    if show_id and get_resume_time(show_id, history_ep) > 0:
-        return min(history_ep, total_eps) if total_eps else history_ep
-
-    next_ep = history_ep + 1
-    return min(next_ep, total_eps) if total_eps else next_ep
+    return history_domain.playback_episode(
+        h,
+        translation_type=tt,
+        episode_ids=episode_ids,
+        resume_time=get_resume_time,
+    )
 
 _history_cache = None  # in-memory cache for watch history
 _search_history_cache = None  # in-memory cache for search history
@@ -1384,13 +1347,11 @@ def _preserve_invalid_state_file(path, label):
 
 def load_history():
     global _history_cache
-    if _history_cache is not None:
-        return _history_cache
-    if not os.path.exists(HISTORY_PATH): return []
     try:
-        with open(HISTORY_PATH, encoding="utf-8") as f:
-            data = json.load(f)
-        _history_cache = data if isinstance(data, list) else []
+        _history_cache = list_state.load_json_list(
+            HISTORY_PATH,
+            _history_cache,
+        )
         return _history_cache
     except Exception as e:
         debug_warn("Failed to load watch history", e)
@@ -1424,14 +1385,12 @@ def delete_history_entry(show_id, ttype):
     if is_incognito():
         return False
     global _history_cache
-    history = load_history()
-    before = len(history)
-    history = [
-        h for h in history
-        if not (str(h.get("show", {}).get("_id")) == str(show_id)
-                and h.get("translation_type") == ttype)
-    ]
-    if len(history) == before:
+    history, changed = list_state.delete_history_entry(
+        load_history(),
+        show_id,
+        ttype,
+    )
+    if not changed:
         return False
     try:
         _atomic_write_json(HISTORY_PATH, history, indent=2)
@@ -1504,15 +1463,11 @@ def refresh_expired_history_airing(history, token):
 
 def load_search_history():
     global _search_history_cache
-    if _search_history_cache is not None:
-        return _search_history_cache
-    if not os.path.exists(SEARCH_HISTORY_PATH):
-        _search_history_cache = []
-        return _search_history_cache
     try:
-        with open(SEARCH_HISTORY_PATH, encoding="utf-8") as f:
-            data = json.load(f)
-        _search_history_cache = data if isinstance(data, list) else []
+        _search_history_cache = list_state.load_json_list(
+            SEARCH_HISTORY_PATH,
+            _search_history_cache,
+        )
         return _search_history_cache
     except Exception as e:
         debug_warn("Failed to load search history", e)
@@ -1525,12 +1480,14 @@ def save_search_history(query):
     if is_incognito():
         return
     query = query.strip()
-    if not query: return
+    if not query:
+        return
     os.makedirs(STATE_DIR, exist_ok=True)
-    history = load_search_history()
-    if query in history: history.remove(query)
-    history.insert(0, query)
-    history = history[:HISTORY_MAX]
+    history = list_state.update_search_history(
+        load_search_history(),
+        query,
+        HISTORY_MAX,
+    )
     try:
         _atomic_write_json(SEARCH_HISTORY_PATH, history, indent=2)
         _search_history_cache = history
@@ -1633,15 +1590,11 @@ _anilist_worker = None
 def _load_anilist_queue():
     global _anilist_queue_cache
     with _anilist_queue_lock:
-        if _anilist_queue_cache is not None:
-            return _anilist_queue_cache
-        if not os.path.exists(ANILIST_QUEUE_PATH):
-            _anilist_queue_cache = []
-            return _anilist_queue_cache
         try:
-            with open(ANILIST_QUEUE_PATH, encoding="utf-8") as f:
-                data = json.load(f)
-            _anilist_queue_cache = data if isinstance(data, list) else []
+            _anilist_queue_cache = anilist_queue_state.load_records(
+                ANILIST_QUEUE_PATH,
+                _anilist_queue_cache,
+            )
         except Exception as e:
             debug_warn("Failed to load AniList mutation queue", e)
             _preserve_invalid_state_file(ANILIST_QUEUE_PATH, "AniList mutation queue")
@@ -1654,10 +1607,7 @@ def _save_anilist_queue(records):
         return False
     with _anilist_queue_lock:
         _atomic_write_json(ANILIST_QUEUE_PATH, records, indent=2)
-        try:
-            os.chmod(ANILIST_QUEUE_PATH, 0o600)
-        except OSError:
-            pass
+        anilist_queue_state.secure_queue_file(ANILIST_QUEUE_PATH)
         _anilist_queue_cache = records
         return True
 
@@ -1880,17 +1830,11 @@ def flush_anilist_writes(timeout=None):
         return True
 
 def _reconcile_status(show, progress):
-    status = str(show.get("_anilist_list") or "").upper()
-    total = _positive_int(show.get("episodeCount"))
-    if not total:
-        total = len(show.get("_episode_ids") or []) or None
-    if total and progress >= total:
-        return "COMPLETED"
-    if status in ("COMPLETED", "REPEATING", "REWATCHING"):
-        return "REPEATING"
-    if status not in ("CURRENT", "WATCHING"):
-        return "CURRENT"
-    return None
+    return reconciliation_domain.reconcile_status(
+        show,
+        progress,
+        _positive_int,
+    )
 
 def _import_anilist_progress(show, ttype, progress, *, authority="AL"):
     progress = max(0, int(progress or 0))
@@ -1931,49 +1875,46 @@ def reconcile_progress(show, ttype, token, *, anilist_source=False, sync_enabled
     except (TypeError, ValueError):
         remote = 0
     last = get_last_synced_progress(show, ttype)
-    status = str(show.get("_anilist_list") or "").upper()
     show.pop("_sync_conflict", None)
+    decision = reconciliation_domain.decide_progress_reconciliation(
+        local=local,
+        remote=remote,
+        last_synced=last,
+        status=show.get("_anilist_list"),
+        anilist_source=anilist_source,
+        sync_enabled=sync_enabled,
+    )
+    action = decision["action"]
 
-    if anilist_source and not sync_enabled:
-        if local is None or last is None or local == last:
-            return _import_anilist_progress(show, ttype, remote, authority="AL")
+    if action == "import":
+        return _import_anilist_progress(
+            show,
+            ttype,
+            remote,
+            authority=decision.get("authority", "AL"),
+        )
+    if action == "local":
         show["_local_progress"] = local
-        show["_progress_authority"] = "LOCAL"
-        return {"action": "local", "progress": local}
-
-    if anilist_source and last is None:
-        return _import_anilist_progress(show, ttype, remote)
-
-    if not sync_enabled:
-        show["_local_progress"] = local
-        show["_progress_authority"] = "LOCAL"
-        return {"action": "local", "progress": local or 0}
-
-    if local is None:
-        return _import_anilist_progress(show, ttype, remote)
-    if local == remote:
+        show["_progress_authority"] = decision["authority"]
+        return {"action": "local", "progress": decision["progress"]}
+    if action == "equal":
         set_last_synced_progress(show, local, ttype)
         show["_progress_authority"] = "AL"
         return {"action": "equal", "progress": local}
-
-    if last is not None:
-        local_changed = local != last
-        remote_changed = remote != last
-        if local_changed and remote_changed and status in ("COMPLETED", "REPEATING", "REWATCHING"):
-            conflict = {"local": local, "anilist": remote}
-            show["_sync_conflict"] = conflict
-            show["_progress_authority"] = "LOCAL"
-            return {"action": "conflict", **conflict}
-        if local_changed and not remote_changed:
-            return _push_local_progress(show, ttype, token, local)
-        if remote_changed and not local_changed:
-            return _import_anilist_progress(show, ttype, remote)
-
-    if status == "COMPLETED" and local < remote:
-        return _push_local_progress(show, ttype, token, local)
-    if local > remote:
-        return _push_local_progress(show, ttype, token, local)
-    return _import_anilist_progress(show, ttype, remote)
+    if action == "conflict":
+        conflict = {
+            "local": decision["local"],
+            "anilist": decision["anilist"],
+        }
+        show["_sync_conflict"] = conflict
+        show["_progress_authority"] = decision["authority"]
+        return {"action": "conflict", **conflict}
+    return _push_local_progress(
+        show,
+        ttype,
+        token,
+        decision["progress"],
+    )
 
 _anilist_list_cache = {}
 _anilist_search_cache = {}

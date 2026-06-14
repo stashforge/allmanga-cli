@@ -21,9 +21,10 @@ boundary per commit.
 Completed boundaries:
 
 - CLI parsing and package entry points
-- terminal, process, API, config, and state IO helpers
+- terminal, process, API, config, state IO, and cached-list persistence helpers
 - AniList and AllAnime request services
-- episode, matching, metadata, title, tracking, sorting, and history rules
+- episode, matching, metadata, title, tracking, sorting, history, and progress
+  reconciliation rules
 - source resolution, DASH, downloads, download-library scanning, and proxying
 - mpv IPC/runtime handling and Android player launching
 - cover validation/rendering helpers and non-TTY fallback input
@@ -32,8 +33,8 @@ Still intentionally in `app.py`:
 
 - alternate-screen picker state and screen composition
 - cover download coordination and redraw state
-- local history cache orchestration
-- AniList write queue and reconciliation orchestration
+- local history cache write orchestration
+- AniList write worker and reconciliation side effects
 - the interactive application state machine
 
 These areas share mutable session state. They should move behind explicit runtime

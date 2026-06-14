@@ -1,7 +1,10 @@
 """Pure record operations for deferred AniList writes."""
 
+import os
 import time
 import uuid
+
+from .lists import load_json_list
 
 
 def mutation_key(record):
@@ -70,3 +73,14 @@ def remove_record(records, record_id):
     return [
         record for record in records if record.get("id") != record_id
     ]
+
+
+def load_records(path, cached=None):
+    return load_json_list(path, cached)
+
+
+def secure_queue_file(path):
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
