@@ -33,6 +33,19 @@ from allmanga_cli.matching import (
     score_match,
     title_match_score as _title_match_score,
 )
+from allmanga_cli.metadata import (
+    anilist_status_label as _anilist_status_label,
+    format_available_episodes,
+    format_ep_progress as _format_ep_progress,
+    format_info_metadata_line,
+    format_next_airing,
+    format_progress,
+    format_time as formatTime,
+    format_years,
+    positive_int as _positive_int,
+    set_next_airing_fields,
+    should_refresh_anilist,
+)
 from allmanga_cli.terminal import (
     absolute_terminal_frame as _absolute_terminal_frame,
     bottom_align_panel_lines as _bottom_align_panel_lines,
@@ -600,164 +613,6 @@ def get_show_display_title(show, fallback="Unknown", sync_enabled=None):
     else:
         title = show.get("_allanime_name") or show.get("name") or fallback
     return sanitize_terminal_text(title)
-
-def formatTime(secs):
-    if not secs: return ""
-    d, s = divmod(secs, 86400)
-    h, s = divmod(s, 3600)
-    m, _ = divmod(s, 60)
-    pieces = []
-    if d > 0: pieces.append(f"{int(d)}d")
-    if h > 0: pieces.append(f"{int(h)}h")
-    if m > 0 and len(pieces) < 2: pieces.append(f"{int(m)}m")
-    return " ".join(pieces[:2])
-
-def set_next_airing_fields(show, next_air):
-    if not show or not next_air:
-        return
-    show["_next_airing_ep"] = next_air.get("episode")
-    rem = next_air.get("timeUntilAiring")
-    show["_next_airing_time"] = rem
-    try:
-        show["_next_airing_at"] = int(time.time()) + int(rem)
-    except (TypeError, ValueError):
-        pass
-
-def _positive_int(value):
-    try:
-        value = int(value)
-        return value if value > 0 else None
-    except (TypeError, ValueError):
-        return None
-
-def _format_ep_progress(label, progress, total):
-    try:
-        progress = max(0, int(progress))
-    except (TypeError, ValueError):
-        return ""
-    C_D = "\033[38;5;248m"
-    label_color = "\033[36m" if label == "AL" else "\033[38;5;244m"
-    prefix = f"{label_color}{label}{C_D} EP"
-    return f"{prefix} {progress}/{total}" if total else f"{prefix} {progress}"
-
-def format_progress(anime):
-    total = _positive_int(anime.get("episodeCount"))
-    sync_enabled = bool(anime.get("_sync_enabled"))
-    local_progress = anime.get("_local_progress")
-    al_progress = anime.get("_anilist_progress")
-    authority = anime.get("_progress_authority")
-    if anime.get("_sync_conflict") and local_progress is not None:
-        return _format_ep_progress("LOCAL", local_progress, total)
-    if sync_enabled and al_progress is not None:
-        return _format_ep_progress("AL", al_progress, total)
-    if authority == "AL" and al_progress is not None:
-        return _format_ep_progress("AL", al_progress, total)
-    if local_progress is not None:
-        return _format_ep_progress("LOCAL", local_progress, total)
-    return ""
-
-def format_available_episodes(anime, ttype="sub"):
-    if str(anime.get("status") or "").upper() != "RELEASING":
-        return ""
-
-    next_episode = _positive_int(anime.get("_next_airing_ep"))
-    if next_episode:
-        return f"Avail {max(0, next_episode - 1)}"
-
-    available = anime.get("availableEpisodes", {}).get(ttype)
-    try:
-        available = int(available)
-    except (TypeError, ValueError):
-        available = None
-    if available is not None and available >= 0:
-        return f"Avail {available}"
-
-    try:
-        progress = max(0, int(anime.get("_anilist_progress") or 0))
-    except (TypeError, ValueError):
-        progress = 0
-    return f"Avail {progress}"
-
-def format_next_airing(anime, now=None):
-    episode = anime.get("_next_airing_ep")
-    airing_at = anime.get("_next_airing_at")
-    if not episode or not airing_at:
-        return ""
-    try:
-        remaining = int(float(airing_at)) - int(time.time() if now is None else now)
-    except (TypeError, ValueError):
-        return ""
-    if remaining <= 0:
-        return f"EP {episode} aired"
-    return f"EP {episode} in {formatTime(remaining)}"
-
-def format_years(start_year, end_year, status=None):
-    start_year = _positive_int(start_year)
-    end_year = _positive_int(end_year)
-    status = str(status or "").upper()
-    if start_year and end_year and start_year != end_year:
-        return f"{start_year} - {end_year}"
-    if start_year and end_year == start_year:
-        return str(start_year)
-    if start_year and status == "RELEASING":
-        return f"{start_year} -"
-    if start_year:
-        return str(start_year)
-    return "TBA"
-
-def should_refresh_anilist(anime, now=None):
-    if str(anime.get("status") or "").upper() != "RELEASING":
-        return False
-    airing_at = anime.get("_next_airing_at")
-    if not airing_at:
-        return bool(anime.get("_next_airing_ep") or anime.get("_next_airing_time"))
-    try:
-        return int(float(airing_at)) <= int(time.time() if now is None else now)
-    except (TypeError, ValueError):
-        return True
-
-def _anilist_status_label(anime):
-    C_D = "\033[38;5;248m"
-    status = str(anime.get("status") or "").upper()
-    show_anilist_status = anime.get("_sync_enabled") or anime.get("_anilist_context")
-    al_list = str(anime.get("_anilist_list") or "").upper().replace(" ", "_") if show_anilist_status else ""
-    if al_list in ("CURRENT", "WATCHING"): return f"\033[32mWATCHING{C_D}"
-    if al_list == "COMPLETED": return f"\033[36mCOMPLETED{C_D}"
-    if al_list in ("PLANNING", "PLAN_TO_WATCH"): return f"\033[33mPLAN TO WATCH{C_D}"
-    if al_list == "DROPPED": return f"\033[31mDROPPED{C_D}"
-    if al_list == "PAUSED": return f"\033[35mPAUSED{C_D}"
-    if al_list in ("REPEATING", "REWATCHING"): return f"\033[32mREWATCHING{C_D}"
-    if status == "RELEASING": return f"\033[32mAIRING{C_D}"
-    return ""
-
-def format_info_metadata_line(anime, ttype="sub", now=None, override_ep_str=None):
-    C_D = "\033[38;5;248m"
-    details = []
-    status_label = _anilist_status_label(anime)
-    if override_ep_str:
-        label = "AL" if anime.get("_sync_enabled") else "LOCAL"
-        label_color = "\033[36m" if label == "AL" else "\033[38;5;244m"
-        progress = f"{label_color}{label}{C_D} {override_ep_str}"
-    else:
-        progress = format_progress(anime)
-    available = format_available_episodes(anime, ttype)
-    next_airing = format_next_airing(anime, now)
-    typ = str(anime.get("type") or "TV").upper()
-    start_year = anime.get("airedStart", {}).get("year") if anime.get("airedStart") else None
-    end_year = anime.get("airedEnd", {}).get("year") if anime.get("airedEnd") else None
-    years = format_years(start_year, end_year, anime.get("status"))
-    score = anime.get("score")
-    score_str = f"★ {score}" if score else "★ -"
-
-    if status_label: details.append(status_label)
-    if progress: details.append(progress)
-    if available: details.append(available)
-    if next_airing:
-        details.append(f"\033[38;5;220m{next_airing}{C_D}")
-    if typ: details.append(typ)
-    if years: details.append(years)
-    details.append(score_str)
-    return " • ".join(details)
 
 def buildEpStr(show, ttype):
     return format_progress(show) or format_available_episodes(show, ttype)
