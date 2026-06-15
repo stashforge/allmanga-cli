@@ -125,7 +125,10 @@ def get_episode_data(request_json, show_id, episode, ttype="sub"):
     )
     response = request_json(
         url,
-        extra_hdrs={"Origin": "https://youtu-chan.com"},
+        extra_hdrs={
+            "Origin": "https://youtu-chan.com",
+            "Referer": "https://youtu-chan.com",
+        },
     )
     raw = response.get("data", {}).get("tobeparsed")
     if not raw:
