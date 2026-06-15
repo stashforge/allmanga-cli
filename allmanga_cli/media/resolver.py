@@ -4,11 +4,19 @@ import json
 import re
 import shutil
 import subprocess
+import urllib.request
 
 from ..core.processes import read_bounded_process_stdout
 from ..core.terminal import sanitize_terminal_text
 from ..services.allanime import get_clock_links
-from ..services.http import REFERER, get_size, is_alive, request_json
+from ..services.http import (
+    REFERER,
+    SSL_CTX,
+    UA,
+    get_size,
+    is_alive,
+    request_json,
+)
 from .dash import resolve_dash_raw_urls
 from .proxy_rules import proxy_filtered_headers
 from .sources import decrypt_url, expand_wixmp, source_priority
@@ -25,6 +33,35 @@ def configure_reporters(info, ok, warn):
     _info = info
     _ok = ok
     _warn = warn
+
+
+def _extract_mp4upload(url):
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": UA,
+            "Referer": "https://youtu-chan.com/",
+        },
+    )
+    with urllib.request.urlopen(
+        request,
+        context=SSL_CTX,
+        timeout=12,
+    ) as response:
+        page = response.read(2 * 1024 * 1024).decode(
+            "utf-8",
+            errors="ignore",
+        )
+    match = re.search(
+        r"""src\s*:\s*["']([^"']+)["']""",
+        page,
+        re.IGNORECASE,
+    )
+    if not match:
+        return ""
+    return validate_stream_url(
+        match.group(1).replace(r"\/", "/")
+    )
 
 
 def resolve_source(source, silent=False):
@@ -153,6 +190,30 @@ def resolve_source(source, silent=False):
                     "android_safe": stream_type == "mp4",
                 })
         return result
+
+    if "mp4upload.com" in url.casefold():
+        info(f"[{name}] extracting direct mp4 ...")
+        try:
+            stream_url = _extract_mp4upload(url)
+        except Exception as exc:
+            warn(f"[{name}] direct extraction failed: {exc}")
+            stream_url = ""
+        referer = "https://www.mp4upload.com/"
+        if stream_url and is_alive(stream_url, referer=referer):
+            size = get_size(stream_url, referer=referer)
+            size_text = f"~{size // (1024 * 1024)} MB" if size else "?"
+            ok(f"[{name}] direct mp4  size:{size_text}")
+            result.append({
+                "source_name": name,
+                "link": stream_url,
+                "type": "mp4",
+                "resolution": "Adaptive",
+                "referer": referer,
+                "headers": {},
+                "source_priority": priority,
+                "android_safe": True,
+            })
+            return result
 
     if not shutil.which("yt-dlp"):
         warn(f"[{name}] yt-dlp not found, skipping embed")

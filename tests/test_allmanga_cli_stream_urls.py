@@ -84,6 +84,47 @@ class StreamUrlTests(unittest.TestCase):
 
         self.assertEqual(streams, [])
 
+    def test_mp4upload_uses_direct_page_extractor(self):
+        resolve_source = namespace["resolve_source"]
+        globals_dict = resolve_source.__globals__
+        original_urlopen = globals_dict["urllib"].request.urlopen
+        original_is_alive = globals_dict["is_alive"]
+        original_get_size = globals_dict["get_size"]
+
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return None
+
+            def read(self, limit):
+                return (
+                    b'player.setup({src: "https:\\/\\/cdn.example\\/video.mp4"})'
+                )
+
+        try:
+            globals_dict["urllib"].request.urlopen = (
+                lambda *args, **kwargs: Response()
+            )
+            globals_dict["is_alive"] = lambda *args, **kwargs: True
+            globals_dict["get_size"] = lambda *args, **kwargs: 1024
+            streams = resolve_source({
+                "sourceName": "Mp4",
+                "sourceUrl": "https://mp4upload.com/embed-test.html",
+            }, silent=True)
+        finally:
+            globals_dict["urllib"].request.urlopen = original_urlopen
+            globals_dict["is_alive"] = original_is_alive
+            globals_dict["get_size"] = original_get_size
+
+        self.assertEqual(len(streams), 1)
+        self.assertEqual(streams[0]["link"], "https://cdn.example/video.mp4")
+        self.assertEqual(
+            streams[0]["referer"],
+            "https://www.mp4upload.com/",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
