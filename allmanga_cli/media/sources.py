@@ -18,6 +18,11 @@ CIPHER = {
 }
 
 
+def _resolution_height(value):
+    match = re.search(r"\d+", str(value or ""))
+    return int(match.group()) if match else 0
+
+
 def decrypt_url(hex_string):
     decoded = []
     for index in range(0, len(hex_string), 2):
@@ -35,23 +40,33 @@ def expand_wixmp(url):
         "",
         url.replace("repackager.wixmp.com/", ""),
     )
-    return {
-        resolution: base.replace(match.group(0), f"/{resolution}/mp4")
+    resolutions = [
+        resolution
         for resolution in match.group(1).split(",")
         if resolution
+    ]
+    resolutions.sort(key=_resolution_height, reverse=True)
+    return {
+        resolution: base.replace(match.group(0), f"/{resolution}/mp4")
+        for resolution in resolutions
     }
 
 
 def source_priority(source):
-    name = source.get("sourceName", "").lower()
+    name = source.get("sourceName", "").strip().casefold()
     url = source.get("sourceUrl", "")
     if "yt-mp4" in name or "fast4speed" in url or "wixstatic" in url:
         return 1
-    if url.startswith("--"):
+    if name == "default":
         return 2
-    if any(
-        value in name
-        for value in ("fm-hls", "filemoon", "mp4upload", "mp4")
-    ):
+    if name == "ak":
         return 3
-    return 4
+    if name in {"mp4", "mp4upload"}:
+        return 4
+    if name == "ok":
+        return 5
+    if url.startswith("--"):
+        return 6
+    if any(value in name for value in ("fm-hls", "filemoon")):
+        return 7
+    return 8
