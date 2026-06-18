@@ -82,8 +82,32 @@ class HistoryAniListRefreshTests(unittest.TestCase):
         self.assertTrue(self.ns["save_refreshed_history"](history))
 
         saved = json.loads(Path(self.globals["HISTORY_PATH"]).read_text())
-        self.assertEqual(saved[0]["show"]["_anilist_progress"], 12)
-        self.assertIs(self.globals["_history_cache"], history)
+        self.assertNotIn("_anilist_progress", saved[0]["show"])
+        self.assertIsNot(self.globals["_history_cache"], history)
+
+    def test_refreshed_history_strips_large_runtime_cache_fields(self):
+        history = [self.entry()]
+        history[0]["show"].update({
+            "_poster_raw": "x" * 500_000,
+            "_poster_status": "ready",
+            "_poster_status_time": 123,
+            "_poster_failed": True,
+            "availableEpisodesDetail": {"sub": [str(i) for i in range(200)]},
+        })
+
+        self.assertTrue(self.ns["save_refreshed_history"](history))
+
+        saved_show = json.loads(
+            Path(self.globals["HISTORY_PATH"]).read_text()
+        )[0]["show"]
+        for key in (
+            "_poster_raw",
+            "_poster_status",
+            "_poster_status_time",
+            "_poster_failed",
+            "availableEpisodesDetail",
+        ):
+            self.assertNotIn(key, saved_show)
 
 
 if __name__ == "__main__":

@@ -844,9 +844,17 @@ ANILIST_HISTORY_STRIP_KEYS = {
     "_sync_enabled",
 }
 
+HISTORY_SHOW_STRIP_KEYS = ANILIST_HISTORY_STRIP_KEYS | {
+    "_poster_raw",
+    "_poster_status",
+    "_poster_status_time",
+    "_poster_failed",
+    "availableEpisodesDetail",
+}
+
 def sanitize_show_for_history(show):
     stored = dict(show or {})
-    for key in ANILIST_HISTORY_STRIP_KEYS:
+    for key in HISTORY_SHOW_STRIP_KEYS:
         stored.pop(key, None)
     return stored
 
@@ -1316,9 +1324,10 @@ def save_refreshed_history(history):
     global _history_cache
     if is_incognito():
         return False
+    clean_history = sanitize_history_list(history)
     try:
-        _atomic_write_json(HISTORY_PATH, history, indent=2)
-        _history_cache = history
+        _atomic_write_json(HISTORY_PATH, clean_history, indent=2)
+        _history_cache = clean_history
         return True
     except Exception as e:
         debug_warn("Failed to save refreshed history", e)
