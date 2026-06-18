@@ -1,10 +1,6 @@
-import runpy
 import unittest
-from pathlib import Path
-
-
-SCRIPT = Path(__file__).resolve().parents[1] / "allmanga-cli"
-namespace = runpy.run_path(str(SCRIPT))
+from tests.app_namespace import load_app_namespace
+namespace = load_app_namespace()
 choose_match = namespace["_choose_confident_match"]
 match_details = namespace["_match_score_details"]
 

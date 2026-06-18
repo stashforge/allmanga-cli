@@ -1,8 +1,8 @@
 # Package Architecture
 
-`allmanga-cli` is a compatibility launcher. Installed executions use the
-`allmanga-cli` entry point declared in `pyproject.toml`; `python -m
-allmanga_cli` uses the same runner.
+Runtime starts from the package entry point. Installed executions use the
+`allmanga-cli` console script declared in `pyproject.toml`; source-tree runs use
+`python -m allmanga_cli`.
 
 ## Ownership
 
@@ -14,7 +14,7 @@ allmanga_cli` uses the same runner.
 - `allmanga_cli/services`: remote AllAnime and AniList clients
 - `allmanga_cli/state`: config, paths, atomic persistence, and preference mutations
 - `allmanga_cli/ui`: reusable picker fallback, help, and cover rendering helpers
-- `allmanga_cli/app.py`: stateful interactive orchestration and compatibility API
+- `allmanga_cli/app.py`: compatibility imports for older tests and callers
 
 ## Dependency Direction
 
@@ -22,6 +22,6 @@ allmanga_cli` uses the same runner.
 those lower-level modules. Playback and UI use services/media helpers. The
 application composes every subsystem and owns mutable session state.
 
-New provider logic belongs in `services` or `media`, not in `app.py`. New pure
+New provider logic belongs in `services` or `media`, not in `app_core.py`. New pure
 formatting or decision rules belong in `domain`. Only navigation and shared
-interactive state should remain in `app.py`.
+interactive state should remain in the application layer.

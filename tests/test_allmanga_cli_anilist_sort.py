@@ -1,11 +1,9 @@
-import runpy
 import unittest
 from pathlib import Path
 
-
-SCRIPT = Path(__file__).resolve().parents[1] / "allmanga-cli"
+from tests.app_namespace import load_app_namespace
 APP = Path(__file__).resolve().parents[1] / "allmanga_cli" / "app.py"
-namespace = runpy.run_path(str(SCRIPT))
+namespace = load_app_namespace()
 
 
 class AniListSortTests(unittest.TestCase):

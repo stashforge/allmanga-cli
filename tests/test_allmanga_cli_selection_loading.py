@@ -1,14 +1,10 @@
-import runpy
 import unittest
-from pathlib import Path
-
-
-SCRIPT = Path(__file__).resolve().parents[1] / "allmanga-cli"
+from tests.app_namespace import load_app_namespace
 
 
 class SelectionLoadingTests(unittest.TestCase):
     def setUp(self):
-        self.ns = runpy.run_path(str(SCRIPT))
+        self.ns = load_app_namespace(reload=True)
         self.load_ids = self.ns["load_episode_ids_for_selection"]
         self.globals = self.load_ids.__globals__
         self.original_loading = self.globals["with_loading"]

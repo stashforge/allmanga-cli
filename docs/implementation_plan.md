@@ -620,9 +620,8 @@ Implemented in backup `134-title-selection-loading-feedback`.
 
 ## Deferred Or Watch Items
 
-- Split into modules: defer until manual linking, real episode IDs, and pending
-  completion are stable. The script is currently a single executable, so splitting
-  now would make behavior fixes harder to review.
+- Continue package cleanup: the runtime is now split into `allmanga_cli`, but
+  some stateful orchestration still lives in `app_core.py`.
 - Full AppState refactor: the high-risk direct UI/navigation global access has been
   moved behind helpers, but a full object-based state refactor should wait until
   the CLI is manually stable.
@@ -637,7 +636,7 @@ Implemented in backup `134-title-selection-loading-feedback`.
 
 For each code fix:
 
-- Run `python3 -m py_compile allmanga-cli`.
-- Run a light CLI smoke test such as `python3 allmanga-cli --help`.
+- Run `python3 -m compileall allmanga_cli`.
+- Run a light CLI smoke test such as `python3 -m allmanga_cli --help`.
 - Run a targeted behavior check when the fix touches search, playback, AniList,
   downloads, covers, or history.

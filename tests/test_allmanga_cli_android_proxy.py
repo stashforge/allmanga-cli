@@ -1,11 +1,7 @@
-import runpy
 import types
 import unittest
 from email.message import Message
-from pathlib import Path
-
-
-SCRIPT = Path(__file__).resolve().parents[1] / "allmanga-cli"
+from tests.app_namespace import load_app_namespace
 
 
 class FakeServer:
@@ -22,7 +18,7 @@ class FakeServer:
 
 class AndroidProxyLifecycleTests(unittest.TestCase):
     def setUp(self):
-        self.ns = runpy.run_path(str(SCRIPT))
+        self.ns = load_app_namespace(reload=True)
         self.globals = self.ns["play_android"].__globals__
         self.proxy_globals = self.ns[
             "replace_active_local_proxy"
@@ -124,7 +120,7 @@ class AndroidProxyLifecycleTests(unittest.TestCase):
 
 class AndroidProxySecurityTests(unittest.TestCase):
     def setUp(self):
-        self.ns = runpy.run_path(str(SCRIPT))
+        self.ns = load_app_namespace(reload=True)
 
     def test_proxy_url_uses_random_secret_path(self):
         path = self.ns["_new_proxy_secret_path"]()

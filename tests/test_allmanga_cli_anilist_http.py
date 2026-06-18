@@ -1,11 +1,10 @@
-import runpy
 import unittest
 from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
 
+from tests.app_namespace import load_app_namespace
 
-SCRIPT = Path(__file__).resolve().parents[1] / "allmanga-cli"
 APP = Path(__file__).resolve().parents[1] / "allmanga_cli" / "app.py"
 API_UTILS = (
     Path(__file__).resolve().parents[1]
@@ -13,7 +12,7 @@ API_UTILS = (
     / "core"
     / "api.py"
 )
-namespace = runpy.run_path(str(SCRIPT))
+namespace = load_app_namespace()
 anilist_urlopen = namespace["anilist_urlopen"]
 account_cache_key = namespace["anilist_account_cache_key"]
 read_limited_response = namespace["read_limited_response"]

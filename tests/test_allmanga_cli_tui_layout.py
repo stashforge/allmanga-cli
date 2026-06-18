@@ -1,10 +1,6 @@
-import runpy
 import unittest
-from pathlib import Path
-
-
-SCRIPT = Path(__file__).resolve().parents[1] / "allmanga-cli"
-namespace = runpy.run_path(str(SCRIPT))
+from tests.app_namespace import load_app_namespace
+namespace = load_app_namespace()
 
 
 class TuiLayoutTests(unittest.TestCase):

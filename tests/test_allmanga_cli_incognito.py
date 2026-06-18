@@ -1,18 +1,15 @@
-import runpy
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-
-SCRIPT = Path(__file__).resolve().parents[1] / "allmanga-cli"
-
+from tests.app_namespace import load_app_namespace
 
 class IncognitoModeTests(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp_dir.cleanup)
-        self.ns = runpy.run_path(str(SCRIPT))
+        self.ns = load_app_namespace(reload=True)
         self.globals = self.ns["is_incognito"].__globals__
         self.globals["INCOGNITO_MODE"] = True
         self.globals["DEBUG_MODE"] = False

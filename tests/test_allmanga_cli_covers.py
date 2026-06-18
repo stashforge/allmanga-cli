@@ -1,11 +1,9 @@
-import runpy
 import unittest
-from pathlib import Path
 from unittest.mock import patch
 
+from tests.app_namespace import load_app_namespace
 
-SCRIPT = Path(__file__).resolve().parents[1] / "allmanga-cli"
-namespace = runpy.run_path(str(SCRIPT))
+namespace = load_app_namespace()
 fetch_cover_bytes = namespace["fetch_cover_bytes"]
 validate_http_url = namespace["validate_http_url"]
 

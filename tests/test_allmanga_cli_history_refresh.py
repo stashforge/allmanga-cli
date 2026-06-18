@@ -1,18 +1,16 @@
 import json
-import runpy
 import tempfile
 import unittest
 from pathlib import Path
 
-
-SCRIPT = Path(__file__).resolve().parents[1] / "allmanga-cli"
+from tests.app_namespace import load_app_namespace
 
 
 class HistoryAniListRefreshTests(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp_dir.cleanup)
-        self.ns = runpy.run_path(str(SCRIPT))
+        self.ns = load_app_namespace(reload=True)
         self.globals = self.ns["refresh_history_entry_from_anilist"].__globals__
         self.globals["HISTORY_PATH"] = str(
             Path(self.temp_dir.name) / "history.json"

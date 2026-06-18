@@ -1,15 +1,10 @@
-import runpy
 import subprocess
 import sys
 import unittest
-from pathlib import Path
-
-
-SCRIPT = Path(__file__).resolve().parents[1] / "allmanga-cli"
-communicate_with_cleanup = runpy.run_path(str(SCRIPT))["communicate_with_cleanup"]
-read_bounded_process_stdout = runpy.run_path(str(SCRIPT))[
-    "read_bounded_process_stdout"
-]
+from tests.app_namespace import load_app_namespace
+namespace = load_app_namespace()
+communicate_with_cleanup = namespace["communicate_with_cleanup"]
+read_bounded_process_stdout = namespace["read_bounded_process_stdout"]
 
 
 class FakeProcess:

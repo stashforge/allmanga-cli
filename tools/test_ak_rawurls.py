@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import json
 import re
-import runpy
 import subprocess
 import time
 import urllib.request
@@ -9,8 +8,9 @@ from pathlib import Path
 from xml.sax.saxutils import escape
 
 
-ROOT = Path(__file__).resolve().parent
-CLI = runpy.run_path(str(ROOT / "allmanga-cli"))
+ROOT = Path(__file__).resolve().parent.parent
+from allmanga_cli import app_core as _app_core
+CLI = _app_core.__dict__
 REPORT = ROOT / "ak_rawurls_manual_test.md"
 MPD_FILE = ROOT / "ak_rawurls_test.mpd"
 SOURCE_REPORT = ROOT / "video_source_diagnostics.md"

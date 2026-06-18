@@ -1,10 +1,8 @@
-import runpy
 import unittest
-from pathlib import Path
 
-
-SCRIPT = Path(__file__).resolve().parents[1] / "allmanga-cli"
-namespace = runpy.run_path(str(SCRIPT))
+from allmanga_cli.media import resolver as stream_resolver
+from tests.app_namespace import load_app_namespace
+namespace = load_app_namespace()
 
 
 class StreamUrlTests(unittest.TestCase):
@@ -36,7 +34,7 @@ class StreamUrlTests(unittest.TestCase):
             is_alive.__globals__["urllib"].request.urlopen = original
 
     def test_invalid_embed_never_reaches_ytdlp(self):
-        resolve_source = namespace["resolve_source"]
+        resolve_source = stream_resolver.resolve_source
         original_which = resolve_source.__globals__["shutil"].which
         original_popen = resolve_source.__globals__["subprocess"].Popen
         try:
@@ -55,7 +53,7 @@ class StreamUrlTests(unittest.TestCase):
         self.assertEqual(streams, [])
 
     def test_unsafe_extractor_output_is_discarded(self):
-        resolve_source = namespace["resolve_source"]
+        resolve_source = stream_resolver.resolve_source
         globals_dict = resolve_source.__globals__
         original_which = globals_dict["shutil"].which
         original_popen = globals_dict["subprocess"].Popen
@@ -85,7 +83,7 @@ class StreamUrlTests(unittest.TestCase):
         self.assertEqual(streams, [])
 
     def test_mp4upload_uses_direct_page_extractor(self):
-        resolve_source = namespace["resolve_source"]
+        resolve_source = stream_resolver.resolve_source
         globals_dict = resolve_source.__globals__
         original_urlopen = globals_dict["urllib"].request.urlopen
         original_is_alive = globals_dict["is_alive"]

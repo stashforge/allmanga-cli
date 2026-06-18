@@ -1,12 +1,8 @@
-import runpy
 import types
 import unittest
 import urllib.error
 import urllib.request
-from pathlib import Path
-
-
-SCRIPT = Path(__file__).resolve().parents[1] / "allmanga-cli"
+from tests.app_namespace import load_app_namespace
 
 
 def video(height, bandwidth, codec="avc1.640028"):
@@ -31,7 +27,7 @@ def audio(bandwidth):
 
 class AkDashResolverTests(unittest.TestCase):
     def setUp(self):
-        self.ns = runpy.run_path(str(SCRIPT))
+        self.ns = load_app_namespace(reload=True)
 
     def test_prefers_avc_and_best_bitrate_per_resolution(self):
         item = {
@@ -95,7 +91,7 @@ class AkDashResolverTests(unittest.TestCase):
 
 class AkDashPlaybackTests(unittest.TestCase):
     def setUp(self):
-        self.ns = runpy.run_path(str(SCRIPT))
+        self.ns = load_app_namespace(reload=True)
 
     def test_mpv_ipc_adds_external_audio_after_video(self):
         ipc = self.ns["MpvIpc"]()

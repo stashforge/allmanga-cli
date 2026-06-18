@@ -1,14 +1,10 @@
 import io
-import runpy
 import socket
 import time
 import unittest
 import urllib.error
-from pathlib import Path
-
-
-SCRIPT = Path(__file__).resolve().parents[1] / "allmanga-cli"
-namespace = runpy.run_path(str(SCRIPT))
+from tests.app_namespace import load_app_namespace
+namespace = load_app_namespace()
 
 
 class SearchErrorTests(unittest.TestCase):

@@ -1,12 +1,10 @@
-import runpy
 import stat
 import tempfile
 import unittest
 from pathlib import Path
 
-
-SCRIPT = Path(__file__).resolve().parents[1] / "allmanga-cli"
-namespace = runpy.run_path(str(SCRIPT))
+from tests.app_namespace import load_app_namespace
+namespace = load_app_namespace()
 create_mpv_runtime = namespace["create_mpv_runtime"]
 cleanup_mpv_runtime = namespace["cleanup_mpv_runtime"]
 MpvIpc = namespace["MpvIpc"]

@@ -1,8 +1,8 @@
 # Modularization Plan
 
-The `allmanga-cli` executable remains the user-facing entry point. Runtime
-behavior is moved incrementally into the `allmanga_cli` package, one tested
-boundary per commit.
+The `allmanga_cli` package is the runtime source of truth. Installed users get
+the `allmanga-cli` console script from `pyproject.toml`; source-tree users run
+`python -m allmanga_cli`.
 
 ## Extraction Order
 
@@ -14,7 +14,8 @@ boundary per commit.
 6. `media/` - source resolution, DASH, downloads, URLs, and local proxying.
 7. `playback/` - mpv IPC, Android launching, runtime files, and completion rules.
 8. `ui/` - cover helpers, fallback input, and reusable help content.
-9. `app.py` - remaining stateful TUI orchestration and compatibility exports.
+9. `app_core.py` - remaining stateful TUI orchestration.
+10. `app.py` - compatibility exports.
 
 ## Current Status
 
@@ -42,9 +43,8 @@ objects rather than importing or duplicating `app.py` globals.
 
 ## Rules
 
-- Keep `allmanga-cli` executable throughout the migration.
+- Keep `python -m allmanga_cli` and the installed console script working.
 - Preserve public function names used by tests until their callers are migrated.
 - Do not combine feature changes with extraction commits.
 - Run focused tests and the full AllManga suite after every extraction.
-- Use Git commits instead of creating new whole-script backup folders.
-- Keep `backups/` as read-only historical evidence and exclude it from Git.
+- Use Git commits instead of creating whole-script backup folders.

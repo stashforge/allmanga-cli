@@ -3,7 +3,6 @@ import datetime
 import json
 import os
 import re
-import runpy
 import ssl
 import subprocess
 import urllib.error
@@ -12,8 +11,9 @@ import urllib.request
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parent
-CLI = runpy.run_path(str(ROOT / "allmanga-cli"))
+ROOT = Path(__file__).resolve().parent.parent
+from allmanga_cli import app_core as _app_core
+CLI = _app_core.__dict__
 REPORT = ROOT / "video_source_diagnostics.md"
 
 TESTS = [

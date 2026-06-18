@@ -1,17 +1,19 @@
 import os
-import runpy
 import stat
 import tempfile
 import unittest
 from pathlib import Path
 
-
-SCRIPT = Path(__file__).resolve().parents[1] / "allmanga-cli"
-namespace = runpy.run_path(str(SCRIPT))
+from tests.app_namespace import load_app_namespace
+namespace = load_app_namespace()
 write_private_log = namespace["write_private_log"]
 
 
 class PrivateLogTests(unittest.TestCase):
+    def setUp(self):
+        write_private_log.__globals__["INCOGNITO_MODE"] = False
+        write_private_log.__globals__["DEBUG_MODE"] = True
+
     def test_log_uses_private_directory_and_file_permissions(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             log_dir = Path(temp_dir) / "state" / "logs"

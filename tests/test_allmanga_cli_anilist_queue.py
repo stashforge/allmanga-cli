@@ -1,5 +1,4 @@
 import json
-import runpy
 import stat
 import tempfile
 import threading
@@ -7,15 +6,14 @@ import time
 import unittest
 from pathlib import Path
 
-
-SCRIPT = Path(__file__).resolve().parents[1] / "allmanga-cli"
+from tests.app_namespace import load_app_namespace
 
 
 class AniListQueueTests(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp_dir.cleanup)
-        self.ns = runpy.run_path(str(SCRIPT))
+        self.ns = load_app_namespace(reload=True)
         self.globals = self.ns["queue_anilist_progress"].__globals__
         root = Path(self.temp_dir.name)
         self.globals["ANILIST_QUEUE_PATH"] = str(root / "anilist_queue.json")

@@ -8,5 +8,5 @@ build/
 dist/
 *.egg-info/
 
-# Historical whole-file snapshots are retained outside Git.
+# Optional local whole-file snapshots; Git is the primary project history now.
 /backups/

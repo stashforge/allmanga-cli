@@ -1,15 +1,11 @@
-import runpy
 import threading
 import unittest
-from pathlib import Path
-
-
-SCRIPT = Path(__file__).resolve().parents[1] / "allmanga-cli"
+from tests.app_namespace import load_app_namespace
 
 
 class StreamGenerationTests(unittest.TestCase):
     def setUp(self):
-        self.ns = runpy.run_path(str(SCRIPT))
+        self.ns = load_app_namespace(reload=True)
         self.globals = self.ns["start_bg_resolve"].__globals__
         with self.globals["_streams_lock"]:
             self.globals["all_streams"].clear()

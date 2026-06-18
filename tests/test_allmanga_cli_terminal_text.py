@@ -1,10 +1,6 @@
-import runpy
 import unittest
-from pathlib import Path
-
-
-SCRIPT = Path(__file__).resolve().parents[1] / "allmanga-cli"
-namespace = runpy.run_path(str(SCRIPT))
+from tests.app_namespace import load_app_namespace
+namespace = load_app_namespace()
 sanitize_terminal_text = namespace["sanitize_terminal_text"]
 get_show_display_title = namespace["get_show_display_title"]
 render_item = namespace["_render_item"]

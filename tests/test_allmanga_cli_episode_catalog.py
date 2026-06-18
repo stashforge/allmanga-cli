@@ -1,14 +1,10 @@
-import runpy
 import unittest
-from pathlib import Path
-
-
-SCRIPT = Path(__file__).resolve().parents[1] / "allmanga-cli"
+from tests.app_namespace import load_app_namespace
 
 
 class EpisodeCatalogTests(unittest.TestCase):
     def setUp(self):
-        self.ns = runpy.run_path(str(SCRIPT))
+        self.ns = load_app_namespace(reload=True)
         self.globals = self.ns["ensure_episode_ids"].__globals__
 
     def test_loaded_catalog_preserves_real_ids_gaps_and_decimals(self):
