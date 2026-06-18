@@ -1,0 +1,784 @@
+"""
+Playback state handlers for allmanga-cli.
+"""
+
+from __future__ import annotations
+from allmanga_cli import app_core
+from allmanga_cli.ui.picker import tui_pick
+
+import os
+import re
+import time
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from ..context import CliFlags, UiState, MachineState
+
+from ..domain.episodes import episode_id_at, episode_index_for_id, episode_progress_number, episode_label
+from ..domain.titles import get_show_display_title
+from ..domain.tracking import tracking_status_for_progress
+from ..playback.rules import (
+    playback_looks_complete,
+    playback_updates_history,
+    should_clear_query_on_child_left,
+    marked_watched_osd,
+    sync_queued_osd,
+    pending_completion_osd
+)
+from ..ui.help import picker_help
+from ..ui import picker as _picker_mod
+from ..core.terminal import truncate_display as _truncate_display
+
+# ---------------------------------------------------------------------------
+# Colors
+# ---------------------------------------------------------------------------
+_C_HINT = "\033[38;5;244m"
+_RST    = "\033[0m"
+GREEN   = "\033[1;32m"
+YELLOW  = "\033[1;33m"
+RED     = "\033[1;31m"
+RESET   = "\033[0m"
+
+
+def handle_episode_state(
+    flags: CliFlags,
+    ui: UiState,
+    ms: MachineState,
+    cfg: dict,
+    args: Any,
+    ttype: str,
+    resolve_tracking_fn,) -> str:
+    show = ui.ui_show_ctx
+    episode_ids = app_core.ensure_episode_ids(show, ttype)
+    if not episode_ids:
+        app_core.err(app_core.episode_catalog_error(show))
+        return ui.ep_prev_state
+
+    ms.total_eps = len(episode_ids) or ms.total_eps
+    display_order = list(range(len(episode_ids)))
+    if app_core.get_episode_order(ms.show_id, cfg.get("episode_order", "asc")) == "desc":
+        display_order.reverse()
+
+    ep_opts = [episode_label(episode_ids[i]) for i in display_order]
+
+    def _ep_hdr(si):
+        try: w = os.get_terminal_size().columns
+        except OSError: w = 80
+        parts = []
+        if show:
+            app_core.build_info_panel(show, ttype, w, parts)
+
+        _t = lambda s: _truncate_display(s, max(1, w - 1))
+        direct_single = ui.ep_prev_state == "SEARCH" and len(ms.shows) <= 1 and ms.just_searched
+        nav_text = "Left=search  Esc=quit" if direct_single else "Left/Esc=back"
+
+        parts.append(f"{_C_HINT}{_t(f'Enter/Right=select  ? = Help  {nav_text}')}{_RST}")
+        return "\n".join(parts)
+
+    def _ep_tab_fn(opt=None):
+        nonlocal ep_opts, display_order
+        app_core.toggle_episode_order(ms.show_id, cfg.get("episode_order", "asc"))
+        display_order.reverse()
+        ep_opts = [episode_label(episode_ids[i]) for i in display_order]
+        return (ep_opts, _ep_hdr(0))
+
+    if ms.total_eps <= 1:
+        idx = 0
+    else:
+        direct_single = ui.ep_prev_state == "SEARCH" and len(ms.shows) <= 1 and ms.just_searched
+        hd6 = picker_help(
+            "Play episode",
+            "New search" if direct_single else "Go back",
+            "Quit" if direct_single else "Go back",
+            "Flip order"
+        )
+        idx = tui_pick(
+            flags, ui,
+            "Select episode", ep_opts,
+            header_fn=_ep_hdr,
+            tab_fn=_ep_tab_fn,
+            help_dict=hd6
+        )
+
+    if idx == -2:
+        previous = ui.ep_prev_state
+        if previous == "SEARCH" and len(ms.shows) <= 1 and ms.just_searched:
+            return "QUIT"
+        else:
+            return previous
+
+    elif idx == -3:
+        previous = ui.ep_prev_state
+        direct_single = ui.ep_prev_state == "SEARCH" and len(ms.shows) <= 1 and ms.just_searched
+        if should_clear_query_on_child_left(previous, direct_single):
+            ms.query_str = ""
+        return previous
+
+    else:
+        ms.current_ep_index = display_order[idx]
+        ms.current_ep = episode_id_at(episode_ids, ms.current_ep_index)
+        ui.action_prev_state = "EPISODE"
+        ms.selected_stream = None
+        app_core._clear_streams()
+        return "PLAY"
+
+
+def handle_play_state(
+    flags: CliFlags,
+    ui: UiState,
+    ms: MachineState,
+    cfg: dict,
+    args: Any,
+    ttype: str,
+    quality: str,
+    resolve_tracking_fn,
+) -> str:
+    app_core.enter_alt_screen()
+
+    s_ctx = ui.ui_show_ctx
+    sync_enabled = resolve_tracking_fn(ui.search_prev_state, args, cfg, s_ctx)
+    app_core.prepare_show_display_state(s_ctx, ttype, sync_enabled)
+    ms.show_title = get_show_display_title(s_ctx, sync_enabled=sync_enabled)
+    ms.show_id = s_ctx.get("_id")
+    al_id = app_core.get_show_anilist_id(s_ctx)
+    episode_ids = app_core.ensure_episode_ids(s_ctx, ttype)
+
+    if not episode_ids:
+        app_core._exit_player_screen()
+        app_core.err(app_core.episode_catalog_error(s_ctx))
+        return "DETAILS"
+
+    ms.total_eps = len(episode_ids) or ms.total_eps
+    ms.current_ep_index = episode_index_for_id(episode_ids, ms.current_ep)
+
+    if ms.current_ep_index is None:
+        app_core._exit_player_screen()
+        app_core.err(f"EP {ms.current_ep} is not present in the provider catalog.")
+        return "EPISODE"
+
+    ms.current_ep = episode_id_at(episode_ids, ms.current_ep_index)
+
+    _player_ui_state = app_core._player_ui_state
+    _player_ui_state.update({
+        "active": True,
+        "show": ui.ui_show_ctx,
+        "current_ep": ms.current_ep,
+        "total_eps": ms.total_eps,
+        "status_lines": [],
+        "stream_info": {},
+        "mpv_props": None
+    })
+
+    # Try to trigger the render function from ui module directly if we can't use globals
+    try:
+        from ..ui.player_screen import render as _render_player_screen
+        _render_player_screen()
+    except ImportError:
+        pass
+
+    _cache_key = (ms.show_id, ms.current_ep, ttype)
+    if _cache_key == ms.ep_cache_key and ms.ep_cache_data:
+        ep_data = ms.ep_cache_data
+    else:
+        app_core.info(f"Loading EP {ms.current_ep} metadata...")
+        ep_data = app_core.get_episode_data(ms.show_id, ms.current_ep, ttype)
+        ms.ep_cache_key  = _cache_key
+        ms.ep_cache_data = ep_data
+
+    if not ep_data:
+        app_core._exit_player_screen()
+        app_core.err(f"Could not load EP {ms.current_ep}.")
+        return "ACTION_MENU"
+
+    first_source_name = None
+    if ms.selected_stream is None:
+        app_core._clear_streams()
+
+        _ipc_player = app_core._ipc_player
+        if _ipc_player.prefetched_ep == ms.current_ep and _ipc_player.prefetched_res:
+            res = _ipc_player.prefetched_res
+            _ipc_player.prefetched_ep = None
+            _ipc_player.prefetched_stream = None
+            _ipc_player.prefetched_res = None
+        else:
+            app_core.info("Finding a playable stream...")
+            res = app_core.fetch_episode_stream(ms.show_id, ms.current_ep, ttype, cfg.get("quality", "best"))
+
+        if res:
+            ms.selected_stream, first_source_name, _, streams = res
+            app_core._extend_streams(streams)
+
+    if args.sources and not ui.initial_sources_prompted:
+        ui.initial_sources_prompted = True
+        if first_source_name is not None:
+            app_core.start_bg_resolve(ep_data, {first_source_name})
+        app_core._exit_player_screen()
+        return "MIRRORS"
+
+    if ms.selected_stream is None:
+        app_core._exit_player_screen()
+        app_core.err("No playable streams found.")
+        return "ACTION_MENU"
+
+    if args.print_url:
+        app_core._exit_player_screen(close_alt=True)
+        print(ms.selected_stream["link"])
+        audio_url = ms.selected_stream.get("audio_url", "")
+        if audio_url:
+            print(f"Audio: {audio_url}")
+        ref = ms.selected_stream.get("referer","")
+        if ref: print(f"Referer: {ref}")
+        return "QUIT"
+
+    if getattr(args, 'download', False):
+        app_core._exit_player_screen(close_alt=True)
+        download_ok = app_core.download_episode(ms.show_title, ms.current_ep, ms.selected_stream, cfg.get("download_dir", ""))
+        if not download_ok:
+            print(f"\n{YELLOW}Download stopped at EP {ms.current_ep}.{RESET}")
+            return "QUIT"
+
+        download_batch_end = ms.download_batch_end if ms.download_batch_end is not None else ms.current_ep
+        if int(float(str(download_batch_end))) > int(float(str(ms.current_ep))) and ms.current_ep_index + 1 < ms.total_eps:
+            ms.current_ep_index += 1
+            ms.current_ep = episode_id_at(episode_ids, ms.current_ep_index)
+            ms.selected_stream = None
+            app_core._clear_streams()
+            return "PLAY"
+        else:
+            print(f"\n{GREEN}Downloads complete.{RESET}")
+            return "QUIT"
+
+    # ── Launch player ─────────────────────────────────────────────
+    def fetch_cb(ep_num):
+        if isinstance(ep_num, int) and 1 <= ep_num <= len(episode_ids):
+            ep_idx = ep_num - 1
+        else:
+            ep_idx = episode_index_for_id(episode_ids, ep_num)
+        if ep_idx is None:
+            return None
+        return app_core.fetch_episode_stream(ms.show_id, episode_id_at(episode_ids, ep_idx), ttype, cfg.get("quality", "best"))
+
+    is_binge = args.binge or cfg.get("binge", False)
+
+    if app_core.is_termux():
+        player = args.player or cfg.get("player","mpv")
+        if player=="mpv" and not args.player:
+            if (not app_core.pkg_installed("is.xyz.mpv")
+                    and app_core.pkg_installed("app.marlboroadvance.mpvex")):
+                player = "mpvex"
+
+        result = app_core.play_android(ms.show_title, ms.current_ep, ms.selected_stream, fetch_cb, player, ms.total_eps, ms.show_id, is_binge)
+
+        if first_source_name is not None:
+            exclude = {first_source_name}
+            app_core.start_bg_resolve(ep_data, exclude)
+
+        if result == "NEXT" and ms.current_ep_index + 1 < ms.total_eps:
+            ms.current_ep_index += 1
+            ms.current_ep = episode_id_at(episode_ids, ms.current_ep_index)
+            ms.selected_stream = None
+            app_core._clear_streams()
+            return "PLAY"
+
+        elif result == "PREV" and ms.current_ep_index > 0:
+            ms.current_ep_index -= 1
+            ms.current_ep = episode_id_at(episode_ids, ms.current_ep_index)
+            ms.selected_stream = None
+            app_core._clear_streams()
+            return "PLAY"
+
+        app_core._exit_player_screen()
+        return "ACTION_MENU"
+
+    else:
+        if first_source_name is not None:
+            exclude = {first_source_name}
+            app_core.start_bg_resolve(ep_data, exclude)
+
+        next_episode = episode_id_at(episode_ids, ms.current_ep_index + 1) if ms.current_ep_index + 1 < ms.total_eps else None
+
+        result, percent, time_pos, duration, played_seconds = app_core.play_desktop(
+            ms.show_title, ms.current_ep, ms.selected_stream, fetch_cb,
+            ms.total_eps, is_binge, ms.show_id, ms.pending_osd_msg,
+            ms.current_ep_index, next_episode
+        )
+
+        ms.pending_osd_msg = ""
+        app_core._exit_player_screen()
+
+        # Smart Auto-Scrobble & Timestamping (80% OR <150s remaining)
+        auto_scrobbled = playback_looks_complete(
+            result, percent, time_pos, duration, played_seconds
+        )
+        pending_completion = app_core.get_pending_completion(ms.show_id)
+
+        if (pending_completion
+                and str(pending_completion.get("next_episode")) == str(ms.current_ep)
+                and str(pending_completion.get("episode")) != str(ms.current_ep)
+                and time_pos >= 120):
+            pending_ep = pending_completion.get("episode")
+            pending_progress = int(pending_completion.get("progress") or 0)
+            sync_pending = resolve_tracking_fn(ui.search_prev_state, args, cfg)
+
+            if sync_pending:
+                tkn = cfg.get("anilist_token")
+                if tkn and pending_progress:
+                    show_ctx = ui.ui_show_ctx
+                    new_status = tracking_status_for_progress(show_ctx, pending_progress)
+
+                    def _pending_sync_success(ep=pending_ep, ctx=show_ctx):
+                        app_core.set_action_feedback(ctx, f"AniList synced: EP {ep} watched.")
+                    def _pending_sync_failure(ctx=show_ctx):
+                        app_core.set_action_feedback(ctx, "Saved locally, but AniList sync is pending.")
+
+                    queued = app_core.queue_anilist_progress(
+                        tkn, ms.show_title, pending_progress, al_id,
+                        show_ctx, ttype, new_status,
+                        on_success=_pending_sync_success,
+                        on_failure=_pending_sync_failure,
+                        pending_completion={
+                            "show_id": str(ms.show_id),
+                            "episode": str(pending_ep),
+                        },
+                    )
+                    if queued:
+                        app_core.set_action_feedback(show_ctx, f"AniList sync queued: EP {pending_ep}.")
+                else:
+                    sync_pending = False
+
+            if not sync_pending:
+                app_core.save_resume_time(ms.show_id, pending_ep, 0)
+                app_core.clear_pending_completion(ms.show_id)
+
+        should_update_history = playback_updates_history(
+            result, percent, time_pos, duration, played_seconds
+        )
+        if should_update_history:
+            app_core.save_history(ui.ui_show_ctx, ms.current_ep, ttype)
+
+        if auto_scrobbled:
+            app_core.save_resume_time(ms.show_id, ms.current_ep, 0)
+        elif time_pos > 30:
+            app_core.save_resume_time(ms.show_id, ms.current_ep, time_pos)
+
+        if result == "QUIT" or result == "EOF":
+            if auto_scrobbled and resolve_tracking_fn(ui.search_prev_state, args, cfg):
+                tkn = cfg.get("anilist_token")
+                if tkn:
+                    show_ctx = ui.ui_show_ctx
+                    progress_ep = episode_progress_number(ms.current_ep, ms.current_ep_index + 1)
+                    new_status = tracking_status_for_progress(show_ctx, progress_ep)
+                    queued = app_core.queue_anilist_progress(
+                        tkn, ms.show_title, progress_ep, al_id,
+                        show_ctx, ttype, new_status,
+                        on_success=lambda ep=ms.current_ep, ctx=show_ctx:
+                            app_core.set_action_feedback(ctx, f"AniList synced: EP {ep} watched."),
+                        on_failure=lambda ctx=show_ctx:
+                            app_core.set_action_feedback(ctx, "Saved locally, but AniList sync is pending."),
+                    )
+                    if queued:
+                        app_core.set_action_feedback(show_ctx, f"AniList sync queued: EP {ms.current_ep}.")
+
+            if result == "EOF" and (args.binge or cfg.get("binge")):
+                if ms.current_ep_index + 1 < ms.total_eps:
+                    next_ep = episode_id_at(episode_ids, ms.current_ep_index + 1)
+                    if flags.incognito_mode:
+                        ms.pending_osd_msg = None
+                    elif auto_scrobbled:
+                        ms.pending_osd_msg = marked_watched_osd(
+                            ms.current_ep,
+                            resolve_tracking_fn(ui.search_prev_state, args, cfg)
+                        )
+                    else:
+                        progress_ep = episode_progress_number(ms.current_ep, ms.current_ep_index + 1)
+                        app_core.save_pending_completion(
+                            ms.show_id, ms.current_ep, progress_ep,
+                            next_ep, time_pos, duration
+                        )
+                        if time_pos > 0:
+                            app_core.save_resume_time(ms.show_id, ms.current_ep, time_pos)
+                        ms.pending_osd_msg = pending_completion_osd(ms.current_ep, next_ep)
+
+                    ms.current_ep_index += 1
+                    ms.current_ep = episode_id_at(episode_ids, ms.current_ep_index)
+                    ms.selected_stream = None
+                    app_core._clear_streams()
+                    return "PLAY"
+                else:
+                    app_core._ipc_player.quit()
+                    print(f"\n{GREEN}Finished the last episode.{RESET}")
+                    return "QUIT"
+            else:
+                app_core._ipc_player.quit()
+                return "ACTION_MENU"
+
+        elif result == "NEXT":
+            if ms.current_ep_index + 1 < ms.total_eps:
+                next_ep = episode_id_at(episode_ids, ms.current_ep_index + 1)
+                if flags.incognito_mode:
+                    ms.pending_osd_msg = None
+                elif auto_scrobbled and resolve_tracking_fn(ui.search_prev_state, args, cfg):
+                    tkn = cfg.get("anilist_token")
+                    if tkn:
+                        show_ctx = ui.ui_show_ctx
+                        progress_ep = episode_progress_number(ms.current_ep, ms.current_ep_index + 1)
+                        new_status = tracking_status_for_progress(show_ctx, progress_ep)
+                        queued = app_core.queue_anilist_progress(
+                            tkn, ms.show_title, progress_ep, al_id,
+                            show_ctx, ttype, new_status,
+                            on_success=lambda ep=ms.current_ep, ctx=show_ctx:
+                                app_core.set_action_feedback(ctx, f"AniList synced: EP {ep} watched."),
+                            on_failure=lambda ctx=show_ctx:
+                                app_core.set_action_feedback(ctx, "Saved locally, but AniList sync is pending."),
+                        )
+                        ms.pending_osd_msg = (
+                            sync_queued_osd(ms.current_ep)
+                            if queued else marked_watched_osd(ms.current_ep, False)
+                        )
+                elif not auto_scrobbled:
+                    progress_ep = episode_progress_number(ms.current_ep, ms.current_ep_index + 1)
+                    app_core.save_pending_completion(ms.show_id, ms.current_ep, progress_ep, next_ep, time_pos, duration)
+                    if time_pos > 0:
+                        app_core.save_resume_time(ms.show_id, ms.current_ep, time_pos)
+                    ms.pending_osd_msg = pending_completion_osd(ms.current_ep, next_ep)
+
+                ms.current_ep_index += 1
+                ms.current_ep = next_ep
+                ms.selected_stream = None
+                app_core._clear_streams()
+                return "PLAY"
+            else:
+                app_core._ipc_player.quit()
+                print(f"\n{GREEN}Finished the last episode.{RESET}")
+                return "QUIT"
+
+        elif result == "PREV":
+            if ms.current_ep_index > 0:
+                ms.current_ep_index -= 1
+                ms.current_ep = episode_id_at(episode_ids, ms.current_ep_index)
+                ms.selected_stream = None
+                app_core._clear_streams()
+                return "PLAY"
+            else:
+                app_core._ipc_player.quit()
+                return "ACTION_MENU"
+        else:
+            app_core._ipc_player.quit()
+            return "ACTION_MENU"
+
+
+def handle_action_menu_state(
+    flags: CliFlags,
+    ui: UiState,
+    ms: MachineState,
+    cfg: dict,
+    args: Any,
+    ttype: str,
+    resolve_tracking_fn,) -> str:
+    opts, acts = [], []
+    is_tracking = resolve_tracking_fn(ui.search_prev_state, args, cfg)
+    action_show = ui.ui_show_ctx
+    episode_ids = app_core.ensure_episode_ids(action_show, ttype)
+
+    if not episode_ids:
+        app_core.err(app_core.episode_catalog_error(action_show))
+        return "DETAILS"
+
+    ms.total_eps = len(episode_ids) or ms.total_eps
+    ms.current_ep_index = episode_index_for_id(episode_ids, ms.current_ep)
+
+    if ms.current_ep_index is None:
+        app_core.err(f"EP {ms.current_ep} is not present in the provider catalog.")
+        return "EPISODE"
+
+    next_ep = episode_id_at(episode_ids, ms.current_ep_index + 1) if ms.current_ep_index + 1 < ms.total_eps else None
+    prev_ep = episode_id_at(episode_ids, ms.current_ep_index - 1) if ms.current_ep_index > 0 else None
+
+    if not flags.incognito_mode:
+        if next_ep is not None:
+            opts.append("Mark & Next"); acts.append("TRACK_NEXT")
+        opts.append("Mark Watched"); acts.append("TRACK_ONLY")
+
+    if next_ep is not None: opts.append("Next");    acts.append("NEXT")
+    if prev_ep is not None: opts.append("Previous"); acts.append("PREV")
+    if ms.total_eps > 1: opts.append("Episodes"); acts.append("EPISODES")
+
+    opts += ["Replay", "Mirror", "Back", "Quit"]
+    acts += ["REPLAY", "MIRRORS", "BACK", "QUIT"]
+
+    action_hints = {}
+    from allmanga_cli.domain.episodes import anilist_progress_target_for_episode
+    target_prog = anilist_progress_target_for_episode(ms.current_ep, fallback=None)
+    try:
+        current_al = max(0, int(action_show.get("_anilist_progress") or 0))
+    except (TypeError, ValueError):
+        current_al = 0
+
+    if is_tracking and target_prog is not None:
+        if target_prog <= current_al:
+            sync_txt = f"save EP {ms.current_ep} · AL already EP {current_al}"
+        else:
+            sync_txt = f"save EP {ms.current_ep} · sync AL EP {target_prog}"
+    elif is_tracking:
+        sync_txt = f"save EP {ms.current_ep} · sync AL EP {ms.current_ep}"
+    else:
+        sync_txt = f"save EP {ms.current_ep}"
+
+    for opt, act in zip(opts, acts):
+        if act == "TRACK_ONLY": action_hints[opt] = sync_txt
+        elif act == "TRACK_NEXT": action_hints[opt] = f"{sync_txt} · play EP {next_ep}"
+        elif act == "NEXT":     action_hints[opt] = f"EP {next_ep}"
+        elif act == "PREV":   action_hints[opt] = f"EP {prev_ep}"
+        elif act == "EPISODES": action_hints[opt] = "browse all"
+        elif act == "REPLAY": action_hints[opt] = f"EP {ms.current_ep} again"
+        elif act == "MIRRORS":action_hints[opt] = "switch source"
+        elif act == "BACK":   action_hints[opt] = "Back"
+        elif act == "QUIT":   action_hints[opt] = "Quit"
+
+    def _action_hdr(si):
+        C_T  = "\033[1;97m"
+        C_D  = "\033[38;5;248m"
+        C_K  = "\033[38;5;244m"
+        R    = "\033[0m"
+        try: w = os.get_terminal_size().columns
+        except OSError: w = 80
+
+        n = app_core._stream_count()
+        _bg_lock = app_core._bg_lock
+        _bg_thread = app_core._bg_thread
+        _bg_stats = app_core._bg_stats
+
+        with _bg_lock:
+            bg_alive = _bg_thread and _bg_thread.is_alive()
+            r, f = _bg_stats["resolved"], _bg_stats["failed"]
+            tot = _bg_stats.get('total', r+f)
+
+        if bg_alive:
+            mstat = f"{C_D}✔ {n} streams found • checking mirrors ({r+f}/{tot}){R}"
+        elif n > 0:
+            mstat = f"{C_D}✔ {n} streams ready • {tot}/{tot} mirrors checked{R}"
+        else:
+            mstat = ""
+
+        parts = []
+        feedback_time = action_show.get("_action_feedback_time", 0)
+        has_feedback = (time.time() - float(feedback_time)) < 3.0 if feedback_time else False
+        feedback_msg = action_show.get("_action_feedback", "")
+
+        ep_str = f"EP {ms.current_ep}/{ms.total_eps}"
+        app_core.build_info_panel(action_show, ttype, w, parts, override_ep_str=ep_str)
+
+        if has_feedback and len(parts) >= 4:
+            parts[3] = f"\033[32m✔ {feedback_msg}\033[0m"
+        elif mstat and len(parts) >= 4:
+            parts[3] = mstat
+
+        _t = lambda s: _truncate_display(s, max(1, w - 1))
+        if has_feedback:
+            parts.append(f"{C_K}{_t(feedback_msg)}{R}")
+        else:
+            parts.append(f"{C_K}{_t('Enter/Right=select  ? = Help  Left/Esc=back')}{R}")
+
+        return "\n".join(parts)
+
+    hd7 = picker_help("Select action", "Go back", "Go back")
+    idx = tui_pick(
+        flags, ui,
+        "Select action", opts,
+        header_fn=_action_hdr,
+        hints=action_hints,
+        help_dict=hd7
+    )
+
+    if idx in (-2, -3):
+        return ui.action_prev_state
+
+    def _execute_track_action():
+        tkn = cfg.get("anilist_token")
+        synced = False
+        if tkn and resolve_tracking_fn(ui.search_prev_state, args, cfg, action_show):
+            progress_ep = episode_progress_number(ms.current_ep, ms.current_ep_index + 1)
+            al_id = app_core.get_show_anilist_id(action_show)
+            result = app_core.with_loading(
+                f"Saving locally and syncing AniList: EP {ms.current_ep}…",
+                app_core.save_and_sync_watched,
+                action_show, ms.current_ep, ttype,
+                tkn, ms.show_title, progress_ep, al_id
+            )
+            if isinstance(result, dict):
+                if result.get("status") in ("synced", "skipped"):
+                    synced = True
+            elif result:
+                synced = True
+        else:
+            app_core.with_loading(
+                f"Saving EP {ms.current_ep} locally…",
+                app_core.save_history, action_show, ms.current_ep, ttype
+            )
+            app_core.set_action_feedback(action_show, f"Marked EP {ms.current_ep} as watched locally.")
+
+        app_core.save_resume_time(ms.show_id, ms.current_ep, 0)
+        return synced
+
+    a = acts[idx]
+    if a == "TRACK_ONLY":
+        _execute_track_action()
+        return "ACTION_MENU"
+
+    elif a == "TRACK_NEXT":
+        synced = _execute_track_action()
+        ms.pending_osd_msg = marked_watched_osd(ms.current_ep, synced)
+        ms.current_ep_index += 1
+        ms.current_ep = episode_id_at(episode_ids, ms.current_ep_index)
+        ms.selected_stream = None
+        app_core._clear_streams()
+        return "PLAY"
+
+    elif a == "NEXT":
+        ms.current_ep_index += 1
+        ms.current_ep = episode_id_at(episode_ids, ms.current_ep_index)
+        ms.selected_stream = None
+        app_core._clear_streams()
+        return "PLAY"
+
+    elif a == "PREV":
+        ms.current_ep_index -= 1
+        ms.current_ep = episode_id_at(episode_ids, ms.current_ep_index)
+        ms.selected_stream = None
+        app_core._clear_streams()
+        return "PLAY"
+
+    elif a == "EPISODES":
+        ui.ep_prev_state = "ACTION_MENU"
+        return "EPISODE"
+
+    elif a == "REPLAY":
+        return "PLAY"
+
+    elif a == "MIRRORS":
+        return "MIRRORS"
+
+    elif a == "BACK":
+        return ui.action_prev_state
+
+    elif a == "QUIT":
+        return "QUIT"
+
+    return "ACTION_MENU"
+
+
+def handle_mirrors_state(
+    flags: CliFlags,
+    ui: UiState,
+    ms: MachineState,
+    cfg: dict,
+    args: Any,
+    ttype: str,
+    resolve_tracking_fn,) -> str:
+
+    def _mlabel(s):
+        tag = " ✓" if s.get("android_safe") else ""
+        pref = app_core.get_preferred_mirror(ms.show_id)
+        is_pref = pref.get("source_name") == s["source_name"] and pref.get("resolution") == s.get("resolution", "?")
+
+        if ms.selected_stream and s.get("link") == ms.selected_stream.get("link"):
+            prefix = "▶ "
+        elif is_pref:
+            prefix = "★ "
+        else:
+            prefix = ""
+
+        raw = (f"{prefix}{s['source_name']} "
+               f"[{s.get('type','?').upper()}{tag}] "
+               f"{s.get('resolution','?')}")
+        return re.sub(r'\s+', ' ', raw).strip()
+
+    def _dedup():
+        seen, out = set(), []
+        for s in sorted(app_core._stream_snapshot(), key=lambda x: x.get("source_priority",4)):
+            if s["link"] not in seen:
+                seen.add(s["link"])
+                out.append(s)
+        return out
+
+    _live_deduped = []
+
+    def _mirror_refresh(q=""):
+        nonlocal _live_deduped
+        _live_deduped = _dedup()
+        mopts = [_mlabel(s) for s in _live_deduped]
+
+        _bg_lock = app_core._bg_lock
+        _bg_thread = app_core._bg_thread
+        _bg_stats = app_core._bg_stats
+
+        with _bg_lock:
+            alive = _bg_thread and _bg_thread.is_alive()
+            r, f = _bg_stats["resolved"], _bg_stats["failed"]
+            tot = _bg_stats.get('total', r+f)
+
+        C_T  = "\033[1;97m"
+        C_D  = "\033[38;5;248m"
+        C_K  = "\033[38;5;244m"
+        R    = "\033[0m"
+
+        try: w = os.get_terminal_size().columns
+        except OSError: w = 80
+
+        if alive:
+            plain_status = f"✔ {len(mopts)} streams found • checking mirrors ({r+f}/{tot})"
+        else:
+            plain_status = f"✔ {len(mopts)} streams ready • {tot}/{tot} mirrors checked"
+
+        parts = []
+        if ui.ui_show_ctx:
+            ep_str = f"EP {ms.current_ep}/{ms.total_eps}"
+            app_core.build_info_panel(ui.ui_show_ctx, ttype, w, parts, override_ep_str=ep_str)
+
+        toast = ui.pref_toast
+        toast_time = ui.pref_toast_time
+        footer = lambda s: _truncate_display(s, max(1, w - 1))
+
+        if toast and time.time() - toast_time < 3:
+            parts.append(f"\033[38;5;220m* {footer(toast)}\033[0m")
+        else:
+            parts.append(f"{C_D}{footer(f'{plain_status}  │  ? = Help  Esc=back')}{R}")
+
+        hdr = "\n".join(parts)
+        return mopts, hdr, not alive
+
+    init_opts, init_hdr, _ = _mirror_refresh()
+    if not init_opts:
+        with app_core._bg_lock:
+            still_alive = app_core._bg_thread and app_core._bg_thread.is_alive()
+        if not still_alive:
+            print(f"{RED}No mirrors found.{RESET}")
+            return "ACTION_MENU"
+
+    def _tab_pref(opt_idx):
+        if 0 <= opt_idx < len(_live_deduped):
+            s = _live_deduped[opt_idx]
+            app_core.toggle_preferred_mirror(ms.show_id, s["source_name"], s.get("resolution", "?"))
+            ui.pref_toast = "Preferred server updated (Will apply on next playback)"
+            ui.pref_toast_time = time.time()
+        return _mirror_refresh()[:2]
+
+    hd8 = picker_help("Play stream", "Go back", "Go back", "Mark preferred")
+    ui.pref_toast = ""
+
+    midx = tui_pick(
+        flags, ui,
+        "Select mirror", init_opts,
+        header=init_hdr,
+        live_fn=_mirror_refresh,
+        tab_fn=_tab_pref,
+        help_dict=hd8
+    )
+
+    if midx in (-2, -3):
+        return "ACTION_MENU"
+    elif midx >= 0 and midx < len(_live_deduped):
+        ms.selected_stream = _live_deduped[midx]
+        return "PLAY"
+    else:
+        return "ACTION_MENU"

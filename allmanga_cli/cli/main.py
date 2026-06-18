@@ -2,7 +2,7 @@
 
 import sys
 
-from .. import app
+from .. import app_core as app
 
 
 def run():

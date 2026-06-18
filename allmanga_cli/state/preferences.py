@@ -48,7 +48,7 @@ def title_sync_preference(preferences, show):
     if not show:
         return None
     show_id = show.get("_id")
-    anilist_id = show.get("_anilist_id")
+    anilist_id = show.get("aniListId")
     if show_id and "sync_enabled" in preferences.get(str(show_id), {}):
         return bool(preferences[str(show_id)]["sync_enabled"])
     key = f"al:{anilist_id}"
@@ -61,8 +61,8 @@ def set_title_sync(preferences, show, enabled):
     keys = []
     if show.get("_id"):
         keys.append(str(show["_id"]))
-    if show.get("_anilist_id"):
-        keys.append(f"al:{show['_anilist_id']}")
+    if show.get("aniListId"):
+        keys.append(f"al:{show['aniListId']}")
     for key in keys:
         current = preferences.get(key, {})
         current["sync_enabled"] = bool(enabled)
@@ -144,6 +144,8 @@ def save_anilist_match(preferences, anilist_id, source_show):
         "name": source_show.get("name", ""),
         "englishName": source_show.get("englishName", ""),
         "thumbnail": source_show.get("thumbnail"),
+        "aniListId": source_show.get("aniListId") or "",
+        "match_source": source_show.get("_match_source") or "unknown",
     }
     preferences[key] = current
     return preferences
@@ -163,6 +165,7 @@ def save_source_anilist_match(preferences, source_show, anilist_show):
         "_id": anilist_id,
         "name": anilist_show.get("name", ""),
         "englishName": anilist_show.get("englishName", ""),
+        "match_source": source_show.get("_match_source") or "unknown",
     }
     preferences[show_id] = current
     return save_anilist_match(preferences, anilist_id, source_show)

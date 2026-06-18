@@ -42,34 +42,77 @@ def positive_int(value):
     return value if value > 0 else None
 
 
-def format_ep_progress(label, progress, total):
+def format_ep_progress(label, progress, total, local_only=False):
+    import decimal as _dec
     try:
-        progress = max(0, int(progress))
-    except (TypeError, ValueError):
+        p = _dec.Decimal(str(progress))
+        if p < 0:
+            p = _dec.Decimal(0)
+        # Display as int when whole, preserve decimal string otherwise
+        progress = int(p) if p == p.to_integral_value() else str(p.normalize())
+    except (_dec.InvalidOperation, TypeError, ValueError):
         return ""
-    label_color = "\033[36m" if label == "AL" else "\033[38;5;244m"
-    prefix = f"{label_color}{label}{DIM} EP"
+    if local_only:
+        prefix = f"\033[38;5;244mEP{DIM}"
+    else:
+        label_color = "\033[36m" if label == "AL" else "\033[38;5;244m"
+        prefix = f"{label_color}{label}{DIM} EP"
     return f"{prefix} {progress}/{total}" if total else f"{prefix} {progress}"
 
 
-def format_progress(anime):
-    total = positive_int(anime.get("episodeCount"))
-    sync_enabled = bool(anime.get("_sync_enabled"))
+def format_progress(anime, local_only=False, ttype="sub"):
+    from allmanga_cli.domain.history import history_available_episode_count, history_full_episode_count
+    entry = {"show": anime, "translation_type": ttype}
+    available = history_available_episode_count(entry)
+    full = history_full_episode_count(entry)
+
+    total = full or available
+
     local_progress = anime.get("_local_progress")
-    anilist_progress = anime.get("_anilist_progress")
-    authority = anime.get("_progress_authority")
-    if anime.get("_sync_conflict") and local_progress is not None:
-        return format_ep_progress("LOCAL", local_progress, total)
-    if sync_enabled and anilist_progress is not None:
-        return format_ep_progress("AL", anilist_progress, total)
-    if authority == "AL" and anilist_progress is not None:
-        return format_ep_progress("AL", anilist_progress, total)
+    local_label = anime.get("_local_episode_label")
+    if not local_label:
+        local_label = local_progress
+
+    import decimal
+    try:
+        local_num = decimal.Decimal(str(local_label))
+    except decimal.InvalidOperation:
+        local_num = decimal.Decimal(0)
+
+    if total is not None:
+        try:
+            total_dec = decimal.Decimal(str(total))
+            if local_num > total_dec:
+                total = local_label
+        except decimal.InvalidOperation:
+            pass
+
+    if not local_only:
+        sync_enabled = bool(anime.get("_sync_enabled"))
+        anilist_progress = anime.get("_anilist_progress")
+        authority = anime.get("_progress_authority")
+        if anime.get("_sync_conflict") and local_progress is not None:
+            return format_ep_progress("LOCAL", local_label, total, local_only)
+        if sync_enabled and anilist_progress is not None:
+            return format_ep_progress("AL", anilist_progress, total, local_only)
+        if authority == "AL" and anilist_progress is not None:
+            return format_ep_progress("AL", anilist_progress, total, local_only)
     if local_progress is not None:
-        return format_ep_progress("LOCAL", local_progress, total)
+        return format_ep_progress("LOCAL", local_label, total, local_only)
     return ""
 
 
-def format_available_episodes(anime, ttype="sub"):
+def format_available_episodes(anime, ttype="sub", local_only=False):
+    from allmanga_cli.domain.history import history_available_episode_count, history_full_episode_count
+    if local_only:
+        entry = {"show": anime, "translation_type": ttype}
+        avail = history_available_episode_count(entry)
+        full = history_full_episode_count(entry)
+        status = str(anime.get("status") or "").upper()
+        if status not in ("COMPLETED", "FINISHED", "ENDED") and full and avail and full > avail:
+            return f"Total {full}"
+        return ""
+
     if str(anime.get("status") or "").upper() != "RELEASING":
         return ""
 
@@ -113,12 +156,12 @@ def format_years(start_year, end_year, status=None):
     status = str(status or "").upper()
     if start_year and end_year and start_year != end_year:
         return f"{start_year} - {end_year}"
-    if start_year and end_year == start_year:
-        return str(start_year)
-    if start_year and status == "RELEASING":
-        return f"{start_year} -"
     if start_year:
+        if status == "RELEASING":
+            return f"{start_year} -"
         return str(start_year)
+    if end_year:
+        return str(end_year)
     return "TBA"
 
 
@@ -137,28 +180,29 @@ def should_refresh_anilist(anime, now=None):
         return True
 
 
-def anilist_status_label(anime):
+def anilist_status_label(anime, local_only=False):
     status = str(anime.get("status") or "").upper()
-    show_anilist_status = (
-        anime.get("_sync_enabled") or anime.get("_anilist_context")
-    )
-    anilist_list = (
-        str(anime.get("_anilist_list") or "").upper().replace(" ", "_")
-        if show_anilist_status
-        else ""
-    )
-    if anilist_list in ("CURRENT", "WATCHING"):
-        return f"\033[32mWATCHING{DIM}"
-    if anilist_list == "COMPLETED":
-        return f"\033[36mCOMPLETED{DIM}"
-    if anilist_list in ("PLANNING", "PLAN_TO_WATCH"):
-        return f"\033[33mPLAN TO WATCH{DIM}"
-    if anilist_list == "DROPPED":
-        return f"\033[31mDROPPED{DIM}"
-    if anilist_list == "PAUSED":
-        return f"\033[35mPAUSED{DIM}"
-    if anilist_list in ("REPEATING", "REWATCHING"):
-        return f"\033[32mREWATCHING{DIM}"
+    if not local_only:
+        show_anilist_status = (
+            anime.get("_sync_enabled") or anime.get("_anilist_context")
+        )
+        anilist_list = (
+            str(anime.get("_anilist_list") or "").upper().replace(" ", "_")
+            if show_anilist_status
+            else ""
+        )
+        if anilist_list in ("CURRENT", "WATCHING"):
+            return f"\033[32mWATCHING{DIM}"
+        if anilist_list == "COMPLETED":
+            return f"\033[36mCOMPLETED{DIM}"
+        if anilist_list in ("PLANNING", "PLAN_TO_WATCH"):
+            return f"\033[33mPLAN TO WATCH{DIM}"
+        if anilist_list == "DROPPED":
+            return f"\033[31mDROPPED{DIM}"
+        if anilist_list == "PAUSED":
+            return f"\033[35mPAUSED{DIM}"
+        if anilist_list in ("REPEATING", "REWATCHING"):
+            return f"\033[32mREWATCHING{DIM}"
     if status == "RELEASING":
         return f"\033[32mAIRING{DIM}"
     return ""
@@ -169,17 +213,21 @@ def format_info_metadata_line(
     ttype="sub",
     now=None,
     override_ep_str=None,
+    local_only=False,
 ):
     details = []
-    status_label = anilist_status_label(anime)
+    status_label = anilist_status_label(anime, local_only=local_only)
     if override_ep_str:
-        label = "AL" if anime.get("_sync_enabled") else "LOCAL"
-        label_color = "\033[36m" if label == "AL" else "\033[38;5;244m"
-        progress = f"{label_color}{label}{DIM} {override_ep_str}"
+        if local_only:
+            progress = f"\033[38;5;244mEP{DIM} {override_ep_str}"
+        else:
+            label = "AL" if anime.get("_sync_enabled") else "LOCAL"
+            label_color = "\033[36m" if label == "AL" else "\033[38;5;244m"
+            progress = f"{label_color}{label}{DIM} {override_ep_str}"
     else:
-        progress = format_progress(anime)
+        progress = format_progress(anime, local_only=local_only, ttype=ttype)
 
-    available = format_available_episodes(anime, ttype)
+    available = format_available_episodes(anime, ttype, local_only=local_only)
     next_airing = format_next_airing(anime, now)
     anime_type = str(anime.get("type") or "TV").upper()
     aired_start = anime.get("airedStart") or {}

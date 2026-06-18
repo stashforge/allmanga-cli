@@ -1,0 +1,277 @@
+"""
+Player-screen renderer for allmanga-cli.
+
+Renders the in-app overlay shown while an episode is loading or playing
+through ``mpv``.  Extracted from ``app.py`` so that playback UI logic lives
+next to the other ``ui/`` modules.
+
+The module owns the ``_player_ui_state`` dict and the
+:class:`PlayerScreen` façade class.  ``app.py`` creates a single
+``PlayerScreen`` instance at startup and passes it to playback handlers.
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+from typing import TYPE_CHECKING
+
+from ..domain.titles import extract_title_parts as _extract_title_parts
+from ..domain.titles import get_show_display_title
+from ..domain.titles import wrap_title as _wrap_title
+from ..core.terminal import fit_terminal_line as _fit_terminal_line
+from .poster import PosterManager
+from .covers import (
+    POSTER_HEIGHT,
+    POSTER_WIDTH,
+    poster_symbol_lines as _poster_symbol_lines,
+    poster_uses_native_protocol as _poster_uses_native_protocol,
+)
+
+if TYPE_CHECKING:
+    from ..context import UiState, CliFlags
+
+
+# ---------------------------------------------------------------------------
+# Shared mutable state (kept as a plain dict to allow _setitem_ callbacks)
+# ---------------------------------------------------------------------------
+
+_player_ui_state: dict = {
+    "active": False,
+    "show": None,
+    "current_ep": 0,
+    "total_eps": 0,
+    "status_lines": [],
+    "stream_info": {},
+    "mpv_props": None,
+}
+"""Module-level state dict for the currently active player overlay.
+
+``app.py`` passes a lambda that calls :func:`update_stream_info` so that
+``desktop_playback.play_desktop`` can update stream metadata without a
+circular import.
+"""
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+def _fmt_time(sec: float | None) -> str:
+    """Format *sec* seconds as ``MM:SS`` or ``HH:MM:SS``."""
+    if not sec:
+        return "00:00"
+    m, s = divmod(int(sec), 60)
+    if m >= 60:
+        h, m = divmod(m, 60)
+        return f"{h:02d}:{m:02d}:{s:02d}"
+    return f"{m:02d}:{s:02d}"
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def update_stream_info(info: dict) -> None:
+    """Store stream metadata (mirror name, quality, preferred flag) for display."""
+    _player_ui_state["stream_info"] = info
+
+
+def activate(show: dict, current_ep: object, total_eps: int) -> None:
+    """Mark the player screen as active and set the episode context.
+
+    Call this before launching the player process.
+    """
+    _player_ui_state.update({
+        "active": True,
+        "show": show,
+        "current_ep": current_ep,
+        "total_eps": total_eps,
+        "status_lines": [],
+        "stream_info": {},
+        "mpv_props": None,
+    })
+
+
+def deactivate(close_alt: bool = False) -> None:
+    """Tear down the player overlay.
+
+    Parameters
+    ----------
+    close_alt:
+        If ``True``, also restore the normal terminal screen (leave
+        alt-screen mode).  Pass ``True`` when fully leaving the player,
+        ``False`` when transitioning to the action menu.
+    """
+    if close_alt:
+        from .picker_render import clear_terminal_images as _clear_terminal_images
+        # Exit alt screen
+        sys.stdout.write("\033[?1049l\033[?25h")
+        sys.stdout.flush()
+    _player_ui_state["active"] = False
+
+
+def add_status_line(message: str, color: str = "\033[94m") -> bool:
+    """Append a status line to the loading overlay and trigger a redraw.
+
+    Returns ``True`` if the player screen is currently active (and the
+    message was appended), ``False`` otherwise.
+    """
+    s = _player_ui_state
+    if not s["active"]:
+        return False
+    s["status_lines"].append(f"{color}{message}\033[0m")
+    if len(s["status_lines"]) > 8:
+        s["status_lines"].pop(0)
+    render()
+    return True
+
+
+def get_player_poster(show: dict | None, ui: "UiState | None" = None) -> str:
+    """Return the poster string for *show*, updating the hover state if *ui* is given."""
+    if not show:
+        return ""
+    if ui is not None:
+        ui.hovered_show_id = show.get("_id") or show.get("id")
+    return ""  # Poster fetching is handled by PosterManager in app.py
+
+
+def render(
+    poster_manager: "PosterManager | None" = None,
+    ui: "UiState | None" = None,
+    enter_alt_screen_fn=None,
+) -> None:
+    """Render (or refresh) the player overlay on the terminal.
+
+    Parameters
+    ----------
+    poster_manager:
+        The app's :class:`~allmanga_cli.ui.poster.PosterManager` instance.
+        If supplied, the poster is fetched and rendered.
+    ui:
+        Current :class:`~allmanga_cli.context.UiState`; used to update
+        ``hovered_show_id`` for the poster manager.
+    enter_alt_screen_fn:
+        Callable that switches to the alternate terminal screen.  If
+        ``None``, the switch is skipped (caller is responsible).
+    """
+    s = _player_ui_state
+    if not s["active"]:
+        return
+
+    if enter_alt_screen_fn is not None:
+        enter_alt_screen_fn()
+
+    try:
+        w, h = os.get_terminal_size(sys.stdin.fileno())
+    except Exception:
+        w, h = 80, 24
+
+    show = s["show"]
+    title = get_show_display_title(show) if show else "Unknown"
+    clean, sn, stype = _extract_title_parts(title)
+
+    info_bits = []
+    if sn:
+        info_bits.append(f"Season {sn}")
+    if s["current_ep"] and s["total_eps"]:
+        info_bits.append(f"Episode {s['current_ep']}/{s['total_eps']}")
+    ep_str = " \u2022 ".join(info_bits)
+
+    si = s.get("stream_info", {})
+    qual = si.get("quality")
+    mirror = si.get("mirror")
+    stream_str = ""
+    if mirror and qual:
+        pref_star = " \u2022 \033[33mPreferred \u2605" if si.get("is_pref") else ""
+        stream_str = f"{mirror} \u2022 {qual}{pref_star}\033[0m"
+
+    props = s.get("mpv_props")
+    is_playing = props is not None
+
+    content = []
+
+    # Incognito indicator
+    from ..app._app_helpers import is_incognito_fn  # lazy import to avoid circular
+    try:
+        if is_incognito_fn and is_incognito_fn():
+            content.append("\033[1;33mINCOGNITO\033[0m")
+            content.append("")
+    except Exception:
+        pass
+
+    if is_playing:
+        state_str = "\u258c\u258c Paused" if props.get("pause") else "\u25b6 Playing"
+        pt_sec = props.get("playback-time", 0) or 0
+        dur_sec = props.get("duration", 0) or 0
+        rem_sec = dur_sec - pt_sec if dur_sec > 0 else 0
+
+        bar_width = max(10, min(40, w - 4))
+        filled = int((pt_sec / dur_sec) * bar_width) if dur_sec > 0 else 0
+        bar = ("\u2588" * filled) + ("\u2591" * (bar_width - filled))
+
+        content.append(f"\033[1;36m{state_str}\033[0m")
+        content.append("")
+        for tl in _wrap_title(clean, w - 4, 2).splitlines():
+            content.append(f"\033[1;97m{tl}\033[0m")
+        content.append("")
+        content.append(f"\033[38;5;248m{ep_str}\033[0m")
+        if stream_str:
+            content.append("")
+            content.append(f"\033[38;5;248m{stream_str}\033[0m")
+        content.append("")
+        content.append(f"\033[38;5;250m{bar}\033[0m")
+        content.append("")
+        content.append(f"\033[38;5;250m{_fmt_time(pt_sec)} / {_fmt_time(dur_sec)}\033[0m")
+        content.append(f"\033[38;5;246mRemaining \u2022 {_fmt_time(rem_sec)}\033[0m")
+        content.append("")
+        content.append("\033[38;5;244mQ Quit   Shift+Left Previous   Shift+Right Next\033[0m")
+    else:
+        content.append("\033[1;36mLoading stream...\033[0m")
+        content.append("")
+        for tl in _wrap_title(clean, w - 4, 2).splitlines():
+            content.append(f"\033[1;97m{tl}\033[0m")
+        content.append("")
+        content.append(f"\033[38;5;248m{ep_str}\033[0m")
+        content.append("")
+        content.append("\033[38;5;246mStatus\033[0m")
+        content.append("")
+        for sl in s["status_lines"]:
+            content.append(sl)
+
+    # --- Poster ---
+    poster_raw = ""
+    if poster_manager is not None and show:
+        if ui is not None:
+            ui.hovered_show_id = show.get("_id") or show.get("id")
+            ui.hovered_show_obj = show
+        poster_raw = poster_manager.get(show) or ""
+
+    native_poster = poster_raw if _poster_uses_native_protocol(poster_raw) else ""
+    poster_lines = _poster_symbol_lines(poster_raw, POSTER_HEIGHT, w)
+    out = []
+
+    if poster_raw:
+        for row in range(POSTER_HEIGHT):
+            line = poster_lines[row] if row < len(poster_lines) else ""
+            out.append(f"\033[2K{line}")
+
+    for line in content:
+        out.append(f"\033[2K{_fit_terminal_line(line, w)}")
+
+    if out:
+        overlay = f"\033[1;1H{native_poster}" if native_poster else ""
+        sys.stdout.write(
+            "\033[H" + "\r\n".join(out) + "\033[J"
+            + overlay + "\033[1;1H\033[?25l"
+        )
+        sys.stdout.flush()
+
+
+def update_mpv_props(props: dict | None) -> None:
+    """Store the latest mpv property snapshot and trigger a redraw.
+
+    Called from the ``MpvIpc`` redraw callback.
+    """
+    _player_ui_state["mpv_props"] = props
+    render()

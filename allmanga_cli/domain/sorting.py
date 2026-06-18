@@ -32,6 +32,9 @@ def _anilist_media_id(show):
     media_id = (show or {}).get("_anilist_id")
     if media_id:
         return media_id
+    media_id = (show or {}).get("aniListId")
+    if media_id:
+        return media_id
     candidate = (show or {}).get("_id")
     return candidate if str(candidate or "").isdigit() else None
 

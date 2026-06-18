@@ -7,6 +7,14 @@ from .titles import get_show_display_title
 from .episodes import episode_id_at, episode_index_for_id
 
 
+def _episode_ids_for_translation(show, translation_type):
+    if not show:
+        return []
+    stored_type = show.get("_episode_ids_ttype")
+    if stored_type and stored_type != translation_type:
+        return []
+    return show.get("_episode_ids") or []
+
 def local_progress(entries, show, translation_type="sub"):
     if not show:
         return None
@@ -24,8 +32,8 @@ def local_progress(entries, show, translation_type="sub"):
         if str(episode_id) in ("0", "0.0"):
             return 0
         episode_ids = (
-            show.get("_episode_ids")
-            or entry_show.get("_episode_ids")
+            _episode_ids_for_translation(show, translation_type)
+            or _episode_ids_for_translation(entry_show, translation_type)
             or []
         )
         if episode_ids:
@@ -74,16 +82,9 @@ def playback_episode(
         history_episode = max(1, int(float(str(history_episode))))
     except (TypeError, ValueError):
         history_episode = 1
-    total = show.get("availableEpisodes", {}).get(selected_type, 0)
-    try:
-        total = int(total) if total else 0
-    except (TypeError, ValueError):
-        total = 0
     if show_id and resume_time(show_id, history_episode) > 0:
-        return min(history_episode, total) if total else history_episode
-    next_episode = history_episode + 1
-    return min(next_episode, total) if total else next_episode
-
+        return history_episode
+    return history_episode + 1
 
 def history_entry_progress(
         entry,
@@ -93,25 +94,31 @@ def history_entry_progress(
     show = entry.get("show", {})
     translation_type = entry.get("translation_type", "sub")
     prepare_display_state(show, translation_type)
-    if show.get("_sync_enabled") and show.get("_anilist_progress") is not None:
-        label = "AL"
-        progress = positive_int(show.get("_anilist_progress"))
-        if progress is None:
-            progress = 0
-    else:
-        label = "LOCAL"
-        progress = get_local_progress(show, translation_type)
-        if progress is None:
-            progress = positive_int(entry.get("episode")) or 0
+    label = "LOCAL"
+    progress_val = entry.get("episode")
+    if not progress_val:
+        progress_val = "0"
 
-    total = positive_int(show.get("episodeCount"))
-    if not total:
-        total = len(show.get("_episode_ids") or []) or None
-    if not total:
-        total = positive_int(
-            (show.get("availableEpisodes") or {}).get(translation_type)
-        )
-    return label, progress, total
+    import decimal
+    try:
+        progress_num = decimal.Decimal(str(progress_val))
+    except decimal.InvalidOperation:
+        progress_num = decimal.Decimal(0)
+
+    available = history_available_episode_count(entry)
+    full = history_full_episode_count(entry)
+
+    total = full or available
+
+    if total is not None:
+        try:
+            total_dec = decimal.Decimal(str(total))
+            if progress_num > total_dec:
+                total = progress_val
+        except decimal.InvalidOperation:
+            pass
+
+    return label, progress_val, total
 
 
 def format_history_entry(
@@ -157,21 +164,89 @@ def format_history_entry(
     return f"{prefix}  {name}"
 
 
-def history_entry_is_completed(
+def history_provider_is_completed(show):
+    status = str(show.get("status") or "").upper()
+    return status in ("COMPLETED", "FINISHED", "ENDED")
+
+def history_available_episode_count(entry):
+    from allmanga_cli.domain.episodes import highest_episode_number
+    show = entry.get("show", {})
+    ttype = entry.get("translation_type", "sub")
+
+    if show.get("_episode_ids_ttype") == ttype:
+        ep_ids = show.get("_episode_ids") or []
+        if ep_ids:
+            return highest_episode_number(ep_ids)
+
+    avail = (show.get("availableEpisodes") or {}).get(ttype)
+    import decimal
+    try:
+        if avail is not None:
+            avail_dec = decimal.Decimal(str(avail))
+            if avail_dec >= 0:
+                return int(avail_dec) if avail_dec % 1 == 0 else str(avail_dec)
+    except decimal.InvalidOperation:
+        pass
+
+    try:
+        count = int(show.get("episodeCount"))
+        if count >= 0:
+            return count
+    except (TypeError, ValueError):
+        pass
+
+    return None
+
+def history_full_episode_count(entry):
+    show = entry.get("show", {})
+    try:
+        count = int(show.get("episodeCount"))
+        if count > 0:
+            return count
+    except (TypeError, ValueError):
+        pass
+    return history_available_episode_count(entry)
+
+def history_entry_category(
         entry,
         *,
         prepare_display_state,
         get_local_progress):
     show = entry.get("show", {})
-    if str(show.get("status") or "").upper() == "RELEASING":
-        return False
-    _, watched, total = history_entry_progress(
+
+    _, local_progress, _ = history_entry_progress(
         entry,
         prepare_display_state=prepare_display_state,
         get_local_progress=get_local_progress,
     )
-    return bool(total and watched >= total)
 
+    import decimal
+    try:
+        local_num = decimal.Decimal(str(local_progress))
+    except decimal.InvalidOperation:
+        local_num = decimal.Decimal(0)
+
+    available_count = history_available_episode_count(entry)
+    full_count = history_full_episode_count(entry)
+    provider_completed = history_provider_is_completed(show)
+
+    target_count = full_count or available_count
+    try:
+        target_dec = decimal.Decimal(str(target_count)) if target_count is not None else None
+    except decimal.InvalidOperation:
+        target_dec = None
+
+    if provider_completed:
+        if target_dec is not None and local_num >= target_dec:
+            return "Completed"
+        return "Active"
+
+    if target_dec is not None:
+        if local_num < target_dec:
+            return "Active"
+        return "Up to date"
+
+    return "Active"
 
 def filter_history_entries(
         history,
@@ -179,16 +254,18 @@ def filter_history_entries(
         *,
         prepare_display_state,
         get_local_progress):
-    mode = str(mode or "Active").title()
+    mode = str(mode or "Active").capitalize()
+    if mode == "Up To Date":
+        mode = "Up to date"
     if mode == "All":
         return list(history)
-    want_completed = mode == "Completed"
+
     return [
         entry
         for entry in history
-        if history_entry_is_completed(
+        if history_entry_category(
             entry,
             prepare_display_state=prepare_display_state,
             get_local_progress=get_local_progress,
-        ) == want_completed
+        ) == mode
     ]

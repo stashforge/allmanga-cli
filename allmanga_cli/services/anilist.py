@@ -79,6 +79,10 @@ def normalize_media(media, *, list_name=None, entry=None):
     if list_entry:
         show["_anilist_list"] = list_entry.get("status")
         show["_anilist_progress"] = list_entry.get("progress")
+        show["_anilist_score"] = list_entry.get("score")
+    else:
+        show["_anilist_progress"] = 0
+        show["_anilist_list"] = ""
     next_airing = media.get("nextAiringEpisode")
     if next_airing:
         set_next_airing_fields(show, next_airing)
@@ -86,7 +90,7 @@ def normalize_media(media, *, list_name=None, entry=None):
 
 
 def media_id(anime):
-    candidate = anime.get("_anilist_id")
+    candidate = anime.get("aniListId")
     if candidate:
         return candidate
     candidate = anime.get("_id")
@@ -96,7 +100,7 @@ def media_id(anime):
 def apply_media_update(anime, media):
     if not anime or not media:
         return False
-    anime["_anilist_id"] = str(
+    anime["aniListId"] = str(
         media.get("id") or media_id(anime) or ""
     )
     titles = media.get("title") or {}
@@ -149,18 +153,71 @@ def apply_media_update(anime, media):
 
 def fetch_media(urlopen, read_json, token, media_id):
     query = """
-    query($id: Int) {
+    query ($id: Int) {
       Media(id: $id, type: ANIME) {
         id
-        title { romaji english native }
+        idMal
+        title {
+          romaji
+          english
+          native
+        }
+        synonyms
         format
-        episodes
+        type
         status
+        episodes
+        duration
+        season
+        seasonYear
+        startDate {
+          year
+          month
+          day
+        }
+        endDate {
+          year
+          month
+          day
+        }
+        countryOfOrigin
+        isAdult
         averageScore
-        startDate { year month day }
-        endDate { year month day }
-        nextAiringEpisode { episode timeUntilAiring }
-        mediaListEntry { progress status }
+        meanScore
+        popularity
+        coverImage {
+          large
+          medium
+          color
+        }
+        bannerImage
+        nextAiringEpisode {
+          episode
+          timeUntilAiring
+        }
+        mediaListEntry {
+          id
+          status
+          score
+          progress
+          progressVolumes
+          repeat
+          priority
+          private
+          notes
+          startedAt {
+            year
+            month
+            day
+          }
+          completedAt {
+            year
+            month
+            day
+          }
+          createdAt
+          updatedAt
+        }
       }
     }
     """
@@ -172,6 +229,37 @@ def fetch_media(urlopen, read_json, token, media_id):
         token,
     )
     return payload.get("data", {}).get("Media") or {}
+
+
+def fetch_media_batch(urlopen, read_json, media_ids):
+    results = {}
+    chunk_size = 50
+    for i in range(0, len(media_ids), chunk_size):
+        chunk = media_ids[i : i + chunk_size]
+        query = """
+        query($ids: [Int]) {
+          Page(page: 1, perPage: 50) {
+            media(id_in: $ids, type: ANIME) {
+              id
+              status
+              episodes
+              nextAiringEpisode { episode airingAt timeUntilAiring }
+            }
+          }
+        }
+        """
+        payload = _post(
+            urlopen,
+            read_json,
+            query,
+            {"ids": [int(mid) for mid in chunk if mid]},
+            None,
+        )
+        media_list = payload.get("data", {}).get("Page", {}).get("media", [])
+        for media in media_list:
+            if media.get("id"):
+                results[str(media["id"])] = media
+    return results
 
 
 def fetch_list(urlopen, read_json, token, status=None):

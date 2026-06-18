@@ -29,7 +29,7 @@ def make_progress_record(
         "id": record_id or uuid.uuid4().hex,
         "media_id": int(media_id) if media_id is not None else None,
         "title": title,
-        "progress": int(progress),
+        "progress": int(progress) if progress is not None else None,
         "status": status,
         "show_id": str((show or {}).get("_id") or ""),
         "ttype": translation_type,

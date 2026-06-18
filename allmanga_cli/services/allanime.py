@@ -1,7 +1,10 @@
 """AllAnime GraphQL queries and episode payload retrieval."""
 
 import json
+import logging
 import urllib.parse
+
+_logger = logging.getLogger(__name__)
 
 from ..core.api import SearchFailure
 from ..domain.episodes import normalize_episode_ids
@@ -16,7 +19,8 @@ SEARCH_QUERY = (
     "shows(search:$search limit:$limit page:$page "
     "translationType:$translationType countryOrigin:$countryOrigin)"
     "{edges{_id name englishName nativeName altNames thumbnail type "
-    "season score genres availableEpisodes status episodeCount airedStart}}}"
+    "season score genres availableEpisodes status episodeCount airedStart "
+    "aniListId malId}}}"
 )
 
 
@@ -47,7 +51,8 @@ def get_show(request_json, show_id):
     query = (
         "query($showId:String!){show(_id:$showId)"
         "{_id name englishName nativeName altNames thumbnail type season "
-        "score genres availableEpisodes status episodeCount airedStart}}"
+        "score genres availableEpisodes status episodeCount airedStart "
+        "aniListId malId}}"
     )
     response = request_json(
         API_BASE,
@@ -97,13 +102,21 @@ def fetch_episode_catalog(request_json, show_id, ttype="sub"):
         return {
             "state": "loaded",
             "ids": normalize_episode_ids(episodes),
+            "detail": detail,
             "error": "",
         }
-    except Exception:
+    except Exception as exc:
+        _logger.debug(
+            "fetch_episode_catalog(%r, %r) failed: %s",
+            show_id,
+            ttype,
+            exc,
+            exc_info=True,
+        )
         return {
             "state": "unavailable",
             "ids": [],
-            "error": "Could not load the provider episode catalog.",
+            "error": f"Could not load the provider episode catalog: {exc}",
         }
 
 
