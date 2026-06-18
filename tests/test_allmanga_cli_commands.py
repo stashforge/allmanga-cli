@@ -61,11 +61,13 @@ class CommandRouterTests(unittest.TestCase):
         history, _ = parse_cli_args(["history"])
         cont, _ = parse_cli_args(["continue"])
         login, _ = parse_cli_args(["auth", "login"])
+        completion, _ = parse_cli_args(["completion", "bash"])
 
         self.assertTrue(history.history)
         self.assertTrue(cont.cont)
         self.assertTrue(login.login)
         self.assertFalse(login.logout)
+        self.assertEqual(completion.completion_shell, "bash")
 
     def test_legacy_invocations_remain_supported(self):
         bare, _ = parse_cli_args(["slime", "-e", "3"])
@@ -93,12 +95,14 @@ class CommandRouterTests(unittest.TestCase):
         history_help = subparsers.choices["history"].format_help()
         continue_help = subparsers.choices["continue"].format_help()
         auth_help = subparsers.choices["auth"].format_help()
+        completion_help = subparsers.choices["completion"].format_help()
         anilist_search_help = build_anilist_search_parser().format_help()
 
         self.assertIn("allmanga-cli <command> [options]", root_help)
         self.assertIn("Global options:", root_help)
         self.assertIn("search", root_help)
         self.assertIn("anilist", root_help)
+        self.assertIn("completion", root_help)
         self.assertLess(root_help.index("Commands:"), root_help.index("Global options:"))
         self.assertNotIn("\n  <command>\n", root_help)
         self.assertIn("--episode", search_help)
@@ -124,6 +128,7 @@ class CommandRouterTests(unittest.TestCase):
         for help_text in (
             search_help, download_help, downloads_help, anilist_help,
             anilist_search_help, history_help, continue_help, auth_help,
+            completion_help,
         ):
             self.assertIn("Global options:", help_text)
             self.assertIn("Examples:", help_text)
@@ -136,6 +141,7 @@ class CommandRouterTests(unittest.TestCase):
         self.assertIn("Actions:", auth_help)
         self.assertLess(auth_help.index("Actions:"), auth_help.index("Arguments:"))
         self.assertNotIn("{login,logout}", auth_help)
+        self.assertIn("Shells:", completion_help)
 
     def test_help_colors_only_headers_and_option_flags_on_tty(self):
         with (

@@ -8,8 +8,11 @@ import sys
 _ANSI_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
 COMMAND_NAMES = {
-    "search", "download", "downloads", "anilist", "history", "continue", "auth",
+    "search", "download", "downloads", "anilist", "history", "continue",
+    "auth", "completion",
 }
+
+COMPLETION_SHELLS = ("bash", "zsh", "fish")
 
 def _help_color_enabled():
     return (
@@ -122,6 +125,7 @@ def _set_cli_defaults(parser):
         incognito=False,
         debug=False,
         json=False,
+        completion_shell=None,
     )
 
 def _add_debug_option(parser, *, suppress_default=False):
@@ -273,7 +277,8 @@ def build_command_parser():
             "  allmanga-cli search slime\n"
             "  allmanga-cli search slime -e 3 -q 1080p\n"
             "  allmanga-cli download slime -e 3\n"
-            "  allmanga-cli anilist watching\n\n"
+            "  allmanga-cli anilist watching\n"
+            "  allmanga-cli completion bash\n\n"
             "Run 'allmanga-cli <command> --help' for command-specific options."
         ),
         formatter_class=CommandHelpFormatter,
@@ -454,6 +459,38 @@ def build_command_parser():
         "-h", "--help", action="help", help="Show this help message and exit"
     )
 
+    completion = commands.add_parser(
+        "completion",
+        help="Generate shell completion",
+        usage="allmanga-cli completion <shell>",
+        description=(
+            "Generate shell completion for allmanga-cli.\n\n"
+            "Shells:\n"
+            "  bash          Bash completion script\n"
+            "  zsh           Zsh completion script\n"
+            "  fish          Fish completion script"
+        ),
+        epilog=(
+            "Examples:\n"
+            "  allmanga-cli completion bash\n"
+            "  allmanga-cli completion zsh\n"
+            "  allmanga-cli completion fish"
+        ),
+        add_help=False,
+        formatter_class=MinimalHelpFormatter,
+    )
+    _configure_help_parser(completion)
+    completion._positionals.title = "Arguments"
+    completion.add_argument(
+        "shell", metavar="<shell>", choices=COMPLETION_SHELLS,
+        help="Shell to generate completion for",
+    )
+    global_options = completion.add_argument_group("Global options")
+    _add_debug_option(global_options, suppress_default=True)
+    global_options.add_argument(
+        "-h", "--help", action="help", help="Show this help message and exit"
+    )
+
     return parser
 
 def build_anilist_search_parser():
@@ -537,4 +574,7 @@ def parse_cli_args(argv=None):
         args.login = args.action == "login"
         args.logout = args.action == "logout"
         del args.action
+    elif args.command == "completion":
+        args.completion_shell = args.shell
+        del args.shell
     return args, parser

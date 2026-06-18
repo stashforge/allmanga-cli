@@ -39,7 +39,8 @@ def run():
         )
         return 1
     finally:
-        sys.stdout.write("\033[?25h")
-        sys.stdout.flush()
+        if not getattr(app, "SUPPRESS_FINAL_CURSOR_RESTORE", False):
+            sys.stdout.write("\033[?25h")
+            sys.stdout.flush()
         app.flush_anilist_writes()
     return 0

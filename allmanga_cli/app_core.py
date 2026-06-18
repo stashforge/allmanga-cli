@@ -23,6 +23,7 @@ from allmanga_cli.cli.args import (
     build_legacy_parser,
     parse_cli_args,
 )
+from allmanga_cli.cli.completion import generate_completion
 from allmanga_cli.ui.picker import tui_pick
 from allmanga_cli.media.download import download_episode
 from allmanga_cli.media.dash import generate_dash_mpd, resolve_dash_raw_urls
@@ -2836,6 +2837,11 @@ def main():
     global all_streams, _bg_thread
 
     args, pa = parse_cli_args()
+    if getattr(args, "completion_shell", None):
+        globals()["SUPPRESS_FINAL_CURSOR_RESTORE"] = True
+        print(generate_completion(args.completion_shell), end="")
+        return
+
     check_deps()
     cfg = load_config()
 
@@ -2903,8 +2909,10 @@ def main():
 
     def warn_before_tui(message):
         print(f"\n{YELLOW}{message}{RESET}")
-        print("Continuing in 3 seconds...")
-        time.sleep(3)
+        for remaining in range(3, 0, -1):
+            print(f"\rContinuing in {remaining}...", end="", flush=True)
+            time.sleep(1)
+        print("\rContinuing now.   ")
 
     if args.sync and not args.no_sync:
         if args.history or args.cont:
