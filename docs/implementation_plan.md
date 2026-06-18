@@ -505,12 +505,10 @@ Implemented in backup `126-anilist-menu-navigation`.
 
 Implemented in backup `081-per-title-anilist-sync`.
 
-- `-t, --sync` enables and remembers sync per title.
-- `--track` and `--no-track` remain compatibility aliases.
-- `--no-sync` disables sync for the current run.
+- `-t, --sync` enables AniList sync for playback.
+- `--no-sync` disables AniList sync for the current run.
 - Anime Details can toggle persistent sync outside AniList-owned menus.
-- Local and AniList progress are stored and displayed separately.
-- Local playback follows local history; AniList-ahead conflicts offer both continue points.
+- Local and AniList playback histories are isolated.
 - Automatic sync does not reduce normal AniList progress.
 - Provider episode IDs remain real IDs for playback while AniList progress uses episode order.
 - Synced titles use AniList names; local-only titles use source names.

@@ -1,6 +1,8 @@
 import os
 import sys
 import unittest
+from contextlib import redirect_stderr
+from io import StringIO
 from unittest.mock import patch
 
 from tests.app_namespace import load_app_namespace
@@ -22,6 +24,17 @@ class CommandRouterTests(unittest.TestCase):
         self.assertEqual(args.quality, "1080p")
         self.assertTrue(args.sync)
         self.assertFalse(args.download)
+
+    def test_track_aliases_are_not_supported(self):
+        with redirect_stderr(StringIO()):
+            with self.assertRaises(SystemExit):
+                parse_cli_args(["search", "slime", "--track"])
+            with self.assertRaises(SystemExit):
+                parse_cli_args(["search", "slime", "--no-track"])
+            with self.assertRaises(SystemExit):
+                parse_cli_args(["slime", "--track"])
+            with self.assertRaises(SystemExit):
+                parse_cli_args(["slime", "--no-track"])
 
     def test_download_and_library_commands_are_distinct(self):
         download, _ = parse_cli_args(["download", "slime", "-e", "2-4"])

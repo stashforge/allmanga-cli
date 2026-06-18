@@ -158,11 +158,11 @@ def _add_search_options(parser):
 
     tracking = parser.add_argument_group("Tracking options")
     tracking.add_argument(
-        "-t", "--sync", "--track", dest="sync", action="store_true",
+        "-t", "--sync", dest="sync", action="store_true",
         help="Enable AniList sync",
     )
     tracking.add_argument(
-        "--no-sync", "--no-track", dest="no_sync", action="store_true",
+        "--no-sync", dest="no_sync", action="store_true",
         help="Disable AniList sync",
     )
 
@@ -241,11 +241,11 @@ def _add_resume_options(parser):
 
     tracking = parser.add_argument_group("Tracking options")
     tracking.add_argument(
-        "-t", "--sync", "--track", dest="sync", action="store_true",
+        "-t", "--sync", dest="sync", action="store_true",
         help="Enable AniList sync",
     )
     tracking.add_argument(
-        "--no-sync", "--no-track", dest="no_sync", action="store_true",
+        "--no-sync", dest="no_sync", action="store_true",
         help="Disable AniList sync",
     )
 
@@ -491,8 +491,8 @@ def build_legacy_parser():
     parser.add_argument("-s", "--sources", action="store_true", help="Fetch and select mirrors on first episode")
     parser.add_argument("-d", "--download", action="store_true", help="Download episode(s) locally instead of streaming")
     parser.add_argument("--downloads", action="store_true", help="Browse and play downloaded episodes from download_dir")
-    parser.add_argument("-t", "--sync", "--track", dest="sync", action="store_true", help="Enable and remember AniList sync for this title")
-    parser.add_argument("--no-sync", "--no-track", dest="no_sync", action="store_true", help="Disable AniList sync for this run")
+    parser.add_argument("-t", "--sync", dest="sync", action="store_true", help="Enable and remember AniList sync for this title")
+    parser.add_argument("--no-sync", dest="no_sync", action="store_true", help="Disable AniList sync for this run")
     parser.add_argument("--login", action="store_true", help="Login to AniList")
     parser.add_argument("--logout", action="store_true", help="Logout of AniList")
     parser.add_argument("--print-url", action="store_true")
