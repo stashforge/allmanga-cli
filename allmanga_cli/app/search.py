@@ -360,8 +360,26 @@ def handle_search_state(
         return "SEARCH"
     else:
         s = shows[idx]
+        if args.sync and not args.no_sync and cfg.get("anilist_token"):
+            matched = app_core.with_loading(
+                "Matching title on AniList...",
+                app_core.match_allanime_show_to_anilist,
+                flags,
+                ui,
+                s,
+                cfg["anilist_token"],
+                False,
+            )
+            if not matched:
+                matched = app_core._run_manual_anilist_match(
+                    flags, ui, s, cfg["anilist_token"]
+                )
+            if matched:
+                s = matched
+
         ms.show_id = s["_id"]
-        ms.show_title = get_show_display_title(s)
+        sync_enabled = bool(args.sync and not args.no_sync and app_core.get_show_anilist_id(s))
+        ms.show_title = get_show_display_title(s, sync_enabled=sync_enabled)
         ms.total_eps = s.get("availableEpisodes", {}).get(ttype, 0)
         episode_ids = app_core.load_episode_ids_for_selection(s, ttype)
         ms.total_eps = len(episode_ids) or ms.total_eps
@@ -385,4 +403,6 @@ def handle_search_state(
             ms.current_ep_index = 0
             ms.current_ep = episode_id_at(episode_ids, 0)
 
+        if sync_enabled:
+            return "DETAILS"
         return "EPISODE"

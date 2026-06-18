@@ -71,7 +71,7 @@ def handle_details_state(
     has_token = bool(cfg.get("anilist_token")) and not flags.incognito_mode
     has_anilist_link = bool(app_core.get_show_anilist_id(s))
 
-    should_use_anilist_data = has_token and has_anilist_link and from_anilist_context
+    should_use_anilist_data = has_token and has_anilist_link and (from_anilist_context or use_anilist)
 
     if should_use_anilist_data:
         media = app_core.with_loading(
@@ -177,7 +177,7 @@ def handle_details_state(
     parsed = parse_episode_label(current_ep_label)
     al_prog = s.get("_anilist_progress", 0) if use_anilist else 0
 
-    show_anilist_actions = has_token and has_anilist_link and from_anilist_context
+    show_anilist_actions = has_token and has_anilist_link and (from_anilist_context or use_anilist)
     show_sync_toggle = False
     show_link_action = False
 

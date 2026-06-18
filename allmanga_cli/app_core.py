@@ -2901,6 +2901,30 @@ def main():
     )
     ui = UiState()
 
+    def warn_before_tui(message):
+        print(f"\n{YELLOW}{message}{RESET}")
+        print("Continuing in 3 seconds...")
+        time.sleep(3)
+
+    if args.sync and not args.no_sync:
+        if args.history or args.cont:
+            warn_before_tui(
+                "--sync only applies to searched titles. History and continue stay local."
+            )
+            args.sync = False
+            globals()["SYNC_FORCE_ON"] = False
+            flags.sync_force_on = False
+        elif not cfg.get("anilist_token") and not args.anilist:
+            warn_before_tui(
+                "--sync needs AniList login. Sync is disabled for this session."
+            )
+            args.sync = False
+            args.no_sync = True
+            globals()["SYNC_FORCE_ON"] = False
+            globals()["SYNC_FORCE_OFF"] = True
+            flags.sync_force_on = False
+            flags.sync_force_off = True
+
     if args.downloads:
         browse_download_library(flags, ui, cfg, args)
         sys.exit(0)
@@ -2910,6 +2934,9 @@ def main():
 
         if getattr(args, "no_sync", False):
             return False
+
+        if getattr(args, "sync", False) and ctx == "SEARCH":
+            return bool(cfg.get("anilist_token") and show and get_show_anilist_id(show))
 
         if ctx in ("ANILIST_BROWSE", "ANILIST_SEARCH"):
             return bool(cfg.get("anilist_token") and show and get_show_anilist_id(show))
