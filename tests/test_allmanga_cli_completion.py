@@ -75,6 +75,37 @@ class PlaybackCompletionTests(unittest.TestCase):
 
         self.assertEqual(tracking_status_for_progress(show, 12), "COMPLETED")
 
+    def test_watching_from_inactive_lists_moves_to_current(self):
+        for list_status in ("PLANNING", "PAUSED", "DROPPED"):
+            with self.subTest(list_status=list_status):
+                show = {
+                    "status": "RELEASING",
+                    "episodeCount": 12,
+                    "_anilist_list": list_status,
+                }
+
+                self.assertEqual(tracking_status_for_progress(show, 3), "CURRENT")
+
+    def test_current_and_repeating_do_not_get_rewritten_on_partial_progress(self):
+        for list_status in ("CURRENT", "REPEATING"):
+            with self.subTest(list_status=list_status):
+                show = {
+                    "status": "RELEASING",
+                    "episodeCount": 12,
+                    "_anilist_list": list_status,
+                }
+
+                self.assertIsNone(tracking_status_for_progress(show, 3))
+
+    def test_completed_list_rewatch_moves_to_repeating_until_finished_again(self):
+        show = {
+            "status": "FINISHED",
+            "episodeCount": 12,
+            "_anilist_list": "COMPLETED",
+        }
+
+        self.assertEqual(tracking_status_for_progress(show, 3), "REPEATING")
+
 
 if __name__ == "__main__":
     unittest.main()
