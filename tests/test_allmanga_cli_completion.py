@@ -1,5 +1,6 @@
 import unittest
 from tests.app_namespace import load_app_namespace
+from allmanga_cli.domain.tracking import tracking_status_for_progress
 namespace = load_app_namespace()
 looks_complete = namespace["playback_looks_complete"]
 updates_history = namespace["playback_updates_history"]
@@ -54,6 +55,25 @@ class PlaybackCompletionTests(unittest.TestCase):
             actively_advancing({**base, "paused-for-cache": True}, True)
         )
         self.assertFalse(actively_advancing(base, False))
+
+    def test_releasing_unknown_total_never_auto_completes_anilist(self):
+        show = {
+            "status": "RELEASING",
+            "episodeCount": None,
+            "availableEpisodes": {"sub": 8},
+            "_anilist_list": "CURRENT",
+        }
+
+        self.assertIsNone(tracking_status_for_progress(show, 8))
+
+    def test_finished_known_total_can_auto_complete_anilist(self):
+        show = {
+            "status": "FINISHED",
+            "episodeCount": 12,
+            "_anilist_list": "CURRENT",
+        }
+
+        self.assertEqual(tracking_status_for_progress(show, 12), "COMPLETED")
 
 
 if __name__ == "__main__":

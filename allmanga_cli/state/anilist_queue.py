@@ -23,6 +23,7 @@ def make_progress_record(
         translation_type,
         pending_completion=None,
         *,
+        date_updates=None,
         record_id=None,
         created_at=None):
     record = {
@@ -40,6 +41,12 @@ def make_progress_record(
     }
     if pending_completion:
         record["pending_completion"] = pending_completion
+    if date_updates:
+        record.update({
+            key: value
+            for key, value in date_updates.items()
+            if key in ("started_at", "completed_at") and value
+        })
     return record
 
 

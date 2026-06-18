@@ -163,6 +163,38 @@ class AniListQueueTests(unittest.TestCase):
             {"show_id": "provider-1", "episode": "1"},
         )
 
+    def test_queue_records_missing_start_date_for_later_retry(self):
+        self.globals["scrobble_anilist"] = lambda *args, **kwargs: False
+        show = self.show()
+
+        self.ns["queue_anilist_progress"](
+            "token", "Queue Test", 1, 123, show, "sub", "CURRENT"
+        )
+        self.assertTrue(self.ns["flush_anilist_writes"](2))
+
+        queued = self.queue_file()
+        self.assertEqual(len(queued), 1)
+        self.assertIn("started_at", queued[0])
+        self.assertNotIn("completed_at", queued[0])
+
+    def test_queue_records_completed_date_when_marking_completed(self):
+        self.globals["scrobble_anilist"] = lambda *args, **kwargs: False
+        show = {
+            **self.show(),
+            "status": "FINISHED",
+            "episodeCount": 3,
+        }
+
+        self.ns["queue_anilist_progress"](
+            "token", "Queue Test", 3, 123, show, "sub", "COMPLETED"
+        )
+        self.assertTrue(self.ns["flush_anilist_writes"](2))
+
+        queued = self.queue_file()
+        self.assertEqual(len(queued), 1)
+        self.assertIn("started_at", queued[0])
+        self.assertIn("completed_at", queued[0])
+
 
 if __name__ == "__main__":
     unittest.main()

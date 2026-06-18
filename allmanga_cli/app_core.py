@@ -6,6 +6,7 @@ allmanga-cli — Terminal anime stream player (AllAnime / AllManga)
 import sys, shutil, threading, os, re, json, time
 import hashlib, subprocess
 import tty, termios, select, signal, atexit, tempfile, getpass, traceback
+from datetime import date
 from typing import Optional
 
 from allmanga_cli.core.api import (
@@ -386,12 +387,18 @@ def sync_progress_and_checkpoint(token, title, progress, media_id, show, ttype, 
     existing = show.get("_anilist_progress")
     prog_to_send = progress if should_update_anilist_progress(existing, progress) else None
 
-    if not scrobble_anilist(token, title, prog_to_send, media_id=media_id, status=status):
+    if not scrobble_anilist(
+        token,
+        title,
+        prog_to_send,
+        media_id=media_id,
+        status=status,
+        show=show,
+    ):
         return False
 
     if progress is not None:
         apply_tracking_progress_local(show, progress, status)
-        set_last_synced_progress(show, progress, ttype)
     else:
         if status:
             show["_anilist_list"] = status
@@ -1442,7 +1449,15 @@ def prompt_anilist_token():
     return getpass.getpass(f"\n{BOLD}Paste AniList Token: {RESET}").strip()
 
 # ── AniList Tracking ──────────────────────────────────────────────────────────
-def scrobble_anilist(token, title, ep, media_id=None, status=None):
+def scrobble_anilist(
+        token,
+        title,
+        ep,
+        media_id=None,
+        status=None,
+        show=None,
+        started_at=None,
+        completed_at=None):
     try:
         if media_id is None:
             media_id = anilist_service.search_media_id(
@@ -1451,14 +1466,71 @@ def scrobble_anilist(token, title, ep, media_id=None, status=None):
                 title,
             )
 
-        return update_anilist_entry(token, int(media_id), progress=ep, status=status)
+        return update_anilist_entry(
+            token,
+            int(media_id),
+            progress=ep,
+            status=status,
+            show=show,
+            started_at=started_at,
+            completed_at=completed_at,
+        )
     except Exception:
         return False
 
-def update_anilist_entry(token, media_id, progress=None, status=None, score=None):
+def _fuzzy_date_has_value(value):
+    return bool(
+        isinstance(value, dict)
+        and value.get("year")
+        and value.get("month")
+        and (value.get("day") or value.get("date"))
+    )
+
+def _today_fuzzy_date():
+    today = date.today()
+    return {
+        "year": today.year,
+        "month": today.month,
+        "day": today.day,
+    }
+
+def _anilist_date_updates(show, progress=None, status=None):
+    updates = {}
+    normalized_status = str(status or "").upper()
+    try:
+        progress_value = int(progress) if progress is not None else None
+    except (TypeError, ValueError):
+        progress_value = None
+    should_start = (
+        (progress_value is not None and progress_value > 0)
+        or normalized_status in {"CURRENT", "REPEATING", "COMPLETED"}
+    )
+    if should_start and not _fuzzy_date_has_value(show.get("_anilist_started_at")):
+        updates["started_at"] = _today_fuzzy_date()
+    if (
+        normalized_status == "COMPLETED"
+        and not _fuzzy_date_has_value(show.get("_anilist_completed_at"))
+    ):
+        updates["completed_at"] = _today_fuzzy_date()
+    return updates
+
+def update_anilist_entry(
+        token,
+        media_id,
+        progress=None,
+        status=None,
+        score=None,
+        show=None,
+        started_at=None,
+        completed_at=None):
     if is_incognito():
         return False
     try:
+        date_updates = _anilist_date_updates(show or {}, progress, status)
+        if started_at is not None:
+            date_updates["started_at"] = started_at
+        if completed_at is not None:
+            date_updates["completed_at"] = completed_at
         res = anilist_service.update_entry(
             anilist_urlopen,
             read_json_response,
@@ -1467,10 +1539,17 @@ def update_anilist_entry(token, media_id, progress=None, status=None, score=None
             progress=progress,
             status=status,
             score=score,
+            **date_updates,
         )
         if res.get("errors"):
             debug_warn("AniList update returned errors", res.get("errors"))
             return False
+        entry = (res.get("data") or {}).get("SaveMediaListEntry") or {}
+        if show is not None and entry:
+            if entry.get("startedAt"):
+                show["_anilist_started_at"] = entry["startedAt"]
+            if entry.get("completedAt"):
+                show["_anilist_completed_at"] = entry["completedAt"]
         _anilist_list_cache.clear()
         _anilist_search_cache.clear()
         return True
@@ -1515,6 +1594,7 @@ def _anilist_mutation_key(record):
 
 def _enqueue_anilist_progress(media_id, title, progress, status, show, ttype,
                               pending_completion=None):
+    date_updates = _anilist_date_updates(show or {}, progress, status)
     record = anilist_queue_state.make_progress_record(
         media_id,
         title,
@@ -1523,6 +1603,7 @@ def _enqueue_anilist_progress(media_id, title, progress, status, show, ttype,
         show,
         ttype,
         pending_completion,
+        date_updates=date_updates,
     )
     with _anilist_queue_lock:
         records = anilist_queue_state.replace_progress_record(
@@ -1550,29 +1631,7 @@ def _remove_queued_mutation(mutation_id):
         ))
 
 def _checkpoint_queued_progress(record):
-    global _history_cache
-    show_id = str(record.get("show_id") or "")
-    if not show_id:
-        return
-    prog_val = record.get("progress")
-    progress = max(0, int(prog_val)) if prog_val is not None else None
-    ttype = record.get("ttype") or "sub"
-    history = load_history()
-    changed = False
-    for entry in history:
-        stored_show = entry.get("show", {})
-        if (str(stored_show.get("_id") or "") == show_id
-                and entry.get("translation_type", "sub") == ttype):
-            if progress is not None:
-                entry["last_synced_progress"] = progress
-                stored_show["_anilist_progress"] = progress
-            if record.get("status"):
-                stored_show["_anilist_list"] = record["status"]
-            changed = True
-            break
-    if changed:
-        _atomic_write_json(HISTORY_PATH, sanitize_history_list(history), indent=2)
-        _history_cache = history
+    return None
 
 def _finish_queued_pending_completion(record):
     completion = record.get("pending_completion") or {}
@@ -1612,6 +1671,9 @@ def _run_queued_anilist_progress(record, token, show=None,
             prog_int,
             media_id=record.get("media_id"),
             status=record.get("status"),
+            show=show,
+            started_at=record.get("started_at"),
+            completed_at=record.get("completed_at"),
         )
         if success:
             if show is not None:
@@ -1619,7 +1681,6 @@ def _run_queued_anilist_progress(record, token, show=None,
                     apply_tracking_progress_local(
                         show, prog_int, record.get("status")
                     )
-                    set_last_synced_progress(show, prog_int, record.get("ttype") or "sub")
                 else:
                     if record.get("status"):
                         show["_anilist_list"] = record.get("status")
@@ -1771,16 +1832,12 @@ def _push_local_progress(show, ttype, token, progress):
         int(al_id),
         progress=prog_to_send,
         status=status,
+        show=show,
     ):
         return {"action": "failed", "progress": progress}
 
     if progress is not None:
         apply_tracking_progress_local(show, int(progress), status)
-        write_history_progress(
-            show, int(progress), ttype,
-            last_synced=int(progress),
-            touch=False,
-        )
     else:
         if status:
             show["_anilist_list"] = status
@@ -2848,34 +2905,17 @@ def main():
         show = show or get_ui_show(ui)
 
         if getattr(args, "no_sync", False):
-            if show and get_show_anilist_id(show):
-                set_title_sync(show, False)
             return False
 
         if ctx in ("ANILIST_BROWSE", "ANILIST_SEARCH"):
             return bool(cfg.get("anilist_token") and show and get_show_anilist_id(show))
 
-        if not show:
-            return False
-
-        if not cfg.get("anilist_token"):
-            return False
-
-        al_id = get_show_anilist_id(show)
-
-        if getattr(args, "sync", False):
-            return bool(al_id)
-
-        title_pref = get_title_sync_preference(show)
-        if title_pref is not None:
-            return bool(title_pref and al_id)
-
-        return bool(cfg.get("auto_track", False) and al_id)
+        return False
 
     globals()["resolveTracking"] = resolveTracking
 
-    # We will evaluate tracking dynamically, but we still need to prompt for token if tracking is requested anywhere
-    if (cfg.get("auto_track", False) or args.sync or args.anilist) and not args.no_sync and not cfg.get("anilist_token"):
+    # AniList user data requires a token. Normal AllAnime watching stays local.
+    if args.anilist and not args.no_sync and not cfg.get("anilist_token"):
         print(f"\n{YELLOW}AniList tracking needs a token.{RESET}")
         print("Open this link, sign in, and copy the token:")
         print("\033[4mhttps://anilist.co/api/v2/oauth/authorize?client_id=9857&response_type=token\033[0m")

@@ -373,33 +373,4 @@ def handle_search_state(
             ms.current_ep_index = 0
             ms.current_ep = episode_id_at(episode_ids, 0)
 
-        # Smart Play Logic
-        sync_requested = (
-            bool(getattr(args, "sync", False))
-            or bool(cfg.get("auto_track", False))
-            or app_core.get_title_sync_preference(s) is True
-        )
-
-        if sync_requested and cfg.get("anilist_token") and not flags.incognito_mode:
-            matched = app_core.with_loading(
-                f"Matching AniList: {s.get('name', 'Unknown')}",
-                app_core.match_allanime_show_to_anilist,
-                flags, ui, s, cfg["anilist_token"],
-                bool(getattr(args, "sync", False)),
-            )
-
-            if matched:
-                s = matched
-                ui.ui_show_ctx = matched
-                ms.show_id = matched["_id"]
-                app_core.set_title_sync(matched, True)
-                app_core.prepare_show_display_state(matched, ttype, True)
-                ms.show_title = get_show_display_title(matched, sync_enabled=True)
-                return "DETAILS"
-
-            if getattr(args, "sync", False):
-                app_core.set_action_feedback(s, "AniList match not found. Continuing local-only.")
-            ms.query_str = ""
-
-        # If no Smart Play, go to Episodes list
         return "EPISODE"

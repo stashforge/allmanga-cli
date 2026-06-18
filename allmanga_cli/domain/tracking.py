@@ -14,18 +14,12 @@ def tracking_status_for_play(show):
 
 def tracking_status_for_progress(show, progress):
     total = positive_int(show.get("episodeCount"))
-    if not total:
-        episode_ids = show.get("_episode_ids") or []
-        total = len(episode_ids) or None
-    if not total:
-        available = show.get("availableEpisodes") or {}
-        totals = [positive_int(value) for value in available.values()]
-        total = max((value for value in totals if value), default=None)
     try:
         progress = max(0, int(progress))
     except (TypeError, ValueError):
         progress = 0
-    if total and progress >= total:
+    media_finished = str(show.get("status") or "").upper() == "FINISHED"
+    if media_finished and total and progress >= total:
         return "COMPLETED"
     return tracking_status_for_play(show)
 

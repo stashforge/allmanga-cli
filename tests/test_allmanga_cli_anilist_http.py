@@ -3,6 +3,7 @@ from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
 
+from allmanga_cli.services import anilist as anilist_service
 from tests.app_namespace import load_app_namespace
 
 APP = Path(__file__).resolve().parents[1] / "allmanga_cli" / "app.py"
@@ -138,7 +139,42 @@ class AniListHttpTests(unittest.TestCase):
             "            anilist_urlopen,\n"
             "            read_json_response,",
             source,
+
         )
+
+    def test_update_entry_sends_start_and_completed_dates(self):
+        observed = {}
+
+        def urlopen(request, payload):
+            observed.update(json_payload=payload.decode())
+            return FakeContext({"data": {"SaveMediaListEntry": {"id": 1}}})
+
+        anilist_service.update_entry(
+            urlopen,
+            lambda response: response.data,
+            "token",
+            123,
+            progress=12,
+            status="COMPLETED",
+            started_at={"year": 2026, "month": 6, "day": 18},
+            completed_at={"year": 2026, "month": 6, "day": 18},
+        )
+
+        self.assertIn("startedAt", observed["json_payload"])
+        self.assertIn("completedAt", observed["json_payload"])
+        self.assertIn('"startedAt": {"year": 2026, "month": 6, "day": 18}', observed["json_payload"])
+        self.assertIn('"completedAt": {"year": 2026, "month": 6, "day": 18}', observed["json_payload"])
+
+
+class FakeContext:
+    def __init__(self, data):
+        self.data = data
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
 
 
 if __name__ == "__main__":

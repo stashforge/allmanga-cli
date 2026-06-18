@@ -73,6 +73,8 @@ def normalize_media(media, *, list_name=None, entry=None):
         show["_anilist_progress"] = entry.get("progress")
         if entry.get("updatedAt") is not None:
             show["_anilist_updated_at"] = entry.get("updatedAt")
+        show["_anilist_started_at"] = entry.get("startedAt") or {}
+        show["_anilist_completed_at"] = entry.get("completedAt") or {}
     if list_name:
         show["_anilist_list"] = list_name
     list_entry = media.get("mediaListEntry")
@@ -80,6 +82,9 @@ def normalize_media(media, *, list_name=None, entry=None):
         show["_anilist_list"] = list_entry.get("status")
         show["_anilist_progress"] = list_entry.get("progress")
         show["_anilist_score"] = list_entry.get("score")
+        show["_anilist_entry_id"] = list_entry.get("id")
+        show["_anilist_started_at"] = list_entry.get("startedAt") or {}
+        show["_anilist_completed_at"] = list_entry.get("completedAt") or {}
     else:
         show["_anilist_progress"] = 0
         show["_anilist_list"] = ""
@@ -123,6 +128,10 @@ def apply_media_update(anime, media):
         anime["_anilist_progress"] = max(0, int(list_entry["progress"]))
     if list_entry.get("status"):
         anime["_anilist_list"] = list_entry["status"]
+    if list_entry:
+        anime["_anilist_entry_id"] = list_entry.get("id")
+        anime["_anilist_started_at"] = list_entry.get("startedAt") or {}
+        anime["_anilist_completed_at"] = list_entry.get("completedAt") or {}
 
     start = media.get("startDate") or {}
     if start.get("year"):
@@ -278,6 +287,8 @@ def fetch_list(urlopen, read_json, token, status=None):
           entries {
             progress
             updatedAt
+            startedAt { year month day }
+            completedAt { year month day }
             media {
               id
               title { romaji english native }
@@ -335,6 +346,8 @@ def search(urlopen, read_json, token, query_text):
           mediaListEntry {
             status
             progress
+            startedAt { year month day }
+            completedAt { year month day }
           }
         }
       }
@@ -373,11 +386,32 @@ def update_entry(
         *,
         progress=None,
         status=None,
-        score=None):
+        score=None,
+        started_at=None,
+        completed_at=None):
     query = """
-    mutation($id:Int, $p:Int, $s:MediaListStatus, $score:Int) {
-      SaveMediaListEntry(mediaId:$id, progress:$p, status:$s, scoreRaw:$score) {
-        id progress status score(format: POINT_100)
+    mutation(
+      $id:Int,
+      $p:Int,
+      $s:MediaListStatus,
+      $score:Int,
+      $startedAt:FuzzyDateInput,
+      $completedAt:FuzzyDateInput
+    ) {
+      SaveMediaListEntry(
+        mediaId:$id,
+        progress:$p,
+        status:$s,
+        scoreRaw:$score,
+        startedAt:$startedAt,
+        completedAt:$completedAt
+      ) {
+        id
+        progress
+        status
+        score(format: POINT_100)
+        startedAt { year month day }
+        completedAt { year month day }
       }
     }
     """
@@ -388,4 +422,8 @@ def update_entry(
         variables["s"] = status
     if score is not None:
         variables["score"] = int(score)
+    if started_at is not None:
+        variables["startedAt"] = started_at
+    if completed_at is not None:
+        variables["completedAt"] = completed_at
     return _post(urlopen, read_json, query, variables, token)

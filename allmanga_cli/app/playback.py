@@ -350,8 +350,11 @@ def handle_play_state(
                 app_core.save_resume_time(ms.show_id, pending_ep, 0)
                 app_core.clear_pending_completion(ms.show_id)
 
-        should_update_history = playback_updates_history(
+        should_update_history = (
+            not sync_enabled
+            and playback_updates_history(
             result, percent, time_pos, duration, played_seconds
+            )
         )
         if should_update_history:
             app_core.save_history(ui.ui_show_ctx, ms.current_ep, ttype)
@@ -600,16 +603,15 @@ def handle_action_menu_state(
             progress_ep = episode_progress_number(ms.current_ep, ms.current_ep_index + 1)
             al_id = app_core.get_show_anilist_id(action_show)
             result = app_core.with_loading(
-                f"Saving locally and syncing AniList: EP {ms.current_ep}…",
-                app_core.save_and_sync_watched,
-                action_show, ms.current_ep, ttype,
-                tkn, ms.show_title, progress_ep, al_id
+                f"Syncing AniList progress: EP {progress_ep}…",
+                app_core.sync_watched_to_anilist,
+                tkn, ms.show_title, progress_ep, al_id, action_show, ttype,
             )
-            if isinstance(result, dict):
-                if result.get("status") in ("synced", "skipped"):
-                    synced = True
-            elif result:
+            if result:
                 synced = True
+                app_core.set_action_feedback(action_show, f"AniList synced: EP {progress_ep} watched.")
+            else:
+                app_core.set_action_feedback(action_show, "AniList sync failed.")
         else:
             app_core.with_loading(
                 f"Saving EP {ms.current_ep} locally…",

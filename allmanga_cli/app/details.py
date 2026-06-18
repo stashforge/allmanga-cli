@@ -71,7 +71,7 @@ def handle_details_state(
     has_token = bool(cfg.get("anilist_token")) and not flags.incognito_mode
     has_anilist_link = bool(app_core.get_show_anilist_id(s))
 
-    should_use_anilist_data = has_token and has_anilist_link and (from_anilist_context or use_anilist)
+    should_use_anilist_data = has_token and has_anilist_link and from_anilist_context
 
     if should_use_anilist_data:
         media = app_core.with_loading(
@@ -177,9 +177,9 @@ def handle_details_state(
     parsed = parse_episode_label(current_ep_label)
     al_prog = s.get("_anilist_progress", 0) if use_anilist else 0
 
-    show_anilist_actions = has_token and has_anilist_link and (from_anilist_context or use_anilist)
-    show_sync_toggle = has_token and has_anilist_link and not from_anilist_context
-    show_link_action = has_token and (from_anilist_context or use_anilist or getattr(flags, "sync_force_on", False) or getattr(args, "sync", False))
+    show_anilist_actions = has_token and has_anilist_link and from_anilist_context
+    show_sync_toggle = False
+    show_link_action = False
 
 
     if episode_ids and (playback_status == "COMPLETED" or (total and current_num >= total)):
@@ -210,9 +210,6 @@ def handle_details_state(
         opts.append("Progress")
         opts.extend(["Status", "Rate"])
 
-    if show_sync_toggle:
-        opts.append("AniList Sync")
-
     opts.extend(["Back", "Quit"])
 
     al_status = str(s.get("_anilist_list") or "").title() or "None"
@@ -237,7 +234,6 @@ def handle_details_state(
         "Progress": prog_hint,
         "Status": al_status,
         "Rate": score_str,
-        "AniList Sync": "On" if use_anilist else "Off",
         "Back": "return to previous screen",
         "Quit": "exit program"
     }
@@ -398,34 +394,6 @@ def handle_details_state(
         elif opt == "Progress":
             return "UPDATE_PROGRESS"
 
-        elif opt == "AniList Sync":
-            new_sync = not bool(use_anilist)
-            args.sync = False
-            args.no_sync = False
-            flags.sync_force_on = False
-            flags.sync_force_off = False
-            app_core.set_title_sync(s, new_sync)
-            app_core.prepare_show_display_state(s, ttype_local, new_sync)
-
-            if not new_sync:
-                s.pop("_sync_conflict", None)
-                s["_progress_authority"] = "LOCAL"
-            else:
-                al_id = app_core.get_show_anilist_id(s)
-                if cfg.get("anilist_token") and al_id:
-                    media = app_core.with_loading(
-                        "Refreshing AniList entry…",
-                        app_core.fetch_anilist_media,
-                        cfg.get("anilist_token"),
-                        al_id,
-                    )
-                    if media:
-                        app_core.update_anime_from_anilist_media(s, media)
-                s["_progress_authority"] = "AL"
-
-            ms.show_title = get_show_display_title(s, sync_enabled=new_sync)
-            return "DETAILS"
-
         elif opt == "Status":
             return "UPDATE_STATUS"
 
@@ -532,17 +500,12 @@ def handle_update_progress_state(
             cfg["anilist_token"],
             int(al_id),
             progress=next_progress,
-            status=status_value
+            status=status_value,
+            show=s,
         )
         if updated:
             apply_tracking_progress_local(s, next_progress, status_value)
-            if resolve_tracking_fn(ui.search_prev_state, args, cfg, s):
-                app_core.write_history_progress(
-                    s, next_progress, ttype_local,
-                    last_synced=next_progress,
-                    touch=True,
-                )
-                s["_progress_authority"] = "AL"
+            s["_progress_authority"] = "AL"
             app_core.set_action_feedback(s, f"AniList synced: EP {next_progress} watched.")
         else:
             app_core.err("AniList sync failed.")
@@ -604,18 +567,14 @@ def handle_update_status_state(
                 cfg["anilist_token"],
                 int(al_id),
                 progress=progress_value,
-                status=status_value
+                status=status_value,
+                show=s,
             )
 
             if updated:
                 s["_anilist_list"] = status_value
                 if progress_value is not None:
                     apply_tracking_progress_local(s, progress_value, status_value)
-                    app_core.write_history_progress(
-                        s, progress_value, ttype_local,
-                        last_synced=progress_value,
-                        touch=True,
-                    )
                     s["_progress_authority"] = "AL"
                     app_core.set_action_feedback(
                         s,
@@ -664,7 +623,8 @@ def handle_update_score_state(
                 app_core.update_anilist_entry,
                 cfg["anilist_token"],
                 int(al_id),
-                score=int(opts[idx]) * 10
+                score=int(opts[idx]) * 10,
+                show=s,
             )
             if not updated:
                 app_core.err(f"Could not update AniList score to {opts[idx]}/10.")

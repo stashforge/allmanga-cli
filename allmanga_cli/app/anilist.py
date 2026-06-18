@@ -406,9 +406,19 @@ def handle_anilist_search_state(
             episode_ids = app_core.load_episode_ids_for_selection(matched, ttype)
             ms.total_eps = len(episode_ids) or ms.total_eps
 
-            h = next((x for x in app_core.load_history() if x.get("show", {}).get("_id") == ms.show_id and x.get("translation_type") == ttype), None)
-            if h:
-                ms.current_ep = app_core.playback_ep_from_history_entry(h, ttype)
+            try:
+                al_progress = max(0, int(matched.get("_anilist_progress") or 0))
+            except (TypeError, ValueError):
+                al_progress = 0
+            current_label = (
+                app_core.episode_id_for_progress(matched, ttype, al_progress)
+                if al_progress > 0 else None
+            )
+            current_idx = episode_index_for_id(episode_ids, current_label) if current_label else None
+            if current_idx is not None and current_idx + 1 < len(episode_ids):
+                ms.current_ep = episode_id_at(episode_ids, current_idx + 1)
+            elif current_idx is not None:
+                ms.current_ep = episode_id_at(episode_ids, current_idx)
             else:
                 ms.current_ep = episode_id_at(episode_ids, 0)
 
