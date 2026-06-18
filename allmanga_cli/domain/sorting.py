@@ -21,6 +21,12 @@ def next_anilist_sort_mode(mode):
     return ANILIST_SORT_MODES[(index + 1) % len(ANILIST_SORT_MODES)]
 
 
+def previous_anilist_sort_mode(mode):
+    mode = normalize_anilist_sort_mode(mode)
+    index = ANILIST_SORT_MODES.index(mode)
+    return ANILIST_SORT_MODES[(index - 1) % len(ANILIST_SORT_MODES)]
+
+
 def _sort_int(value):
     try:
         return int(value or 0)

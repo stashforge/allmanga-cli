@@ -18,9 +18,10 @@ from ..domain.sorting import (
     ANILIST_SORT_LABELS,
     next_anilist_sort_mode,
     normalize_anilist_sort_mode,
+    previous_anilist_sort_mode,
     sort_anilist_shows,
 )
-from ..ui.help import picker_help
+from ..ui.help import picker_help, search_input_help
 from ..ui.anilist_menu import (
     LIST_STATUSES as ANILIST_LIST_STATUSES,
     menu_header as anilist_menu_header,
@@ -131,14 +132,17 @@ def handle_anilist_browse_state(
 
         parts.append(app_core._poster_footer_line(
             selected_show,
-            f"{len(al_shows)} results  │  Enter/Right=open  Tab=sort  Esc=back",
+            f"{len(al_shows)} results  │  Enter/Right=open  Tab=next sort  Shift+Tab=prev sort  Esc=back",
             w
         ))
         return "\n".join(parts)
 
-    def _al_tab(_selected=None):
+    def _al_tab(_selected=None, direction=1):
         nonlocal sort_mode, al_shows, opts
-        sort_mode = next_anilist_sort_mode(sort_mode)
+        if direction < 0:
+            sort_mode = previous_anilist_sort_mode(sort_mode)
+        else:
+            sort_mode = next_anilist_sort_mode(sort_mode)
         cfg["anilist_sort"] = sort_mode
         app_core.save_config(cfg)
         al_shows = sort_anilist_shows(al_base_shows, sort_mode, history_for_sort)
@@ -153,7 +157,13 @@ def handle_anilist_browse_state(
         header_fn=_al_hdr,
         top_header_fn=_al_top_hdr,
         tab_fn=_al_tab,
-        help_dict=picker_help("Open title", "Back to lists", "Back to lists", "Change sort"),
+        help_dict=picker_help(
+            "Open title",
+            "Back to lists",
+            "Back to lists",
+            "Next sort",
+            "Previous sort",
+        ),
     )
 
     if idx in (-2, -3):
@@ -313,10 +323,8 @@ def handle_anilist_search_state(
             return_query_on_enter=True,
             query_history=app_core.load_search_history(),
             is_search=True,
-            help_dict=picker_help(
-                "Search",
-                "Move cursor left",
-                "Back" if ms.anilist_search_parent != "QUIT" else "Quit",
+            help_dict=search_input_help(
+                "Back" if ms.anilist_search_parent != "QUIT" else "Quit"
             ),
         )
         ui.search_error = ""

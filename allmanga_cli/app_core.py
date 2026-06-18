@@ -100,6 +100,7 @@ from allmanga_cli.domain.sorting import (
     anilist_history_timestamps,
     next_anilist_sort_mode,
     normalize_anilist_sort_mode,
+    previous_anilist_sort_mode,
     sort_anilist_shows,
 )
 from allmanga_cli.media.sources import (

@@ -68,6 +68,7 @@ class AniListSortTests(unittest.TestCase):
 
     def test_sort_cycle_and_invalid_config_default(self):
         next_mode = namespace["next_anilist_sort_mode"]
+        previous_mode = namespace["previous_anilist_sort_mode"]
         normalize = namespace["normalize_anilist_sort_mode"]
 
         self.assertEqual(normalize("unknown"), "recent")
@@ -75,6 +76,10 @@ class AniListSortTests(unittest.TestCase):
         self.assertEqual(next_mode("anilist"), "title")
         self.assertEqual(next_mode("title"), "progress")
         self.assertEqual(next_mode("progress"), "recent")
+        self.assertEqual(previous_mode("recent"), "progress")
+        self.assertEqual(previous_mode("progress"), "title")
+        self.assertEqual(previous_mode("title"), "anilist")
+        self.assertEqual(previous_mode("anilist"), "recent")
 
     def test_anilist_list_query_requests_entry_update_time(self):
         source = (

@@ -75,10 +75,10 @@ def handle_history_state(
 
     def _history_footer(entry, width):
         updated = app_core.format_history_updated_time(entry)
-        prefix = f"Updated {updated}  •  " if updated else ""
+        prefix = f"Updated {updated} • " if updated else ""
         default = (
-            f"{prefix}Enter/Right open  •  Left search  •  "
-            "Tab filter  •  Shift+Tab previous  •  Del delete  •  Esc quit"
+            f"{prefix}Enter/Right open • Left search • "
+            "Tab filter • Shift+Tab previous • Del delete • Esc quit"
         )
         return app_core._poster_footer_line(entry.get("show", {}), default, width)
 
@@ -162,11 +162,14 @@ def handle_history_state(
         tab_fn=_hist_tab,
         delete_fn=_hist_delete,
         live_fn=lambda _query: (list(hopts), "", False),
-        help_dict={
-            **picker_help("Open details", "Quit", "Search", "Next filter"),
-            "Shift+Tab": "Previous filter",
-            "Delete": "Remove from history"
-        },
+        help_dict=picker_help(
+            "Open details",
+            "Search",
+            "Quit",
+            "Next filter",
+            "Previous filter",
+            "Remove from history",
+        ),
         keep_cursor_hidden_on_select=True,
         count_total=lambda: len(hist)
     )
@@ -284,7 +287,7 @@ def handle_search_state(
 
     # Step 1: Input Page
     if not ms.query_str:
-        hd1 = search_input_help()
+        hd1 = search_input_help("Quit")
         res = tui_pick(
             flags, ui,
             "Search Anime", [],

@@ -5,7 +5,9 @@ def picker_help(
         select_label="Select",
         back_label="Go back",
         quit_label="Quit",
-        tab_label=None):
+        tab_label=None,
+        shift_tab_label=None,
+        delete_label=None):
     help_items = {
         "\u2191 / \u2193": "Move selection",
         "Home / End": "Jump to first or last item",
@@ -20,10 +22,14 @@ def picker_help(
     }
     if tab_label:
         help_items["Tab"] = tab_label
+    if shift_tab_label:
+        help_items["Shift+Tab"] = shift_tab_label
+    if delete_label:
+        help_items["Delete"] = delete_label
     return help_items
 
 
-def search_input_help():
+def search_input_help(esc_label="Cancel"):
     return {
         "Type": "Edit search query",
         "\u2190 / \u2192": "Move cursor",
@@ -31,7 +37,7 @@ def search_input_help():
         "Backspace": "Delete character",
         "Ctrl+U": "Clear query",
         "Enter": "Search",
-        "Esc": "Cancel",
+        "Esc": esc_label,
         "?": "Show or hide this help",
         "Ctrl+C": "Exit program",
     }
