@@ -19,7 +19,7 @@ class MetadataFormattingTests(unittest.TestCase):
         }
 
         self.assertIn("AL", format_progress(anime))
-        self.assertIn("EP 8/12", format_progress(anime))
+        self.assertIn("Watched 8/12", format_progress(anime))
 
     def test_unknown_total_does_not_render_question_mark(self):
         anime = {
@@ -30,7 +30,7 @@ class MetadataFormattingTests(unittest.TestCase):
 
         progress = format_progress(anime)
 
-        self.assertIn("EP 8", progress)
+        self.assertIn("Watched 8", progress)
         self.assertNotIn("?", progress)
 
     def test_available_count_only_appears_for_releasing_anime(self):
@@ -61,11 +61,11 @@ class MetadataFormattingTests(unittest.TestCase):
 
         self.assertEqual(
             format_next_airing(anime, now=6_400),
-            "EP 9 in 1h",
+            "Next EP 9 in 1h",
         )
         self.assertEqual(
             format_next_airing(anime, now=10_001),
-            "EP 9 aired",
+            "Next EP 9 aired",
         )
 
     def test_year_ranges_follow_airing_state(self):
@@ -97,9 +97,9 @@ class MetadataFormattingTests(unittest.TestCase):
 
         line = format_info_metadata_line(anime, now=6_400)
 
-        self.assertIn("EP 8/12", line)
+        self.assertIn("Watched 8/12", line)
         self.assertIn("Avail 8", line)
-        self.assertIn("EP 9 in 1h", line)
+        self.assertIn("Next EP 9 in 1h", line)
         self.assertIn("ONA", line)
         self.assertIn("2026 -", line)
         self.assertIn("★ 8.1", line)

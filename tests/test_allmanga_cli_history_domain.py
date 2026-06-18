@@ -1,6 +1,11 @@
 import unittest
 
-from allmanga_cli.domain.history import local_progress, playback_episode
+from allmanga_cli.domain.history import (
+    filter_history_entries,
+    format_history_entry,
+    local_progress,
+    playback_episode,
+)
 
 
 class HistoryDomainTests(unittest.TestCase):
@@ -76,6 +81,63 @@ class HistoryDomainTests(unittest.TestCase):
         )
 
         self.assertEqual(episode, "6")
+
+    def test_history_row_is_title_only(self):
+        entry = {
+            "show": {
+                "_id": "show-1",
+                "name": "Tongari Boushi no Atelier",
+                "episodeCount": 13,
+            },
+            "episode": "0",
+            "translation_type": "sub",
+            "timestamp": 100,
+        }
+
+        self.assertEqual(
+            format_history_entry(
+                entry,
+                prepare_display_state=lambda show, ttype: None,
+                get_local_progress=lambda show, ttype: 0,
+                now=200,
+            ),
+            "Tongari Boushi no Atelier",
+        )
+
+    def test_airing_title_is_up_to_date_when_available_episodes_watched(self):
+        up_to_date = {
+            "show": {
+                "_id": "show-1",
+                "name": "Airing",
+                "status": "RELEASING",
+                "episodeCount": 13,
+                "_next_airing_ep": 13,
+            },
+            "episode": "12",
+            "translation_type": "sub",
+        }
+        active = {
+            "show": {
+                "_id": "show-2",
+                "name": "Behind",
+                "status": "RELEASING",
+                "episodeCount": 13,
+                "_next_airing_ep": 13,
+            },
+            "episode": "11",
+            "translation_type": "sub",
+        }
+
+        filtered = filter_history_entries(
+            [up_to_date, active],
+            "Up to date",
+            prepare_display_state=lambda show, ttype: None,
+            get_local_progress=lambda show, ttype: int(
+                "12" if show["_id"] == "show-1" else "11"
+            ),
+        )
+
+        self.assertEqual(filtered, [up_to_date])
 
 
 if __name__ == "__main__":

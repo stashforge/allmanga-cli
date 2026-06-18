@@ -53,10 +53,10 @@ def format_ep_progress(label, progress, total, local_only=False):
     except (_dec.InvalidOperation, TypeError, ValueError):
         return ""
     if local_only:
-        prefix = f"\033[38;5;244mEP{DIM}"
+        prefix = f"\033[38;5;244mWatched{DIM}"
     else:
         label_color = "\033[36m" if label == "AL" else "\033[38;5;244m"
-        prefix = f"{label_color}{label}{DIM} EP"
+        prefix = f"{label_color}{label}{DIM} Watched"
     return f"{prefix} {progress}/{total}" if total else f"{prefix} {progress}"
 
 
@@ -104,21 +104,18 @@ def format_progress(anime, local_only=False, ttype="sub"):
 
 def format_available_episodes(anime, ttype="sub", local_only=False):
     from allmanga_cli.domain.history import history_available_episode_count, history_full_episode_count
-    if local_only:
-        entry = {"show": anime, "translation_type": ttype}
-        avail = history_available_episode_count(entry)
-        full = history_full_episode_count(entry)
-        status = str(anime.get("status") or "").upper()
-        if status not in ("COMPLETED", "FINISHED", "ENDED") and full and avail and full > avail:
-            return f"Total {full}"
-        return ""
-
     if str(anime.get("status") or "").upper() != "RELEASING":
         return ""
 
     next_episode = positive_int(anime.get("_next_airing_ep"))
     if next_episode:
-        return f"Avail {max(0, next_episode - 1)}"
+        available_count = max(0, next_episode - 1)
+        if local_only:
+            entry = {"show": anime, "translation_type": ttype}
+            full = history_full_episode_count(entry)
+            if full and available_count >= full:
+                return ""
+        return f"Avail {available_count}"
 
     available = anime.get("availableEpisodes", {}).get(ttype)
     try:
@@ -146,8 +143,8 @@ def format_next_airing(anime, now=None):
     except (TypeError, ValueError):
         return ""
     if remaining <= 0:
-        return f"EP {episode} aired"
-    return f"EP {episode} in {format_time(remaining)}"
+        return f"Next EP {episode} aired"
+    return f"Next EP {episode} in {format_time(remaining)}"
 
 
 def format_years(start_year, end_year, status=None):
@@ -219,7 +216,7 @@ def format_info_metadata_line(
     status_label = anilist_status_label(anime, local_only=local_only)
     if override_ep_str:
         if local_only:
-            progress = f"\033[38;5;244mEP{DIM} {override_ep_str}"
+            progress = f"\033[38;5;244mWatched{DIM} {override_ep_str}"
         else:
             label = "AL" if anime.get("_sync_enabled") else "LOCAL"
             label_color = "\033[36m" if label == "AL" else "\033[38;5;244m"

@@ -74,7 +74,12 @@ def handle_history_state(
     threading.Thread(target=_batch_refresh_worker, daemon=True).start()
 
     def _history_footer(entry, width):
-        default = "Enter/Right=open  Left=search  Tab=filter  Del=delete  Esc=quit"
+        updated = app_core.format_history_updated_time(entry)
+        prefix = f"Updated {updated}  •  " if updated else ""
+        default = (
+            f"{prefix}Enter/Right open  •  Left search  •  "
+            "Tab filter  •  Shift+Tab previous  •  Del delete  •  Esc quit"
+        )
         return app_core._poster_footer_line(entry.get("show", {}), default, width)
 
     def _hist_top_hdr(si):
@@ -137,14 +142,17 @@ def handle_history_state(
                 hopts = [app_core.format_history_entry(x) for x in filtered_hist]
         return hopts, _hist_hdr(0)
 
-    def _hist_tab(_selected=None):
+    def _set_history_mode(next_index):
         nonlocal history_mode, filtered_hist, hopts
-        mode_index = history_modes.index(history_mode)
-        history_mode = history_modes[(mode_index + 1) % len(history_modes)]
+        history_mode = history_modes[next_index % len(history_modes)]
         ui.history_filter = history_mode
         filtered_hist = app_core.filter_history_entries(hist, history_mode)
         hopts = [app_core.format_history_entry(entry) for entry in filtered_hist]
         return hopts, _hist_hdr(0)
+
+    def _hist_tab(_selected=None, direction=1):
+        mode_index = history_modes.index(history_mode)
+        return _set_history_mode(mode_index + direction)
 
     hidx = tui_pick(
         flags, ui,
@@ -156,6 +164,7 @@ def handle_history_state(
         live_fn=lambda _query: (list(hopts), "", False),
         help_dict={
             **picker_help("Open details", "Quit", "Search", "Next filter"),
+            "Shift+Tab": "Previous filter",
             "Delete": "Remove from history"
         },
         keep_cursor_hidden_on_select=True,

@@ -1407,6 +1407,9 @@ def format_history_entry(h):
         get_local_progress=get_local_progress,
     )
 
+def format_history_updated_time(h):
+    return history_domain.format_relative_time((h or {}).get("timestamp"))
+
 def history_entry_progress(entry):
     return history_domain.history_entry_progress(
         entry,

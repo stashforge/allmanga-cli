@@ -7,6 +7,24 @@ from .titles import get_show_display_title
 from .episodes import episode_id_at, episode_index_for_id
 
 
+def format_relative_time(timestamp, now=None):
+    try:
+        if not timestamp:
+            return ""
+        seconds = int((time.time() if now is None else now) - float(timestamp))
+        if seconds < 60:
+            return "just now"
+        if seconds < 3600:
+            return f"{seconds // 60}m ago"
+        if seconds < 86400:
+            return f"{seconds // 3600}h ago"
+        if seconds < 604800:
+            return f"{seconds // 86400}d ago"
+        return f"{seconds // 604800}w ago"
+    except Exception:
+        return ""
+
+
 def _episode_ids_for_translation(show, translation_type):
     if not show:
         return []
@@ -131,37 +149,9 @@ def format_history_entry(
     translation_type = entry.get("translation_type", "sub")
     prepare_display_state(show, translation_type)
     name = get_show_display_title(show, "?")
-    label, progress, total = history_entry_progress(
-        entry,
-        prepare_display_state=prepare_display_state,
-        get_local_progress=get_local_progress,
-    )
-
-    ago = ""
-    timestamp = entry.get("timestamp", 0)
-    try:
-        if timestamp:
-            seconds = int((time.time() if now is None else now) - float(timestamp))
-            if seconds < 60:
-                ago = "just now"
-            elif seconds < 3600:
-                ago = f"{seconds // 60}m ago"
-            elif seconds < 86400:
-                ago = f"{seconds // 3600}h ago"
-            elif seconds < 604800:
-                ago = f"{seconds // 86400}d ago"
-            else:
-                ago = f"{seconds // 604800}w ago"
-    except Exception:
-        pass
 
     suffix = f" ({translation_type})" if translation_type != "sub" else ""
-    progress_text = f"{progress}/{total}" if total else str(progress)
-    authority = "AL " if label == "AL" else ""
-    prefix = f"{authority}EP {progress_text}{suffix}"
-    if ago:
-        prefix = f"{prefix} \u2022 {ago}"
-    return f"{prefix}  {name}"
+    return f"{name}{suffix}"
 
 
 def history_provider_is_completed(show):
@@ -178,6 +168,10 @@ def history_available_episode_count(entry):
         if ep_ids:
             return highest_episode_number(ep_ids)
 
+    next_episode = positive_int(show.get("_next_airing_ep"))
+    if next_episode:
+        return max(0, next_episode - 1)
+
     avail = (show.get("availableEpisodes") or {}).get(ttype)
     import decimal
     try:
@@ -186,13 +180,6 @@ def history_available_episode_count(entry):
             if avail_dec >= 0:
                 return int(avail_dec) if avail_dec % 1 == 0 else str(avail_dec)
     except decimal.InvalidOperation:
-        pass
-
-    try:
-        count = int(show.get("episodeCount"))
-        if count >= 0:
-            return count
-    except (TypeError, ValueError):
         pass
 
     return None
@@ -230,7 +217,7 @@ def history_entry_category(
     full_count = history_full_episode_count(entry)
     provider_completed = history_provider_is_completed(show)
 
-    target_count = full_count or available_count
+    target_count = full_count if provider_completed else available_count
     try:
         target_dec = decimal.Decimal(str(target_count)) if target_count is not None else None
     except decimal.InvalidOperation:

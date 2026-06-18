@@ -528,7 +528,21 @@ def tui_pick(
             elif key == "TAB":
                 if tab_fn:
                     selected = filt[sel] if filt and sel < len(filt) else None
-                    res = tab_fn(selected)
+                    try:
+                        res = tab_fn(selected, direction=1)
+                    except TypeError:
+                        res = tab_fn(selected)
+                    if res:
+                        options, cur_header = res[0], res[1]
+                        filt = filt_list()
+                        sel  = max(0, min(sel, len(filt) - 1)) if filt else 0
+            elif key == "SHIFT_TAB":
+                if tab_fn:
+                    selected = filt[sel] if filt and sel < len(filt) else None
+                    try:
+                        res = tab_fn(selected, direction=-1)
+                    except TypeError:
+                        res = tab_fn(selected)
                     if res:
                         options, cur_header = res[0], res[1]
                         filt = filt_list()
@@ -540,7 +554,7 @@ def tui_pick(
                         options, cur_header = res[0], res[1]
                         filt = filt_list()
                         sel  = max(0, min(sel, len(filt) - 1)) if filt else 0
-            elif key not in ("SHIFT_TAB", "UNKNOWN"):
+            elif key != "UNKNOWN":
                 if len(key) == 1 and key.isprintable():
                     if is_search:
                         query = query[:cursor_pos] + key + query[cursor_pos:]
