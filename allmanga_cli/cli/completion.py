@@ -1,5 +1,7 @@
 """Static shell completion scripts for allmanga-cli."""
 
+from pathlib import Path
+
 COMMANDS = (
     "search", "download", "downloads", "anilist", "history", "continue",
     "auth", "completion",
@@ -30,7 +32,7 @@ RESUME_OPTIONS = (
     "--cover", "--incognito", "--debug", "-h", "--help",
 )
 AUTH_OPTIONS = ("--debug", "-h", "--help")
-COMPLETION_OPTIONS = ("--debug", "-h", "--help")
+COMPLETION_OPTIONS = ("install", "--debug", "-h", "--help")
 
 
 def _words(values):
@@ -179,3 +181,22 @@ def generate_completion(shell):
     if shell == "fish":
         return fish_completion()
     raise ValueError(f"Unsupported shell: {shell}")
+
+
+def completion_install_path(shell, home=None):
+    shell = str(shell or "").lower()
+    root = Path(home).expanduser() if home is not None else Path.home()
+    if shell == "bash":
+        return root / ".local/share/bash-completion/completions/allmanga-cli"
+    if shell == "zsh":
+        return root / ".zfunc/_allmanga-cli"
+    if shell == "fish":
+        return root / ".config/fish/completions/allmanga-cli.fish"
+    raise ValueError(f"Unsupported shell: {shell}")
+
+
+def install_completion(shell, home=None):
+    path = completion_install_path(shell, home=home)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(generate_completion(shell), encoding="utf-8")
+    return path

@@ -23,7 +23,7 @@ from allmanga_cli.cli.args import (
     build_legacy_parser,
     parse_cli_args,
 )
-from allmanga_cli.cli.completion import generate_completion
+from allmanga_cli.cli.completion import generate_completion, install_completion
 from allmanga_cli.ui.picker import tui_pick
 from allmanga_cli.media.download import download_episode
 from allmanga_cli.media.dash import generate_dash_mpd, resolve_dash_raw_urls
@@ -2839,6 +2839,17 @@ def main():
     args, pa = parse_cli_args()
     if getattr(args, "completion_shell", None):
         globals()["SUPPRESS_FINAL_CURSOR_RESTORE"] = True
+        if getattr(args, "completion_install", False):
+            path = install_completion(args.completion_shell)
+            print(f"Installed {args.completion_shell} completion:")
+            print(path)
+            if args.completion_shell == "bash":
+                print("Restart your shell, or run: exec bash")
+            elif args.completion_shell == "zsh":
+                print("Ensure ~/.zfunc is in fpath, then run: compinit")
+            elif args.completion_shell == "fish":
+                print("Restart fish, or run: exec fish")
+            return
         print(generate_completion(args.completion_shell), end="")
         return
 

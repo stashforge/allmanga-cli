@@ -1,6 +1,11 @@
 import unittest
+from tempfile import TemporaryDirectory
 
-from allmanga_cli.cli.completion import generate_completion
+from allmanga_cli.cli.completion import (
+    completion_install_path,
+    generate_completion,
+    install_completion,
+)
 
 
 class ShellCompletionTests(unittest.TestCase):
@@ -24,6 +29,20 @@ class ShellCompletionTests(unittest.TestCase):
                 self.assertIn("watching", script)
                 self.assertIn("rewatching", script)
                 self.assertIn("completion", script)
+
+    def test_completion_install_paths_are_user_local(self):
+        with TemporaryDirectory() as tmp:
+            path = install_completion("bash", home=tmp)
+
+            self.assertEqual(
+                path,
+                completion_install_path("bash", home=tmp),
+            )
+            self.assertEqual(
+                str(path),
+                f"{tmp}/.local/share/bash-completion/completions/allmanga-cli",
+            )
+            self.assertIn("_allmanga_cli_completion", path.read_text())
 
 
 if __name__ == "__main__":

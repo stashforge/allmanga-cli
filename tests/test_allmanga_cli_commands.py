@@ -62,12 +62,16 @@ class CommandRouterTests(unittest.TestCase):
         cont, _ = parse_cli_args(["continue"])
         login, _ = parse_cli_args(["auth", "login"])
         completion, _ = parse_cli_args(["completion", "bash"])
+        completion_install, _ = parse_cli_args(["completion", "install", "bash"])
 
         self.assertTrue(history.history)
         self.assertTrue(cont.cont)
         self.assertTrue(login.login)
         self.assertFalse(login.logout)
         self.assertEqual(completion.completion_shell, "bash")
+        self.assertFalse(completion.completion_install)
+        self.assertEqual(completion_install.completion_shell, "bash")
+        self.assertTrue(completion_install.completion_install)
 
     def test_legacy_invocations_remain_supported(self):
         bare, _ = parse_cli_args(["slime", "-e", "3"])
@@ -142,6 +146,7 @@ class CommandRouterTests(unittest.TestCase):
         self.assertLess(auth_help.index("Actions:"), auth_help.index("Arguments:"))
         self.assertNotIn("{login,logout}", auth_help)
         self.assertIn("Shells:", completion_help)
+        self.assertIn("Actions:", completion_help)
 
     def test_help_colors_only_headers_and_option_flags_on_tty(self):
         with (

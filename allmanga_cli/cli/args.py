@@ -126,6 +126,7 @@ def _set_cli_defaults(parser):
         debug=False,
         json=False,
         completion_shell=None,
+        completion_install=False,
     )
 
 def _add_debug_option(parser, *, suppress_default=False):
@@ -462,19 +463,25 @@ def build_command_parser():
     completion = commands.add_parser(
         "completion",
         help="Generate shell completion",
-        usage="allmanga-cli completion <shell>",
+        usage=(
+            "allmanga-cli completion <shell>\n"
+            "       allmanga-cli completion install <shell>"
+        ),
         description=(
             "Generate shell completion for allmanga-cli.\n\n"
             "Shells:\n"
             "  bash          Bash completion script\n"
             "  zsh           Zsh completion script\n"
-            "  fish          Fish completion script"
+            "  fish          Fish completion script\n\n"
+            "Actions:\n"
+            "  install       Install completion to a user-local shell path"
         ),
         epilog=(
             "Examples:\n"
             "  allmanga-cli completion bash\n"
             "  allmanga-cli completion zsh\n"
-            "  allmanga-cli completion fish"
+            "  allmanga-cli completion fish\n"
+            "  allmanga-cli completion install bash"
         ),
         add_help=False,
         formatter_class=MinimalHelpFormatter,
@@ -482,8 +489,8 @@ def build_command_parser():
     _configure_help_parser(completion)
     completion._positionals.title = "Arguments"
     completion.add_argument(
-        "shell", metavar="<shell>", choices=COMPLETION_SHELLS,
-        help="Shell to generate completion for",
+        "completion_args", nargs="+", metavar="<shell|install>",
+        help="Shell to print, or install <shell>",
     )
     global_options = completion.add_argument_group("Global options")
     _add_debug_option(global_options, suppress_default=True)
@@ -575,6 +582,15 @@ def parse_cli_args(argv=None):
         args.logout = args.action == "logout"
         del args.action
     elif args.command == "completion":
-        args.completion_shell = args.shell
-        del args.shell
+        values = list(args.completion_args)
+        if values[0] == "install":
+            if len(values) != 2 or values[1] not in COMPLETION_SHELLS:
+                parser.error("completion install requires bash, zsh, or fish")
+            args.completion_install = True
+            args.completion_shell = values[1]
+        else:
+            if len(values) != 1 or values[0] not in COMPLETION_SHELLS:
+                parser.error("completion requires bash, zsh, or fish")
+            args.completion_shell = values[0]
+        del args.completion_args
     return args, parser
