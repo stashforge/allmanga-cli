@@ -18,8 +18,8 @@ class MetadataFormattingTests(unittest.TestCase):
             "episodeCount": 12,
         }
 
-        self.assertIn("AL", format_progress(anime))
-        self.assertIn("Watched 8/12", format_progress(anime))
+        self.assertIn("EP", format_progress(anime))
+        self.assertIn("8/12", format_progress(anime))
 
     def test_unknown_total_does_not_render_question_mark(self):
         anime = {
@@ -30,7 +30,8 @@ class MetadataFormattingTests(unittest.TestCase):
 
         progress = format_progress(anime)
 
-        self.assertIn("Watched 8", progress)
+        self.assertIn("EP", progress)
+        self.assertIn("8", progress)
         self.assertNotIn("?", progress)
 
     def test_available_count_only_appears_for_releasing_anime(self):
@@ -97,12 +98,30 @@ class MetadataFormattingTests(unittest.TestCase):
 
         line = format_info_metadata_line(anime, now=6_400)
 
-        self.assertIn("Watched 8/12", line)
+        self.assertIn("EP", line)
+        self.assertIn("8/12", line)
         self.assertIn("Avail 8", line)
         self.assertIn("Next EP 9 in 1h", line)
         self.assertIn("ONA", line)
         self.assertIn("2026 -", line)
         self.assertIn("★ 8.1", line)
+
+    def test_metadata_line_shows_anilist_and_anime_statuses(self):
+        anime = {
+            "_sync_enabled": True,
+            "_anilist_list": "CURRENT",
+            "_anilist_progress": 10,
+            "episodeCount": 13,
+            "status": "RELEASING",
+            "type": "TV",
+            "airedStart": {"year": 2026},
+        }
+
+        line = format_info_metadata_line(anime)
+
+        self.assertLess(line.index("AL WATCHING"), line.index("AIRING"))
+        self.assertIn("EP", line)
+        self.assertIn("10/13", line)
 
 
 if __name__ == "__main__":

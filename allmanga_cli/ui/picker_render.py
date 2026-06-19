@@ -71,6 +71,12 @@ def get_key(descriptor):
         return "BACKSPACE"
     if char == b"\x03":
         return "CTRL_C"
+    if char == b"\x04":
+        return "CTRL_D"
+    if char == b"\x0e":
+        return "CTRL_N"
+    if char == b"\x10":
+        return "CTRL_P"
     if char == b"\x15":
         return "CTRL_U"
     if char == b"\t":

@@ -32,6 +32,19 @@ _RST    = "\033[0m"
 YELLOW  = "\033[1;33m"
 
 
+def _footer_parts(*parts):
+    return " | ".join(str(part) for part in parts if part)
+
+
+def _session_badges(flags, args, *, search_context=False):
+    badges = []
+    if getattr(flags, "incognito_mode", False):
+        badges.append("Incognito")
+    if search_context and getattr(args, "sync", False) and not getattr(args, "no_sync", False):
+        badges.append("Sync On")
+    return badges
+
+
 # ---------------------------------------------------------------------------
 # HISTORY
 # ---------------------------------------------------------------------------
@@ -75,10 +88,14 @@ def handle_history_state(
 
     def _history_footer(entry, width):
         updated = app_core.format_history_updated_time(entry)
-        prefix = f"Updated {updated} • " if updated else ""
-        default = (
-            f"{prefix}Enter/Right open • Left search • "
-            "Tab filter • Shift+Tab previous • Del delete • Esc quit"
+        default = _footer_parts(
+            f"Updated {updated}" if updated else "",
+            "Enter/Right open",
+            "Left search",
+            "Tab/Ctrl+N next",
+            "Shift+Tab/Ctrl+P prev",
+            "Del/Ctrl+D delete",
+            "Esc quit",
         )
         return app_core._poster_footer_line(entry.get("show", {}), default, width)
 
@@ -279,7 +296,15 @@ def handle_search_state(
             if loading_msg:
                 parts.append(loading_msg)
             elif shows:
-                parts.append(app_core._poster_footer_line(selected_show, f'{len(shows)} result(s) for "{safe_query}"  │  Enter=select  ? = Help  Left=search  Esc={esc_action}', w))
+                footer = _footer_parts(
+                    f'{len(shows)} result(s) for "{safe_query}"',
+                    *_session_badges(flags, args, search_context=True),
+                    "Enter=select",
+                    "?=Help",
+                    "Left=search",
+                    f"Esc={esc_action}",
+                )
+                parts.append(app_core._poster_footer_line(selected_show, footer, w))
             else:
                 parts.append(f'{C_K}No results for "{safe_query}"  │  Left=new search  Esc={esc_action}{R}')
             return "\n".join(parts)
@@ -402,9 +427,12 @@ def handle_search_state(
                 return "PLAY"
 
             if episode_ids:
-                app_core.err(f"EP {requested_ep} is not available from this provider.")
+                app_core.set_action_feedback(
+                    s,
+                    f"EP {requested_ep} is not available • Choose an episode",
+                )
             else:
-                app_core.err(app_core.episode_catalog_error(s))
+                app_core.set_action_feedback(s, app_core.episode_catalog_error(s))
             ms.current_ep_index = 0
             ms.current_ep = episode_id_at(episode_ids, 0) if episode_ids else requested_ep
             requested_episode_missing = True

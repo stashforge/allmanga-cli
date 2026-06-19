@@ -39,6 +39,19 @@ _C_HINT = "\033[38;5;244m"
 _RST    = "\033[0m"
 
 
+def _footer_parts(*parts):
+    return " | ".join(str(part) for part in parts if part)
+
+
+def _anilist_badges(flags, args):
+    badges = ["AniList"]
+    if getattr(flags, "incognito_mode", False):
+        badges.append("Incognito")
+    if getattr(flags, "incognito_mode", False) or getattr(args, "no_sync", False):
+        badges.append("Sync Off")
+    return badges
+
+
 def handle_anilist_menu_state(
     flags: CliFlags,
     ui: UiState,
@@ -132,7 +145,14 @@ def handle_anilist_browse_state(
 
         parts.append(app_core._poster_footer_line(
             selected_show,
-            f"{len(al_shows)} results  │  Enter/Right=open  Tab=next sort  Shift+Tab=prev sort  Esc=back",
+            _footer_parts(
+                f"{len(al_shows)} results",
+                *_anilist_badges(flags, args),
+                "Enter/Right open",
+                "Tab/Ctrl+N next sort",
+                "Shift+Tab/Ctrl+P prev sort",
+                "Esc back",
+            ),
             w
         ))
         return "\n".join(parts)
@@ -307,7 +327,15 @@ def handle_anilist_search_state(
             if loading_msg:
                 parts.append(loading_msg)
             elif shows:
-                parts.append(app_core._poster_footer_line(selected_show, f'{len(shows)} result(s) for "{safe_query}"  │  Enter=select  ? = Help  Left=search  Esc={esc_action}', w))
+                footer = _footer_parts(
+                    f'{len(shows)} result(s) for "{safe_query}"',
+                    *_anilist_badges(flags, args),
+                    "Enter=select",
+                    "?=Help",
+                    "Left=search",
+                    f"Esc={esc_action}",
+                )
+                parts.append(app_core._poster_footer_line(selected_show, footer, w))
             else:
                 parts.append(f'{C_K}No results for "{safe_query}"  │  Left=new search  Esc={esc_action}{R}')
             return "\n".join(parts)

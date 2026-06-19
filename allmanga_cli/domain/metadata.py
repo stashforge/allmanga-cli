@@ -52,11 +52,7 @@ def format_ep_progress(label, progress, total, local_only=False):
         progress = int(p) if p == p.to_integral_value() else str(p.normalize())
     except (_dec.InvalidOperation, TypeError, ValueError):
         return ""
-    if local_only:
-        prefix = f"\033[38;5;244mWatched{DIM}"
-    else:
-        label_color = "\033[36m" if label == "AL" else "\033[38;5;244m"
-        prefix = f"{label_color}{label}{DIM} Watched"
+    prefix = f"\033[38;5;244mEP{DIM}"
     return f"{prefix} {progress}/{total}" if total else f"{prefix} {progress}"
 
 
@@ -177,8 +173,7 @@ def should_refresh_anilist(anime, now=None):
         return True
 
 
-def anilist_status_label(anime, local_only=False):
-    status = str(anime.get("status") or "").upper()
+def anilist_list_status_label(anime, local_only=False):
     if not local_only:
         show_anilist_status = (
             anime.get("_sync_enabled") or anime.get("_anilist_context")
@@ -189,20 +184,37 @@ def anilist_status_label(anime, local_only=False):
             else ""
         )
         if anilist_list in ("CURRENT", "WATCHING"):
-            return f"\033[32mWATCHING{DIM}"
+            return f"\033[32mAL WATCHING{DIM}"
         if anilist_list == "COMPLETED":
-            return f"\033[36mCOMPLETED{DIM}"
+            return f"\033[36mAL COMPLETED{DIM}"
         if anilist_list in ("PLANNING", "PLAN_TO_WATCH"):
-            return f"\033[33mPLAN TO WATCH{DIM}"
+            return f"\033[33mAL PLANNING{DIM}"
         if anilist_list == "DROPPED":
-            return f"\033[31mDROPPED{DIM}"
+            return f"\033[31mAL DROPPED{DIM}"
         if anilist_list == "PAUSED":
-            return f"\033[35mPAUSED{DIM}"
+            return f"\033[35mAL PAUSED{DIM}"
         if anilist_list in ("REPEATING", "REWATCHING"):
-            return f"\033[32mREWATCHING{DIM}"
+            return f"\033[32mAL REWATCHING{DIM}"
+    return ""
+
+
+def anime_status_label(anime):
+    status = str(anime.get("status") or "").upper()
     if status == "RELEASING":
         return f"\033[32mAIRING{DIM}"
+    if status == "FINISHED":
+        return f"\033[36mFINISHED{DIM}"
+    if status in ("NOT_YET_RELEASED", "NOT YET RELEASED"):
+        return f"\033[33mUPCOMING{DIM}"
+    if status == "CANCELLED":
+        return f"\033[31mCANCELLED{DIM}"
+    if status == "HIATUS":
+        return f"\033[35mHIATUS{DIM}"
     return ""
+
+
+def anilist_status_label(anime, local_only=False):
+    return anilist_list_status_label(anime, local_only=local_only) or anime_status_label(anime)
 
 
 def format_info_metadata_line(
@@ -213,14 +225,10 @@ def format_info_metadata_line(
     local_only=False,
 ):
     details = []
-    status_label = anilist_status_label(anime, local_only=local_only)
+    anilist_label = anilist_list_status_label(anime, local_only=local_only)
+    media_status_label = anime_status_label(anime)
     if override_ep_str:
-        if local_only:
-            progress = f"\033[38;5;244mWatched{DIM} {override_ep_str}"
-        else:
-            label = "AL" if anime.get("_sync_enabled") else "LOCAL"
-            label_color = "\033[36m" if label == "AL" else "\033[38;5;244m"
-            progress = f"{label_color}{label}{DIM} {override_ep_str}"
+        progress = f"\033[38;5;244mEP{DIM} {override_ep_str}"
     else:
         progress = format_progress(anime, local_only=local_only, ttype=ttype)
 
@@ -237,8 +245,10 @@ def format_info_metadata_line(
     score = anime.get("score")
     score_text = f"★ {score}" if score else "★ -"
 
-    if status_label:
-        details.append(status_label)
+    if anilist_label:
+        details.append(anilist_label)
+    if media_status_label:
+        details.append(media_status_label)
     if progress:
         details.append(progress)
     if available:

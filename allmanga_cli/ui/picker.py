@@ -196,6 +196,7 @@ def tui_pick(
     last_poster_tick = 0
     last_poster_key  = None
     last_clock_minute = int(time.time() // 60)
+    pending_delete_index = None
     try:
         last_terminal_size = os.get_terminal_size(tty_fd)
     except OSError:
@@ -247,6 +248,12 @@ def tui_pick(
             ui.active_picker_query = query
             actual_header = header_fn(sel_idx)
         header_lines = actual_header.splitlines() if actual_header else []
+        if pending_delete_index is not None:
+            confirm_line = "\033[38;5;220mDelete this history entry? y/N\033[0m"
+            if header_lines:
+                header_lines[-1] = confirm_line
+            else:
+                header_lines = [confirm_line]
         header_n = max(4, len(header_lines)) if header_fn is not None else len(header_lines)
 
         # ← was: show_img = globals().get("SHOW_IMAGE", False)
@@ -476,6 +483,22 @@ def tui_pick(
             termios.tcflush(tty_fd, termios.TCIFLUSH)
             _needs_redraw = True
 
+            if pending_delete_index is not None:
+                if key in ("y", "Y"):
+                    if delete_fn:
+                        res = delete_fn(pending_delete_index)
+                        if res:
+                            options, cur_header = res[0], res[1]
+                            filt = filt_list()
+                            sel = max(0, min(sel, len(filt) - 1)) if filt else 0
+                    pending_delete_index = None
+                    continue
+                pending_delete_index = None
+                if key in ("n", "N", "ESC", "CTRL_C"):
+                    if key == "CTRL_C":
+                        raise KeyboardInterrupt
+                    continue
+
             if key == "UP":
                 if filt:
                     sel = (sel + 1) % len(filt)
@@ -537,7 +560,7 @@ def tui_pick(
             elif key == "CTRL_U":
                 query = ""; filt = filt_list(); sel = 0; scroll = 0
                 cursor_pos = 0
-            elif key == "TAB":
+            elif key in ("TAB", "CTRL_N"):
                 if tab_fn:
                     selected = filt[sel] if filt and sel < len(filt) else None
                     try:
@@ -548,7 +571,7 @@ def tui_pick(
                         options, cur_header = res[0], res[1]
                         filt = filt_list()
                         sel  = max(0, min(sel, len(filt) - 1)) if filt else 0
-            elif key == "SHIFT_TAB":
+            elif key in ("SHIFT_TAB", "CTRL_P"):
                 if tab_fn:
                     selected = filt[sel] if filt and sel < len(filt) else None
                     try:
@@ -559,13 +582,9 @@ def tui_pick(
                         options, cur_header = res[0], res[1]
                         filt = filt_list()
                         sel  = max(0, min(sel, len(filt) - 1)) if filt else 0
-            elif key == "DELETE":
+            elif key in ("DELETE", "CTRL_D"):
                 if delete_fn and filt:
-                    res = delete_fn(filt[sel])
-                    if res:
-                        options, cur_header = res[0], res[1]
-                        filt = filt_list()
-                        sel  = max(0, min(sel, len(filt) - 1)) if filt else 0
+                    pending_delete_index = filt[sel]
             elif key != "UNKNOWN":
                 if len(key) == 1 and key.isprintable():
                     if is_search:

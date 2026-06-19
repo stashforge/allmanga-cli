@@ -71,8 +71,13 @@ def handle_episode_state(
         _t = lambda s: _truncate_display(s, max(1, w - 1))
         direct_single = ui.ep_prev_state == "SEARCH" and len(ms.shows) <= 1 and ms.just_searched
         nav_text = "Left=search  Esc=quit" if direct_single else "Left/Esc=back"
+        feedback_time = float((show or {}).get("_action_feedback_time") or 0)
+        feedback_msg = (show or {}).get("_action_feedback") or ""
 
-        parts.append(f"{_C_HINT}{_t(f'Enter/Right=select  ? = Help  {nav_text}')}{_RST}")
+        if feedback_msg and time.time() - feedback_time < 2.0:
+            parts.append(f"\033[38;5;220m{_t(feedback_msg)}{_RST}")
+        else:
+            parts.append(f"{_C_HINT}{_t(f'Enter/Right=select  ? = Help  {nav_text}')}{_RST}")
         return "\n".join(parts)
 
     def _ep_tab_fn(opt=None):

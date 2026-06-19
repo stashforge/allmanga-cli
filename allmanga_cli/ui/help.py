@@ -22,10 +22,13 @@ def picker_help(
     }
     if tab_label:
         help_items["Tab"] = tab_label
+        help_items["Ctrl+N"] = tab_label
     if shift_tab_label:
         help_items["Shift+Tab"] = shift_tab_label
+        help_items["Ctrl+P"] = shift_tab_label
     if delete_label:
         help_items["Delete"] = delete_label
+        help_items["Ctrl+D"] = delete_label
     return help_items
 
 
