@@ -32,6 +32,31 @@ class FakeResponse:
 
 
 class AniListHttpTests(unittest.TestCase):
+    def test_list_entry_progress_survives_without_nested_media_list_entry(self):
+        media = {
+            "id": 123,
+            "title": {"romaji": "Tracked Show"},
+            "format": "TV",
+            "episodes": 24,
+            "status": "FINISHED",
+        }
+        entry = {
+            "progress": 5,
+            "updatedAt": 123456,
+            "startedAt": {"year": 2026, "month": 6, "day": 1},
+            "completedAt": {},
+        }
+
+        show = anilist_service.normalize_media(
+            media,
+            list_name="CURRENT",
+            entry=entry,
+        )
+
+        self.assertEqual(show["_anilist_list"], "CURRENT")
+        self.assertEqual(show["_anilist_progress"], 5)
+        self.assertEqual(show["_anilist_updated_at"], 123456)
+
     def test_shared_request_uses_secure_context_and_timeout(self):
         request = object()
         data = b"graphql"

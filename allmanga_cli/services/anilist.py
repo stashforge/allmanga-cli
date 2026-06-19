@@ -85,7 +85,7 @@ def normalize_media(media, *, list_name=None, entry=None):
         show["_anilist_entry_id"] = list_entry.get("id")
         show["_anilist_started_at"] = list_entry.get("startedAt") or {}
         show["_anilist_completed_at"] = list_entry.get("completedAt") or {}
-    else:
+    elif not entry and not list_name:
         show["_anilist_progress"] = 0
         show["_anilist_list"] = ""
     next_airing = media.get("nextAiringEpisode")
