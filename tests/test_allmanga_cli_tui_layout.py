@@ -1,5 +1,6 @@
 import unittest
 from tests.app_namespace import load_app_namespace
+from allmanga_cli.ui import picker
 from allmanga_cli.ui import spinner
 namespace = load_app_namespace()
 
@@ -25,6 +26,13 @@ class TuiLayoutTests(unittest.TestCase):
             spinner.spinner_from_config({"ui": {"spinner": "pulse"}}),
             "pulse",
         )
+
+    def test_poster_loading_tick_is_registered(self):
+        self.assertIsNotNone(picker._poster_tick_fn)
+        show = {"_poster_status": "loading"}
+        namespace["_poster_needs_tick"].__globals__["SHOW_IMAGE"] = True
+
+        self.assertTrue(picker._poster_needs_tick(show))
 
     def test_cover_command_uses_high_quality_relative_output(self):
         command = namespace["_chafa_cover_command"]("/tmp/cover.jpg")

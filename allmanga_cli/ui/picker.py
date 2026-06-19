@@ -464,7 +464,7 @@ def tui_pick(
                 sel_idx = filt[sel] if sel < len(filt) else -1
                 if 0 <= sel_idx < len(options):
                     show_obj = ui.hovered_show_obj
-                    if _poster_needs_tick(show_obj) and now - last_poster_tick >= 0.5:
+                    if _poster_needs_tick(show_obj) and now - last_poster_tick >= 0.1:
                         last_poster_tick = now
                         _needs_redraw = True
 

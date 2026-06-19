@@ -501,6 +501,11 @@ _poster_manager = PosterManager(
     request_redraw=_request_poster_redraw,
     loading_frame=_loading_frame,
 )
+try:
+    import allmanga_cli.ui.picker as _picker_mod
+    _picker_mod._set_poster_tick_fn(_poster_manager.needs_tick)
+except Exception:
+    pass
 
 
 def _clear_poster_downloads():
