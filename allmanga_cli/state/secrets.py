@@ -12,6 +12,10 @@ def _secret_tool():
     return shutil.which("secret-tool")
 
 
+def backend_path():
+    return _secret_tool() or ""
+
+
 def is_available():
     return bool(_secret_tool())
 

@@ -59,6 +59,7 @@ class TokenStorageTests(unittest.TestCase):
     def test_token_storage_status_does_not_expose_token(self):
         secret_state = self.globals["secret_state"]
         original_get = secret_state.get_secret
+        original_backend = secret_state.backend_path
         try:
             secret_state.get_secret = lambda key: "secret-token"
             self.assertEqual(
@@ -75,8 +76,25 @@ class TokenStorageTests(unittest.TestCase):
                 self.ns["anilist_token_storage_status"]({"anilist_token": ""}),
                 "none",
             )
+            secret_state.backend_path = lambda: "/usr/bin/secret-tool"
+            lines = self.ns["anilist_auth_status_lines"](
+                {"anilist_token": "plain-token"}
+            )
+            rendered = "\n".join(lines)
+            self.assertIn("AniList", rendered)
+            self.assertIn("private config file", rendered)
+            self.assertIn("/usr/bin/secret-tool", rendered)
+            self.assertIn("plai", rendered)
+            self.assertIn("oken", rendered)
+            self.assertNotIn("plain-token", rendered)
+            self.assertIn("move the token to keyring", rendered)
         finally:
             secret_state.get_secret = original_get
+            secret_state.backend_path = original_backend
+
+    def test_short_token_mask_does_not_expose_value(self):
+        self.assertEqual(self.ns["mask_token"]("abcd"), "****")
+        self.assertEqual(self.ns["mask_token"](""), "")
 
 
 if __name__ == "__main__":

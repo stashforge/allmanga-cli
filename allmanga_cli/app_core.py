@@ -1527,6 +1527,42 @@ def anilist_token_storage_status(cfg):
         return "config"
     return "none"
 
+def mask_token(token):
+    token = str(token or "")
+    if not token:
+        return ""
+    if len(token) <= 8:
+        return "*" * len(token)
+    return f"{token[:4]}{'*' * max(8, len(token) - 8)}{token[-4:]}"
+
+def anilist_auth_status_lines(cfg):
+    secret_token = secret_state.get_secret(secret_state.ANILIST_KEY)
+    config_token = cfg.get("anilist_token") or ""
+    storage = "secret" if secret_token else ("config" if config_token else "none")
+    token = secret_token or config_token
+    keyring_path = secret_state.backend_path()
+    lines = ["AniList"]
+    if token:
+        lines.append(f"  {GREEN}✓{RESET} Token found")
+    else:
+        lines.append(f"  {RED}✗{RESET} Not logged in")
+    if storage == "secret":
+        lines.append("  - Storage: OS secret storage")
+    elif storage == "config":
+        lines.append("  - Storage: private config file")
+    else:
+        lines.append("  - Storage: none")
+    lines.append(f"  - Config: {CFG_PATH}")
+    if keyring_path:
+        lines.append(f"  - Keyring: available ({keyring_path})")
+    else:
+        lines.append("  - Keyring: unavailable (secret-tool not found)")
+    if token:
+        lines.append(f"  - Token: {mask_token(token)}")
+    if storage == "config" and keyring_path:
+        lines.append("  - Hint: run auth login again to move the token to keyring")
+    return lines
+
 def prompt_anilist_token():
     return getpass.getpass(f"\n{BOLD}Paste AniList Token: {RESET}").strip()
 
@@ -2973,13 +3009,7 @@ def main():
         sys.exit(0)
 
     if getattr(args, "auth_status", False):
-        storage = anilist_token_storage_status(cfg)
-        if storage == "secret":
-            print("AniList token: stored in OS secret storage")
-        elif storage == "config":
-            print("AniList token: stored in private config file")
-        else:
-            print("AniList token: not saved")
+        print("\n".join(anilist_auth_status_lines(cfg)))
         sys.exit(0)
 
     if args.login:
