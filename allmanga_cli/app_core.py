@@ -525,6 +525,11 @@ def _clear_poster_downloads():
     _poster_manager.clear_downloads()
 
 
+def clear_terminal_images():
+    sys.stdout.write(_clear_terminal_images())
+    sys.stdout.flush()
+
+
 def _poster_footer_line(show, default_text, width):
     return _poster_manager.footer_line(show, default_text, width)
 

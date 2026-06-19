@@ -135,13 +135,8 @@ def handle_anilist_menu_state(
 
 
 def _load_anilist_airing_shows(token, *, force_refresh=False):
-    return app_core.with_loading(
-        "Loading AniList airing schedule...",
-        app_core.fetch_anilist_list,
-        token,
-        None,
-        force_refresh,
-    )
+    app_core.render_anilist_menu_loading("ANILIST_AIRING")
+    return app_core.fetch_anilist_list(token, None, force_refresh)
 
 
 def _open_anilist_show_from_picker(
@@ -290,6 +285,8 @@ def handle_anilist_airing_state(
         ),
     )
     if idx in (-2, -3):
+        app_core._clear_poster_downloads()
+        app_core.clear_terminal_images()
         return "ANILIST_MENU"
     if idx < 0:
         return "ANILIST_AIRING"
