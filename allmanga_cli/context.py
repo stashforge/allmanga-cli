@@ -45,6 +45,9 @@ class CliFlags:
     show_image: bool = False
     """``--cover`` flag: render cover images inside the picker."""
 
+    spinner_style: object = "braille"
+    """Resolved configured spinner style name or custom frame list."""
+
 
 # ---------------------------------------------------------------------------
 # UiState

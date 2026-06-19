@@ -16,7 +16,7 @@ class TuiLayoutTests(unittest.TestCase):
         finally:
             spinner.time.time = original_time
 
-        self.assertEqual(observed, ["⠋", "⠙", "⠹"])
+        self.assertEqual(observed, ["⣾", "⣽", "⣻"])
 
     def test_spinner_supports_named_and_custom_frames(self):
         for preset in ("braille", "dots", "line", "pulse"):

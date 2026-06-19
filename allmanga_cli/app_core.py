@@ -554,7 +554,7 @@ def exit_alt_screen():
         _alt_screen_active = False
 
 def with_loading(msg, fn, *args, **kwargs):
-    spinner_style = _spinner_style
+    spinner_style = kwargs.pop("_spinner_style", _spinner_style)
     try:
         ts = os.get_terminal_size()
         w, h = ts.columns, ts.lines
@@ -2969,6 +2969,7 @@ def main():
         sync_force_on=globals().get("SYNC_FORCE_ON", False),
         sync_force_off=globals().get("SYNC_FORCE_OFF", False),
         show_image=globals().get("SHOW_IMAGE", False),
+        spinner_style=_spinner_style,
     )
     ui = UiState()
 

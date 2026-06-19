@@ -6,7 +6,7 @@ from ..core.terminal import sanitize_terminal_text
 
 
 SPINNER_STYLES = {
-    "braille": ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"],
+    "braille": ["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"],
     "dots": [".   ", "..  ", "... ", "...."],
     "line": ["-", "\\", "|", "/"],
     "pulse": ["·", "•", "●", "•"],
