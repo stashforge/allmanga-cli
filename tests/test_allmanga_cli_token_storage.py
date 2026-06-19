@@ -101,6 +101,12 @@ class TokenStorageTests(unittest.TestCase):
         )
         self.assertEqual(self.ns["mask_token"](""), "")
 
+    def test_existing_token_status_detects_login_guard(self):
+        self.assertNotEqual(
+            self.ns["anilist_token_storage_status"]({"anilist_token": "token"}),
+            "none",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

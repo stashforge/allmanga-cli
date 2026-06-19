@@ -3015,6 +3015,10 @@ def main():
         sys.exit(0)
 
     if args.login:
+        if anilist_token_storage_status(cfg) != "none":
+            print("\n".join(anilist_auth_status_lines(cfg)))
+            print(f"\n{YELLOW}Already logged in. Run auth logout first to replace this token.{RESET}")
+            sys.exit(0)
         print(f"\n{YELLOW}AniList login{RESET}")
         print("Open this link, sign in, and copy the token:")
         print("\033[4mhttps://anilist.co/api/v2/oauth/authorize?client_id=9857&response_type=token\033[0m")
