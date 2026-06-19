@@ -83,6 +83,7 @@ class TokenStorageTests(unittest.TestCase):
             )
             rendered = "\n".join(lines)
             self.assertIn("AniList", rendered)
+            self.assertIn("Token stored", rendered)
             self.assertIn("private config file", rendered)
             self.assertIn("/usr/bin/secret-tool", rendered)
             self.assertIn("plai", rendered)
@@ -113,6 +114,24 @@ class TokenStorageTests(unittest.TestCase):
             self.ns["anilist_token_storage_status"]({"anilist_token": "token"}),
             "none",
         )
+        rendered = "\n".join(
+            self.ns["anilist_auth_login_existing_lines"]({"anilist_token": "token"})
+        )
+        self.assertIn("Already authenticated", rendered)
+        self.assertIn("auth logout", rendered)
+        self.assertNotIn("Token:", rendered)
+        self.assertNotIn("Config:", rendered)
+
+    def test_token_command_output_is_masked_or_raw(self):
+        cfg = {"anilist_token": "abcdefghijklmnopqrstuvwxyz"}
+
+        masked = self.ns["anilist_auth_token_lines"](cfg)
+        raw = self.ns["anilist_auth_token_lines"](cfg, raw=True)
+
+        self.assertEqual(masked[0], "AniList token: abcd************wxyz")
+        self.assertIn("--raw", masked[1])
+        self.assertEqual(raw, ["abcdefghijklmnopqrstuvwxyz"])
+        self.assertIsNone(self.ns["anilist_auth_token_lines"]({}))
 
     def test_sensitive_text_redaction(self):
         jwt = "eyJ" + "a" * 30 + "." + "b" * 12 + "." + "c" * 12

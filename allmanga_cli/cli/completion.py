@@ -10,7 +10,7 @@ ANILIST_LISTS = (
     "watching", "planning", "completed", "paused", "dropped", "rewatching",
     "search",
 )
-AUTH_ACTIONS = ("login", "logout", "status")
+AUTH_ACTIONS = ("login", "logout", "status", "token")
 SHELLS = ("bash", "zsh", "fish")
 
 ROOT_OPTIONS = ("-h", "--help", "--debug")
@@ -31,7 +31,7 @@ RESUME_OPTIONS = (
     "-s", "--sources", "--print-url", "-t", "--sync", "--no-sync",
     "--cover", "--incognito", "--debug", "-h", "--help",
 )
-AUTH_OPTIONS = ("--debug", "-h", "--help")
+AUTH_OPTIONS = ("--raw", "--debug", "-h", "--help")
 COMPLETION_OPTIONS = ("install", "--debug", "-h", "--help")
 
 

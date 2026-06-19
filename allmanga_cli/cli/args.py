@@ -98,8 +98,8 @@ def _anilist_target(value):
 
 def _auth_action(value):
     action = str(value or "").lower()
-    if action not in ("login", "logout", "status"):
-        raise argparse.ArgumentTypeError("use login, logout, or status")
+    if action not in ("login", "logout", "status", "token"):
+        raise argparse.ArgumentTypeError("use login, logout, status, or token")
     return action
 
 def _set_cli_defaults(parser):
@@ -127,6 +127,9 @@ def _set_cli_defaults(parser):
         json=False,
         completion_shell=None,
         completion_install=False,
+        auth_status=False,
+        auth_token=False,
+        auth_token_raw=False,
     )
 
 def _add_debug_option(parser, *, suppress_default=False):
@@ -437,15 +440,19 @@ def build_command_parser():
         description=(
             "Manage AniList authentication.\n\n"
             "Actions:\n"
-            "  login          Save an AniList access token\n"
-            "  logout         Remove the saved AniList access token\n"
-            "  status         Show where the AniList token is stored"
+            "  status         Show AniList authentication and storage status\n"
+            "  login          Store an AniList token\n"
+            "  logout         Remove the stored AniList token\n"
+            "  token          Show the masked stored token\n"
+            "  token --raw    Print the complete stored token"
         ),
         epilog=(
             "Examples:\n"
+            "  allmanga-cli auth status\n"
             "  allmanga-cli auth login\n"
             "  allmanga-cli auth logout\n"
-            "  allmanga-cli auth status"
+            "  allmanga-cli auth token\n"
+            "  allmanga-cli auth token --raw"
         ),
         add_help=False,
         formatter_class=MinimalHelpFormatter,
@@ -455,6 +462,11 @@ def build_command_parser():
     auth.add_argument(
         "action", metavar="<action>", type=_auth_action,
         help="Authentication action to run",
+    )
+    auth_options = auth.add_argument_group("Auth options")
+    auth_options.add_argument(
+        "--raw", action="store_true",
+        help="With auth token, print the complete stored token",
     )
     global_options = auth.add_argument_group("Global options")
     _add_debug_option(global_options, suppress_default=True)
@@ -583,6 +595,10 @@ def parse_cli_args(argv=None):
         args.login = args.action == "login"
         args.logout = args.action == "logout"
         args.auth_status = args.action == "status"
+        args.auth_token = args.action == "token"
+        args.auth_token_raw = bool(args.raw)
+        if args.raw and args.action != "token":
+            parser.error("auth --raw is only valid with auth token")
         del args.action
     elif args.command == "completion":
         values = list(args.completion_args)

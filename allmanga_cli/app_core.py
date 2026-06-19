@@ -1554,7 +1554,7 @@ def anilist_auth_status_lines(cfg):
     keyring_path = secret_state.backend_path()
     lines = ["AniList"]
     if token:
-        lines.append(f"  {GREEN}✓{RESET} Token found")
+        lines.append(f"  {GREEN}✓{RESET} Token stored")
     else:
         lines.append(f"  {RED}✗{RESET} Not logged in")
     if storage == "secret":
@@ -1575,6 +1575,32 @@ def anilist_auth_status_lines(cfg):
     if storage == "config" and keyring_path:
         lines.append("  - Hint: run auth login again to move the token to keyring")
     return lines
+
+def stored_anilist_token(cfg):
+    return sanitize_token(
+        secret_state.get_secret(secret_state.ANILIST_KEY)
+        or cfg.get("anilist_token")
+        or ""
+    )
+
+def anilist_auth_login_existing_lines(cfg):
+    return [
+        "AniList",
+        f"  {GREEN}✓{RESET} Already authenticated",
+        "",
+        "Run `auth logout` first to replace the stored token.",
+    ]
+
+def anilist_auth_token_lines(cfg, raw=False):
+    token = stored_anilist_token(cfg)
+    if not token:
+        return None
+    if raw:
+        return [token]
+    return [
+        f"AniList token: {mask_token(token)}",
+        "Use `auth token --raw` to reveal the complete token.",
+    ]
 
 def prompt_anilist_token():
     return sanitize_token(getpass.getpass(f"\n{BOLD}Paste AniList Token: {RESET}"))
@@ -3039,10 +3065,17 @@ def main():
         print("\n".join(anilist_auth_status_lines(cfg)))
         sys.exit(0)
 
+    if getattr(args, "auth_token", False):
+        lines = anilist_auth_token_lines(cfg, raw=getattr(args, "auth_token_raw", False))
+        if not lines:
+            print("AniList token is not saved.", file=sys.stderr)
+            sys.exit(1)
+        print("\n".join(lines))
+        sys.exit(0)
+
     if args.login:
         if anilist_token_storage_status(cfg) != "none":
-            print("\n".join(anilist_auth_status_lines(cfg)))
-            print(f"\n{YELLOW}Already logged in. Run auth logout first to replace this token.{RESET}")
+            print("\n".join(anilist_auth_login_existing_lines(cfg)))
             sys.exit(0)
         print(f"\n{YELLOW}AniList login{RESET}")
         print("Open this link, sign in, and copy the token:")
