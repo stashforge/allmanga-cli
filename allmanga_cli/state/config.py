@@ -27,11 +27,19 @@ def secure_permissions(path):
         pass
 
 
+def secure_directory(path):
+    try:
+        os.chmod(path, 0o700)
+    except Exception:
+        pass
+
+
 def save_config_file(path, config, disabled=False):
     if disabled:
         return False
     directory = os.path.dirname(path)
     os.makedirs(directory, exist_ok=True)
+    secure_directory(directory)
     fd, temp_path = tempfile.mkstemp(
         prefix=".config.",
         suffix=".tmp",
@@ -85,6 +93,7 @@ def load_config_file(
             backup_path = f"{path}.bad-{int(time.time())}"
             try:
                 os.replace(path, backup_path)
+                secure_permissions(backup_path)
                 if on_invalid:
                     on_invalid(backup_path)
             except Exception as move_error:
