@@ -87,7 +87,7 @@ class IncognitoModeTests(unittest.TestCase):
         path = self.ns["write_private_log"]("crash.log", "debug trace")
         self.assertEqual(Path(path).read_text(), "debug trace\n")
 
-    def test_resume_is_ignored_and_metadata_shows_indicator(self):
+    def test_resume_is_ignored_and_metadata_stays_clean(self):
         self.paths["PLAYBACK_PATH"].write_text(
             '{"show-1": {"resumes": {"1": 90}}}\n'
         )
@@ -101,7 +101,7 @@ class IncognitoModeTests(unittest.TestCase):
             "airedStart": {"year": 2026},
         }
         self.ns["build_info_panel"](show, "sub", 80, parts)
-        self.assertIn("INCOGNITO", parts[2])
+        self.assertNotIn("INCOGNITO", parts[2])
 
 
 if __name__ == "__main__":

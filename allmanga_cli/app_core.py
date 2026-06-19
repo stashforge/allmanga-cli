@@ -462,10 +462,7 @@ def build_info_panel(show, ttype, w, parts, override_ep_str=None, main_title=Non
     info_alt_title_line = f"{C_D}{_t(alt)}{R}" if alt else f"{C_D}No alternative title{R}"
 
     metadata = buildInfoMetadataLine(show, ttype, override_ep_str, local_only=local_only)
-    if is_incognito():
-        info_metadata_line = f"{_t(f'{YELLOW}INCOGNITO{C_D} • {metadata}')}{R}"
-    else:
-        info_metadata_line = f"{C_D}{_t(metadata)}{R}"
+    info_metadata_line = f"{C_D}{_t(metadata)}{R}"
 
     parts.extend([info_title_line, info_alt_title_line, info_metadata_line])
 

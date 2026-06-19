@@ -136,6 +136,24 @@ class MetadataFormattingTests(unittest.TestCase):
 
         self.assertIn("AL WATCHING", line)
 
+    def test_anilist_context_uses_anilist_progress_when_sync_is_off(self):
+        anime = {
+            "_sync_enabled": False,
+            "_anilist_context": True,
+            "_anilist_list": "CURRENT",
+            "_anilist_progress": 6,
+            "_local_progress": 2,
+            "episodeCount": 13,
+            "status": "FINISHED",
+        }
+
+        line = format_info_metadata_line(anime)
+
+        self.assertIn("AL WATCHING", line)
+        self.assertIn("EP", line)
+        self.assertIn("6/13", line)
+        self.assertNotIn("2/13", line)
+
     def test_anime_status_uses_quieter_color_than_anilist_status(self):
         anime = {
             "_sync_enabled": True,

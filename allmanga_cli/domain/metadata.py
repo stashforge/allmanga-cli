@@ -89,7 +89,8 @@ def format_progress(anime, local_only=False, ttype="sub"):
         authority = anime.get("_progress_authority")
         if anime.get("_sync_conflict") and local_progress is not None:
             return format_ep_progress("LOCAL", local_label, total, local_only)
-        if sync_enabled and anilist_progress is not None:
+        anilist_context = bool(anime.get("_anilist_context") or anime.get("_anilist_list"))
+        if (sync_enabled or anilist_context) and anilist_progress is not None:
             return format_ep_progress("AL", anilist_progress, total, local_only)
         if authority == "AL" and anilist_progress is not None:
             return format_ep_progress("AL", anilist_progress, total, local_only)

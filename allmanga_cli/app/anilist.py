@@ -38,18 +38,38 @@ from ..core.terminal import truncate_display as _truncate_display
 _C_HINT = "\033[38;5;244m"
 _RST    = "\033[0m"
 
+ANILIST_LIST_LABELS = {
+    None: "All",
+    "CURRENT": "Watching",
+    "WATCHING": "Watching",
+    "PLANNING": "Planning",
+    "PLAN_TO_WATCH": "Planning",
+    "COMPLETED": "Completed",
+    "PAUSED": "Paused",
+    "DROPPED": "Dropped",
+    "REPEATING": "Rewatching",
+    "REWATCHING": "Rewatching",
+}
+
 
 def _footer_parts(*parts):
     return " | ".join(str(part) for part in parts if part)
 
 
 def _anilist_badges(flags, args):
-    badges = ["AniList"]
+    badges = []
     if getattr(flags, "incognito_mode", False):
         badges.append("Incognito")
     if getattr(flags, "incognito_mode", False) or getattr(args, "no_sync", False):
         badges.append("Sync Off")
     return badges
+
+
+def _anilist_list_label(status):
+    if status is None:
+        return ANILIST_LIST_LABELS[None]
+    normalized = str(status or "").upper().replace(" ", "_").replace("-", "_")
+    return ANILIST_LIST_LABELS.get(normalized, "Browse")
 
 
 def handle_anilist_menu_state(
@@ -169,7 +189,7 @@ def handle_anilist_browse_state(
         opts = [f"{show['name']}" for show in al_shows]
         return opts, _al_hdr(0)
 
-    list_title = al_shows[0].get("_anilist_list", "Browse") if al_shows else "Browse"
+    list_title = _anilist_list_label(stat)
     idx = tui_pick(
         flags, ui,
         lambda: f"AniList - {list_title} · {ANILIST_SORT_LABELS[sort_mode]}",
