@@ -1533,7 +1533,7 @@ def mask_token(token):
         return ""
     if len(token) <= 8:
         return "*" * len(token)
-    return f"{token[:4]}{'*' * max(8, len(token) - 8)}{token[-4:]}"
+    return f"{token[:4]}************{token[-4:]}"
 
 def anilist_auth_status_lines(cfg):
     secret_token = secret_state.get_secret(secret_state.ANILIST_KEY)

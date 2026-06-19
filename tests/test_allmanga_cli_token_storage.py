@@ -94,6 +94,10 @@ class TokenStorageTests(unittest.TestCase):
 
     def test_short_token_mask_does_not_expose_value(self):
         self.assertEqual(self.ns["mask_token"]("abcd"), "****")
+        self.assertEqual(
+            self.ns["mask_token"]("abcdefghijklmnopqrstuvwxyz"),
+            "abcd************wxyz",
+        )
         self.assertEqual(self.ns["mask_token"](""), "")
 
 
