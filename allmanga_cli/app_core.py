@@ -149,6 +149,7 @@ from allmanga_cli.state.config import (
     save_config_file,
     secure_permissions as _secure_permissions,
 )
+from allmanga_cli.state import secrets as secret_state
 from allmanga_cli.state.io import atomic_write_json, write_private_text
 from allmanga_cli.state.paths import (
     ANILIST_QUEUE_PATH,
@@ -1489,7 +1490,7 @@ def _secure_config_permissions():
     _secure_permissions(CFG_PATH)
 
 def load_config():
-    return load_config_file(
+    cfg = load_config_file(
         CFG_PATH,
         disabled=is_incognito(),
         on_error=lambda exc: debug_warn("Failed to load config", exc),
@@ -1497,9 +1498,27 @@ def load_config():
             f"Config was invalid; moved it to {path}"
         ),
     )
+    token = secret_state.get_secret(secret_state.ANILIST_KEY)
+    if token:
+        cfg["anilist_token"] = token
+    return cfg
 
 def save_config(cfg):
     return save_config_file(CFG_PATH, cfg, disabled=is_incognito())
+
+def save_anilist_token(cfg, token):
+    if token and secret_state.set_secret(secret_state.ANILIST_KEY, token):
+        cfg["anilist_token"] = ""
+        save_config(cfg)
+        return "secret"
+    cfg["anilist_token"] = token or ""
+    save_config(cfg)
+    return "config"
+
+def clear_anilist_token(cfg):
+    secret_state.delete_secret(secret_state.ANILIST_KEY)
+    cfg["anilist_token"] = ""
+    save_config(cfg)
 
 def prompt_anilist_token():
     return getpass.getpass(f"\n{BOLD}Paste AniList Token: {RESET}").strip()
@@ -2942,8 +2961,7 @@ def main():
         sys.exit(0)
 
     if args.logout:
-        cfg["anilist_token"] = ""
-        save_config(cfg)
+        clear_anilist_token(cfg)
         print(f"{GREEN}Logged out of AniList.{RESET}")
         sys.exit(0)
 
@@ -2953,9 +2971,8 @@ def main():
         print("\033[4mhttps://anilist.co/api/v2/oauth/authorize?client_id=9857&response_type=token\033[0m")
         tkn = prompt_anilist_token()
         if tkn:
-            cfg["anilist_token"] = tkn
-            save_config(cfg)
-            print(f"{GREEN}AniList token saved.{RESET}")
+            storage = save_anilist_token(cfg, tkn)
+            print(f"{GREEN}AniList token saved to {storage}.{RESET}")
         else:
             print(f"{RED}No token provided.{RESET}")
         sys.exit(0)
@@ -3026,9 +3043,8 @@ def main():
         print("\033[4mhttps://anilist.co/api/v2/oauth/authorize?client_id=9857&response_type=token\033[0m")
         tkn = prompt_anilist_token()
         if tkn:
-            cfg["anilist_token"] = tkn
-            save_config(cfg)
-            print(f"{GREEN}AniList token saved.{RESET}")
+            storage = save_anilist_token(cfg, tkn)
+            print(f"{GREEN}AniList token saved to {storage}.{RESET}")
         else:
             print(f"{RED}No token provided. Tracking is disabled for this session.{RESET}")
             args.no_sync = True
