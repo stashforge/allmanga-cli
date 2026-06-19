@@ -40,7 +40,7 @@ def menu_navigation(result):
     return None
 
 
-def loading_frame(status, rows, columns):
+def loading_frame(status, rows, columns, loading_text=""):
     pointer_color = "\033[38;2;243;139;168m"
     prompt_color = "\033[38;2;203;166;247m"
     hint = "\033[38;5;244m"
@@ -55,6 +55,8 @@ def loading_frame(status, rows, columns):
         -1,
     )
     header_lines = menu_header().splitlines()
+    if loading_text:
+        header_lines[0] = loading_text
     item_count = len(options)
     padding = max(0, rows - item_count - 1 - len(header_lines))
     output = [""] * padding

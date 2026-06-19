@@ -217,28 +217,22 @@ class TuiLayoutTests(unittest.TestCase):
     def test_direct_anilist_list_enters_alt_screen_before_loading(self):
         load_list = namespace["load_anilist_browse"]
         globals_dict = load_list.__globals__
-        original_render = globals_dict["render_anilist_menu_loading"]
-        original_loading = globals_dict["with_loading"]
+        original_loading = globals_dict["with_anilist_menu_loading"]
         calls = []
         try:
-            globals_dict["render_anilist_menu_loading"] = (
-                lambda status: calls.append(("render", status))
-            )
-
-            def fake_loading(message, fn, *args):
-                calls.append(("loading", message, args))
+            def fake_loading(status, message, fn, *args):
+                calls.append(("loading", status, message, args))
                 return ["show"]
 
-            globals_dict["with_loading"] = fake_loading
+            globals_dict["with_anilist_menu_loading"] = fake_loading
             result = load_list("token", "CURRENT")
         finally:
-            globals_dict["render_anilist_menu_loading"] = original_render
-            globals_dict["with_loading"] = original_loading
+            globals_dict["with_anilist_menu_loading"] = original_loading
 
         self.assertEqual(result, ["show"])
-        self.assertEqual(calls[0], ("render", "CURRENT"))
-        self.assertEqual(calls[1][0], "loading")
-        self.assertEqual(calls[1][1], "Loading AniList list: CURRENT")
+        self.assertEqual(calls[0][0], "loading")
+        self.assertEqual(calls[0][1], "CURRENT")
+        self.assertEqual(calls[0][2], "Loading AniList list: CURRENT")
 
     def test_direct_anilist_loading_frame_shows_menu_and_selection(self):
         frame = namespace["anilist_menu_loading_frame"]("CURRENT", 20, 80)
@@ -249,6 +243,15 @@ class TuiLayoutTests(unittest.TestCase):
         self.assertIn("❯ Watching", plain)
         self.assertIn("Choose an AniList list.", plain)
         self.assertIn("Titles are matched to AllAnime before playback.", plain)
+
+    def test_anilist_loading_frame_can_show_loading_message_inside_panel(self):
+        frame = namespace["anilist_menu_loading_frame"](
+            "ANILIST_AIRING", 20, 80, "Loading AniList airing schedule..."
+        )
+        plain = namespace["_strip_ansi"](frame)
+
+        self.assertIn("❯ Airing", plain)
+        self.assertIn("Loading AniList airing schedule...", plain)
 
 
 if __name__ == "__main__":

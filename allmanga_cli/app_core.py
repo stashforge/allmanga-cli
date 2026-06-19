@@ -599,7 +599,7 @@ def with_loading(msg, fn, *args, **kwargs):
         sys.stdout.flush()
 
 
-def render_anilist_menu_loading(status):
+def render_anilist_menu_loading(status, loading_text=""):
     enter_alt_screen()
     try:
         size = os.get_terminal_size()
@@ -607,13 +607,42 @@ def render_anilist_menu_loading(status):
     except OSError:
         columns, rows = 80, 24
     sys.stdout.write(
-        "\033[?25l" + anilist_menu_loading_frame(status, rows, columns)
+        "\033[?25l" + anilist_menu_loading_frame(
+            status, rows, columns, loading_text
+        )
     )
     sys.stdout.flush()
 
+
+def with_anilist_menu_loading(status, msg, fn, *args, **kwargs):
+    result = {}
+
+    def _runner():
+        try:
+            result["value"] = fn(*args, **kwargs)
+        except BaseException as exc:
+            result["error"] = exc
+
+    thread = threading.Thread(target=_runner, daemon=True)
+    thread.start()
+    while thread.is_alive():
+        try:
+            width = os.get_terminal_size().columns
+        except OSError:
+            width = 80
+        render_anilist_menu_loading(
+            status,
+            _loading_line(msg, width, _spinner_style),
+        )
+        thread.join(0.1)
+    if "error" in result:
+        raise result["error"]
+    return result.get("value")
+
+
 def load_anilist_browse(token, status):
-    render_anilist_menu_loading(status)
-    return with_loading(
+    return with_anilist_menu_loading(
+        status,
         f"Loading AniList list: {status}",
         fetch_anilist_list,
         token,
