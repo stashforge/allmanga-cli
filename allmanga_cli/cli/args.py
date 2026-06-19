@@ -98,8 +98,8 @@ def _anilist_target(value):
 
 def _auth_action(value):
     action = str(value or "").lower()
-    if action not in ("login", "logout"):
-        raise argparse.ArgumentTypeError("use login or logout")
+    if action not in ("login", "logout", "status"):
+        raise argparse.ArgumentTypeError("use login, logout, or status")
     return action
 
 def _set_cli_defaults(parser):
@@ -438,12 +438,14 @@ def build_command_parser():
             "Manage AniList authentication.\n\n"
             "Actions:\n"
             "  login          Save an AniList access token\n"
-            "  logout         Remove the saved AniList access token"
+            "  logout         Remove the saved AniList access token\n"
+            "  status         Show where the AniList token is stored"
         ),
         epilog=(
             "Examples:\n"
             "  allmanga-cli auth login\n"
-            "  allmanga-cli auth logout"
+            "  allmanga-cli auth logout\n"
+            "  allmanga-cli auth status"
         ),
         add_help=False,
         formatter_class=MinimalHelpFormatter,
@@ -580,6 +582,7 @@ def parse_cli_args(argv=None):
     elif args.command == "auth":
         args.login = args.action == "login"
         args.logout = args.action == "logout"
+        args.auth_status = args.action == "status"
         del args.action
     elif args.command == "completion":
         values = list(args.completion_args)

@@ -56,6 +56,28 @@ class TokenStorageTests(unittest.TestCase):
         finally:
             secret_state.set_secret = original_set
 
+    def test_token_storage_status_does_not_expose_token(self):
+        secret_state = self.globals["secret_state"]
+        original_get = secret_state.get_secret
+        try:
+            secret_state.get_secret = lambda key: "secret-token"
+            self.assertEqual(
+                self.ns["anilist_token_storage_status"]({}),
+                "secret",
+            )
+
+            secret_state.get_secret = lambda key: ""
+            self.assertEqual(
+                self.ns["anilist_token_storage_status"]({"anilist_token": "plain-token"}),
+                "config",
+            )
+            self.assertEqual(
+                self.ns["anilist_token_storage_status"]({"anilist_token": ""}),
+                "none",
+            )
+        finally:
+            secret_state.get_secret = original_get
+
 
 if __name__ == "__main__":
     unittest.main()

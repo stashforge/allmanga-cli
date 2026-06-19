@@ -1520,6 +1520,13 @@ def clear_anilist_token(cfg):
     cfg["anilist_token"] = ""
     save_config(cfg)
 
+def anilist_token_storage_status(cfg):
+    if secret_state.get_secret(secret_state.ANILIST_KEY):
+        return "secret"
+    if cfg.get("anilist_token"):
+        return "config"
+    return "none"
+
 def prompt_anilist_token():
     return getpass.getpass(f"\n{BOLD}Paste AniList Token: {RESET}").strip()
 
@@ -2963,6 +2970,16 @@ def main():
     if args.logout:
         clear_anilist_token(cfg)
         print(f"{GREEN}Logged out of AniList.{RESET}")
+        sys.exit(0)
+
+    if getattr(args, "auth_status", False):
+        storage = anilist_token_storage_status(cfg)
+        if storage == "secret":
+            print("AniList token: stored in OS secret storage")
+        elif storage == "config":
+            print("AniList token: stored in private config file")
+        else:
+            print("AniList token: not saved")
         sys.exit(0)
 
     if args.login:

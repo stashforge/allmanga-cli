@@ -10,7 +10,7 @@ ANILIST_LISTS = (
     "watching", "planning", "completed", "paused", "dropped", "rewatching",
     "search",
 )
-AUTH_ACTIONS = ("login", "logout")
+AUTH_ACTIONS = ("login", "logout", "status")
 SHELLS = ("bash", "zsh", "fish")
 
 ROOT_OPTIONS = ("-h", "--help", "--debug")

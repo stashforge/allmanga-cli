@@ -61,6 +61,7 @@ class CommandRouterTests(unittest.TestCase):
         history, _ = parse_cli_args(["history"])
         cont, _ = parse_cli_args(["continue"])
         login, _ = parse_cli_args(["auth", "login"])
+        status, _ = parse_cli_args(["auth", "status"])
         completion, _ = parse_cli_args(["completion", "bash"])
         completion_install, _ = parse_cli_args(["completion", "install", "bash"])
 
@@ -68,6 +69,7 @@ class CommandRouterTests(unittest.TestCase):
         self.assertTrue(cont.cont)
         self.assertTrue(login.login)
         self.assertFalse(login.logout)
+        self.assertTrue(status.auth_status)
         self.assertEqual(completion.completion_shell, "bash")
         self.assertFalse(completion.completion_install)
         self.assertEqual(completion_install.completion_shell, "bash")
