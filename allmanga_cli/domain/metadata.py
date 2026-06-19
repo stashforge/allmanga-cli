@@ -175,9 +175,7 @@ def should_refresh_anilist(anime, now=None):
 
 def anilist_list_status_label(anime, local_only=False):
     if not local_only:
-        show_anilist_status = (
-            anime.get("_sync_enabled") or anime.get("_anilist_context")
-        )
+        show_anilist_status = bool(anime.get("_anilist_list"))
         anilist_list = (
             str(anime.get("_anilist_list") or "").upper().replace(" ", "_")
             if show_anilist_status
@@ -200,16 +198,17 @@ def anilist_list_status_label(anime, local_only=False):
 
 def anime_status_label(anime):
     status = str(anime.get("status") or "").upper()
+    color = "\033[38;5;250m"
     if status == "RELEASING":
-        return f"\033[32mAIRING{DIM}"
+        return f"{color}AIRING{DIM}"
     if status == "FINISHED":
-        return f"\033[36mFINISHED{DIM}"
+        return f"{color}FINISHED{DIM}"
     if status in ("NOT_YET_RELEASED", "NOT YET RELEASED"):
-        return f"\033[33mUPCOMING{DIM}"
+        return f"{color}UPCOMING{DIM}"
     if status == "CANCELLED":
-        return f"\033[31mCANCELLED{DIM}"
+        return f"{color}CANCELLED{DIM}"
     if status == "HIATUS":
-        return f"\033[35mHIATUS{DIM}"
+        return f"{color}HIATUS{DIM}"
     return ""
 
 

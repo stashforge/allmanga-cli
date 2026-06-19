@@ -123,6 +123,32 @@ class MetadataFormattingTests(unittest.TestCase):
         self.assertIn("EP", line)
         self.assertIn("10/13", line)
 
+    def test_anilist_status_stays_visible_when_sync_is_off(self):
+        anime = {
+            "_sync_enabled": False,
+            "_anilist_list": "CURRENT",
+            "_anilist_progress": 10,
+            "episodeCount": 13,
+            "status": "RELEASING",
+        }
+
+        line = format_info_metadata_line(anime)
+
+        self.assertIn("AL WATCHING", line)
+
+    def test_anime_status_uses_quieter_color_than_anilist_status(self):
+        anime = {
+            "_sync_enabled": True,
+            "_anilist_list": "CURRENT",
+            "_anilist_progress": 1,
+            "status": "RELEASING",
+        }
+
+        line = format_info_metadata_line(anime)
+
+        self.assertIn("\033[32mAL WATCHING", line)
+        self.assertIn("\033[38;5;250mAIRING", line)
+
 
 if __name__ == "__main__":
     unittest.main()
