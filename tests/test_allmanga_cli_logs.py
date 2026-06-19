@@ -36,6 +36,19 @@ class PrivateLogTests(unittest.TestCase):
             self.assertEqual(path, log_dir / "outside.log")
             self.assertFalse((Path(temp_dir) / "outside.log").exists())
 
+    def test_private_log_redacts_tokens(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            log_dir = Path(temp_dir) / "logs"
+            write_private_log.__globals__["LOG_DIR"] = str(log_dir)
+            jwt = "eyJ" + "a" * 30 + "." + "b" * 12 + "." + "c" * 12
+
+            path = Path(write_private_log("crash.log", f"Authorization: Bearer abc\n{jwt}"))
+            text = path.read_text()
+
+            self.assertIn("Authorization: Bearer <redacted>", text)
+            self.assertIn("<redacted-jwt>", text)
+            self.assertNotIn(jwt, text)
+
 
 if __name__ == "__main__":
     unittest.main()

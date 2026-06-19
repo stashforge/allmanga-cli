@@ -33,7 +33,7 @@ class TokenStorageTests(unittest.TestCase):
             secret_state.set_secret = lambda key, value: stored.setdefault(key, value) or True
             cfg = {"anilist_token": "old"}
 
-            mode = self.ns["save_anilist_token"](cfg, "new-token")
+            mode = self.ns["save_anilist_token"](cfg, '"new-token"')
 
             self.assertEqual(mode, "secret")
             self.assertEqual(stored[secret_state.ANILIST_KEY], "new-token")
@@ -89,6 +89,13 @@ class TokenStorageTests(unittest.TestCase):
             self.assertIn("oken", rendered)
             self.assertNotIn("plain-token", rendered)
             self.assertIn("move the token to keyring", rendered)
+
+            lines = self.ns["anilist_auth_status_lines"](
+                {"anilist_token": '"quoted-token"'}
+            )
+            rendered = "\n".join(lines)
+            self.assertIn("wrapping quotes", rendered)
+            self.assertNotIn('"quoted-token"', rendered)
         finally:
             secret_state.get_secret = original_get
             secret_state.backend_path = original_backend
@@ -106,6 +113,17 @@ class TokenStorageTests(unittest.TestCase):
             self.ns["anilist_token_storage_status"]({"anilist_token": "token"}),
             "none",
         )
+
+    def test_sensitive_text_redaction(self):
+        jwt = "eyJ" + "a" * 30 + "." + "b" * 12 + "." + "c" * 12
+        text = f"Authorization: Bearer secret-token\nvalue={jwt}"
+
+        redacted = self.ns["redact_sensitive_text"](text)
+
+        self.assertIn("Authorization: Bearer <redacted>", redacted)
+        self.assertIn("<redacted-jwt>", redacted)
+        self.assertNotIn("secret-token", redacted)
+        self.assertNotIn(jwt, redacted)
 
 
 if __name__ == "__main__":

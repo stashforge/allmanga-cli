@@ -748,7 +748,7 @@ def _atomic_write_json(path, data, indent=None):
 def write_private_log(filename, content):
     if is_incognito() and not globals().get("DEBUG_MODE", False):
         return None
-    return write_private_text(LOG_DIR, filename, content)
+    return write_private_text(LOG_DIR, filename, redact_sensitive_text(content))
 
 def write_exception_log(filename):
     return write_private_log(filename, traceback.format_exc())
@@ -1500,13 +1500,20 @@ def load_config():
     )
     token = secret_state.get_secret(secret_state.ANILIST_KEY)
     if token:
-        cfg["anilist_token"] = token
+        cfg["anilist_token"] = sanitize_token(token)
     return cfg
 
 def save_config(cfg):
     return save_config_file(CFG_PATH, cfg, disabled=is_incognito())
 
+def sanitize_token(token):
+    value = str(token or "").strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+        value = value[1:-1].strip()
+    return value
+
 def save_anilist_token(cfg, token):
+    token = sanitize_token(token)
     if token and secret_state.set_secret(secret_state.ANILIST_KEY, token):
         disk_cfg = dict(cfg)
         disk_cfg["anilist_token"] = ""
@@ -1530,7 +1537,7 @@ def anilist_token_storage_status(cfg):
     return "none"
 
 def mask_token(token):
-    token = str(token or "")
+    token = sanitize_token(token)
     if not token:
         return ""
     if len(token) <= 8:
@@ -1538,8 +1545,10 @@ def mask_token(token):
     return f"{token[:4]}************{token[-4:]}"
 
 def anilist_auth_status_lines(cfg):
-    secret_token = secret_state.get_secret(secret_state.ANILIST_KEY)
-    config_token = cfg.get("anilist_token") or ""
+    raw_secret_token = secret_state.get_secret(secret_state.ANILIST_KEY)
+    raw_config_token = cfg.get("anilist_token") or ""
+    secret_token = sanitize_token(raw_secret_token)
+    config_token = sanitize_token(raw_config_token)
     storage = "secret" if secret_token else ("config" if config_token else "none")
     token = secret_token or config_token
     keyring_path = secret_state.backend_path()
@@ -1561,12 +1570,28 @@ def anilist_auth_status_lines(cfg):
         lines.append("  - Keyring: unavailable (secret-tool not found)")
     if token:
         lines.append(f"  - Token: {mask_token(token)}")
+    if raw_secret_token != secret_token or raw_config_token != config_token:
+        lines.append("  - Warning: token had wrapping quotes; they will be stripped on next login")
     if storage == "config" and keyring_path:
         lines.append("  - Hint: run auth login again to move the token to keyring")
     return lines
 
 def prompt_anilist_token():
-    return getpass.getpass(f"\n{BOLD}Paste AniList Token: {RESET}").strip()
+    return sanitize_token(getpass.getpass(f"\n{BOLD}Paste AniList Token: {RESET}"))
+
+def redact_sensitive_text(content):
+    text = str(content)
+    text = re.sub(
+        r"(?i)(Authorization\s*:\s*Bearer\s+)[^\s'\"]+",
+        r"\1<redacted>",
+        text,
+    )
+    text = re.sub(
+        r"\beyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b",
+        "<redacted-jwt>",
+        text,
+    )
+    return text
 
 # ── AniList Tracking ──────────────────────────────────────────────────────────
 def scrobble_anilist(
