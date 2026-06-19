@@ -77,7 +77,7 @@ def handle_episode_state(
         if feedback_msg and time.time() - feedback_time < 2.0:
             parts.append(f"\033[38;5;220m{_t(feedback_msg)}{_RST}")
         else:
-            parts.append(f"{_C_HINT}{_t(f'Enter/Right=select  ? = Help  {nav_text}')}{_RST}")
+            parts.append(f"{_C_HINT}{_t(f'Enter/Right=select  Ctrl+R=flip  ? = Help  {nav_text}')}{_RST}")
         return "\n".join(parts)
 
     def _ep_tab_fn(opt=None):
@@ -95,13 +95,15 @@ def handle_episode_state(
             "Play episode",
             "New search" if direct_single else "Go back",
             "Quit" if direct_single else "Go back",
-            "Flip order"
+            "Flip order",
+            reverse_label="Flip order",
         )
         idx = tui_pick(
             flags, ui,
             "Select episode", ep_opts,
             header_fn=_ep_hdr,
             tab_fn=_ep_tab_fn,
+            reverse_fn=_ep_tab_fn,
             help_dict=hd6
         )
 

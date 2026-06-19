@@ -136,6 +136,34 @@ class MetadataFormattingTests(unittest.TestCase):
 
         self.assertIn("AL WATCHING", line)
 
+    def test_matching_anilist_list_status_can_be_hidden(self):
+        anime = {
+            "_sync_enabled": False,
+            "_anilist_list": "CURRENT",
+            "_anilist_progress": 10,
+            "episodeCount": 13,
+            "status": "RELEASING",
+        }
+
+        line = format_info_metadata_line(anime, hide_anilist_status="WATCHING")
+
+        self.assertNotIn("AL WATCHING", line)
+        self.assertIn("AIRING", line)
+        self.assertIn("10/13", line)
+
+    def test_different_anilist_status_stays_visible_when_hiding_current_list(self):
+        anime = {
+            "_sync_enabled": False,
+            "_anilist_list": "PAUSED",
+            "_anilist_progress": 3,
+            "episodeCount": 13,
+            "status": "FINISHED",
+        }
+
+        line = format_info_metadata_line(anime, hide_anilist_status="CURRENT")
+
+        self.assertIn("AL PAUSED", line)
+
     def test_anilist_context_uses_anilist_progress_when_sync_is_off(self):
         anime = {
             "_sync_enabled": False,

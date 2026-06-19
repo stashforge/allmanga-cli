@@ -56,6 +56,16 @@ def format_ep_progress(label, progress, total, local_only=False):
     return f"{prefix} {progress}/{total}" if total else f"{prefix} {progress}"
 
 
+def normalize_anilist_list_status(status):
+    normalized = str(status or "").upper().replace(" ", "_").replace("-", "_")
+    aliases = {
+        "WATCHING": "CURRENT",
+        "PLAN_TO_WATCH": "PLANNING",
+        "REWATCHING": "REPEATING",
+    }
+    return aliases.get(normalized, normalized)
+
+
 def format_progress(anime, local_only=False, ttype="sub"):
     from allmanga_cli.domain.history import history_available_episode_count, history_full_episode_count
     entry = {"show": anime, "translation_type": ttype}
@@ -174,14 +184,12 @@ def should_refresh_anilist(anime, now=None):
         return True
 
 
-def anilist_list_status_label(anime, local_only=False):
+def anilist_list_status_label(anime, local_only=False, hide_status=None):
     if not local_only:
         show_anilist_status = bool(anime.get("_anilist_list"))
-        anilist_list = (
-            str(anime.get("_anilist_list") or "").upper().replace(" ", "_")
-            if show_anilist_status
-            else ""
-        )
+        anilist_list = normalize_anilist_list_status(anime.get("_anilist_list")) if show_anilist_status else ""
+        if anilist_list and hide_status and anilist_list == normalize_anilist_list_status(hide_status):
+            return ""
         if anilist_list in ("CURRENT", "WATCHING"):
             return f"\033[32mAL WATCHING{DIM}"
         if anilist_list == "COMPLETED":
@@ -213,8 +221,12 @@ def anime_status_label(anime):
     return ""
 
 
-def anilist_status_label(anime, local_only=False):
-    return anilist_list_status_label(anime, local_only=local_only) or anime_status_label(anime)
+def anilist_status_label(anime, local_only=False, hide_status=None):
+    return anilist_list_status_label(
+        anime,
+        local_only=local_only,
+        hide_status=hide_status,
+    ) or anime_status_label(anime)
 
 
 def format_info_metadata_line(
@@ -223,9 +235,14 @@ def format_info_metadata_line(
     now=None,
     override_ep_str=None,
     local_only=False,
+    hide_anilist_status=None,
 ):
     details = []
-    anilist_label = anilist_list_status_label(anime, local_only=local_only)
+    anilist_label = anilist_list_status_label(
+        anime,
+        local_only=local_only,
+        hide_status=hide_anilist_status,
+    )
     media_status_label = anime_status_label(anime)
     if override_ep_str:
         progress = f"\033[38;5;244mEP{DIM} {override_ep_str}"

@@ -452,7 +452,7 @@ def handle_update_progress_state(
         except OSError: w = 80
         parts = []
         app_core.build_info_panel(s, ttype_local, w, parts)
-        parts.append(app_core._poster_footer_line(s, "Enter/Right=set progress  Tab=flip  ? = Help  Left/Esc=back", w))
+        parts.append(app_core._poster_footer_line(s, "Enter/Right=set progress  Ctrl+R=flip  ? = Help  Left/Esc=back", w))
         return "\n".join(parts)
 
     progress_order = list(range(max_progress, -1, -1))
@@ -480,13 +480,20 @@ def handle_update_progress_state(
         progress_opts = [_progress_label(p) for p in progress_order]
         return (progress_opts, _progress_hdr(0))
 
-    hd9 = picker_help("Set progress", "Go back", "Go back", "Flip order")
+    hd9 = picker_help(
+        "Set progress",
+        "Go back",
+        "Go back",
+        "Flip order",
+        reverse_label="Flip order",
+    )
     idx = tui_pick(
         flags, ui,
         "Set AniList Progress", progress_opts,
         header_fn=_progress_hdr,
         hints=progress_hints,
         tab_fn=_progress_tab_fn,
+        reverse_fn=_progress_tab_fn,
         help_dict=hd9
     )
 

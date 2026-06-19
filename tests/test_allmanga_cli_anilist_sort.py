@@ -81,6 +81,15 @@ class AniListSortTests(unittest.TestCase):
         self.assertEqual(previous_mode("title"), "anilist")
         self.assertEqual(previous_mode("anilist"), "recent")
 
+    def test_sort_labels_are_user_facing(self):
+        label = namespace["anilist_sort_label"]
+
+        self.assertEqual(label("anilist"), "List Order")
+        self.assertEqual(label("title"), "Title A-Z")
+        self.assertEqual(label("title", reverse=True), "Title Z-A")
+        self.assertEqual(label("progress"), "Progress ↓")
+        self.assertEqual(label("progress", reverse=True), "Progress ↑")
+
     def test_anilist_list_query_requests_entry_update_time(self):
         source = (
             APP.parent / "services" / "anilist.py"

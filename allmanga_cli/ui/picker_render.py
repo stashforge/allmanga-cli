@@ -77,6 +77,8 @@ def get_key(descriptor):
         return "CTRL_N"
     if char == b"\x10":
         return "CTRL_P"
+    if char == b"\x12":
+        return "CTRL_R"
     if char == b"\x15":
         return "CTRL_U"
     if char == b"\t":

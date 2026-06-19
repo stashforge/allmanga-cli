@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 from ..domain.episodes import episode_id_at, episode_index_for_id
 from ..domain.titles import get_show_display_title
 from ..domain.sorting import (
-    ANILIST_SORT_LABELS,
+    anilist_sort_label,
     next_anilist_sort_mode,
     normalize_anilist_sort_mode,
     previous_anilist_sort_mode,
@@ -140,8 +140,11 @@ def handle_anilist_browse_state(
         return "ANILIST_MENU"
 
     sort_mode = normalize_anilist_sort_mode(cfg.get("anilist_sort", "recent"))
+    sort_reverse = bool(cfg.get("anilist_sort_reverse", False))
     history_for_sort = app_core.load_history()
     al_shows = sort_anilist_shows(al_base_shows, sort_mode, history_for_sort)
+    if sort_reverse:
+        al_shows.reverse()
     opts = [f"{s['name']}" for s in al_shows]
 
     def _al_top_hdr(si):
@@ -160,7 +163,7 @@ def handle_anilist_browse_state(
         selected_show = {}
         if 0 <= si < len(al_shows):
             s = al_shows[si]
-            app_core.build_info_panel(s, ttype, w, parts)
+            app_core.build_info_panel(s, ttype, w, parts, hide_anilist_status=stat)
             selected_show = s
 
         parts.append(app_core._poster_footer_line(
@@ -171,6 +174,7 @@ def handle_anilist_browse_state(
                 "Enter/Right open",
                 "Tab/Ctrl+N next sort",
                 "Shift+Tab/Ctrl+P prev sort",
+                "Ctrl+R reverse",
                 "Esc back",
             ),
             w
@@ -186,23 +190,36 @@ def handle_anilist_browse_state(
         cfg["anilist_sort"] = sort_mode
         app_core.save_config(cfg)
         al_shows = sort_anilist_shows(al_base_shows, sort_mode, history_for_sort)
+        if sort_reverse:
+            al_shows.reverse()
+        opts = [f"{show['name']}" for show in al_shows]
+        return opts, _al_hdr(0)
+
+    def _al_reverse(_selected=None):
+        nonlocal sort_reverse, al_shows, opts
+        sort_reverse = not sort_reverse
+        cfg["anilist_sort_reverse"] = sort_reverse
+        app_core.save_config(cfg)
+        al_shows.reverse()
         opts = [f"{show['name']}" for show in al_shows]
         return opts, _al_hdr(0)
 
     list_title = _anilist_list_label(stat)
     idx = tui_pick(
         flags, ui,
-        lambda: f"AniList - {list_title} · {ANILIST_SORT_LABELS[sort_mode]}",
+        lambda: f"AniList - {list_title} · {anilist_sort_label(sort_mode, sort_reverse)}",
         opts,
         header_fn=_al_hdr,
         top_header_fn=_al_top_hdr,
         tab_fn=_al_tab,
+        reverse_fn=_al_reverse,
         help_dict=picker_help(
             "Open title",
             "Back to lists",
             "Back to lists",
             "Next sort",
             "Previous sort",
+            reverse_label="Reverse order",
         ),
     )
 

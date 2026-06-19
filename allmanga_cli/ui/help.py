@@ -7,7 +7,8 @@ def picker_help(
         quit_label="Quit",
         tab_label=None,
         shift_tab_label=None,
-        delete_label=None):
+        delete_label=None,
+        reverse_label=None):
     help_items = {
         "\u2191 / \u2193": "Move selection",
         "Home / End": "Jump to first or last item",
@@ -26,6 +27,8 @@ def picker_help(
     if shift_tab_label:
         help_items["Shift+Tab"] = shift_tab_label
         help_items["Ctrl+P"] = shift_tab_label
+    if reverse_label:
+        help_items["Ctrl+R"] = reverse_label
     if delete_label:
         help_items["Delete"] = delete_label
         help_items["Ctrl+D"] = delete_label

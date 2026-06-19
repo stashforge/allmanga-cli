@@ -4,7 +4,7 @@
 ANILIST_SORT_MODES = ("recent", "anilist", "title", "progress")
 ANILIST_SORT_LABELS = {
     "recent": "Recent",
-    "anilist": "AniList",
+    "anilist": "List Order",
     "title": "Title",
     "progress": "Progress",
 }
@@ -83,3 +83,13 @@ def sort_anilist_shows(shows, mode, history=None):
             _sort_int(show.get("_anilist_updated_at")),
         ),
     )
+
+
+def anilist_sort_label(mode, reverse=False):
+    mode = normalize_anilist_sort_mode(mode)
+    base = ANILIST_SORT_LABELS[mode]
+    if mode == "title":
+        return f"{base} Z-A" if reverse else f"{base} A-Z"
+    if mode == "anilist":
+        return f"{base} Reverse" if reverse else base
+    return f"{base} ↑" if reverse else f"{base} ↓"

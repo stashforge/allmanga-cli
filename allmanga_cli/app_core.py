@@ -99,6 +99,7 @@ from allmanga_cli.domain.sorting import (
     ANILIST_SORT_LABELS,
     ANILIST_SORT_MODES,
     anilist_history_timestamps,
+    anilist_sort_label,
     next_anilist_sort_mode,
     normalize_anilist_sort_mode,
     previous_anilist_sort_mode,
@@ -362,8 +363,14 @@ def buildYearStr(show):
     end_y = show.get("airedEnd", {}).get("year") if show.get("airedEnd") else None
     return format_years(start_y, end_y, show.get("status"))
 
-def buildInfoMetadataLine(show, ttype, override_ep_str=None, local_only=False):
-    return format_info_metadata_line(show, ttype, override_ep_str=override_ep_str, local_only=local_only)
+def buildInfoMetadataLine(show, ttype, override_ep_str=None, local_only=False, hide_anilist_status=None):
+    return format_info_metadata_line(
+        show,
+        ttype,
+        override_ep_str=override_ep_str,
+        local_only=local_only,
+        hide_anilist_status=hide_anilist_status,
+    )
 
 def should_update_anilist_progress(existing_progress, watched_episode):
     if watched_episode is None:
@@ -448,7 +455,15 @@ def set_action_feedback(show, msg):
     show["_action_feedback"] = msg
     show["_action_feedback_time"] = time.time()
 
-def build_info_panel(show, ttype, w, parts, override_ep_str=None, main_title=None, local_only=False):
+def build_info_panel(
+        show,
+        ttype,
+        w,
+        parts,
+        override_ep_str=None,
+        main_title=None,
+        local_only=False,
+        hide_anilist_status=None):
     C_T  = "\033[1;97m"
     C_D  = "\033[38;5;248m"
     R    = "\033[0m"
@@ -461,7 +476,13 @@ def build_info_panel(show, ttype, w, parts, override_ep_str=None, main_title=Non
     info_title_line = f"{C_T}{_t(title)}{R}"
     info_alt_title_line = f"{C_D}{_t(alt)}{R}" if alt else f"{C_D}No alternative title{R}"
 
-    metadata = buildInfoMetadataLine(show, ttype, override_ep_str, local_only=local_only)
+    metadata = buildInfoMetadataLine(
+        show,
+        ttype,
+        override_ep_str,
+        local_only=local_only,
+        hide_anilist_status=hide_anilist_status,
+    )
     info_metadata_line = f"{C_D}{_t(metadata)}{R}"
 
     parts.extend([info_title_line, info_alt_title_line, info_metadata_line])

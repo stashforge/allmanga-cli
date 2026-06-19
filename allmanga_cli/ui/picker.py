@@ -101,6 +101,7 @@ def tui_pick(
     header_fn=None,
     top_header_fn=None,
     tab_fn=None,
+    reverse_fn=None,
     delete_fn=None,
     right_fn=None,
     return_query_on_enter: bool = False,
@@ -578,6 +579,14 @@ def tui_pick(
                         res = tab_fn(selected, direction=-1)
                     except TypeError:
                         res = tab_fn(selected)
+                    if res:
+                        options, cur_header = res[0], res[1]
+                        filt = filt_list()
+                        sel  = max(0, min(sel, len(filt) - 1)) if filt else 0
+            elif key == "CTRL_R":
+                if reverse_fn:
+                    selected = filt[sel] if filt and sel < len(filt) else None
+                    res = reverse_fn(selected)
                     if res:
                         options, cur_header = res[0], res[1]
                         filt = filt_list()
