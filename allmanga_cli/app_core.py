@@ -185,6 +185,7 @@ from allmanga_cli.ui.picker_render import (
     match as _match,
     render_item as _render_item,
 )
+from allmanga_cli.ui.spinner import spinner_from_config
 from allmanga_cli.ui.anilist_menu import (
     LIST_STATUSES as ANILIST_LIST_STATUSES,
     loading_frame as anilist_menu_loading_frame,
@@ -536,23 +537,38 @@ def exit_alt_screen():
         _alt_screen_active = False
 
 def with_loading(msg, fn, *args, **kwargs):
+    spinner_style = spinner_from_config(load_config())
     try:
         ts = os.get_terminal_size()
         w, h = ts.columns, ts.lines
     except OSError:
         w, h = 80, 24
 
-    if len(msg) > w - 1:
-        msg = msg[:w - 4] + "..."
-
-    sys.stdout.write(f"\033[{h};1H\033[2K\033[36m{msg}\033[0m\033[?25l")
-    sys.stdout.flush()
-
     fd = sys.stdin.fileno()
     old = termios.tcgetattr(fd)
+    result = {}
+
+    def _runner():
+        try:
+            result["value"] = fn(*args, **kwargs)
+        except BaseException as exc:
+            result["error"] = exc
+
     try:
         tty.setcbreak(fd)
-        return fn(*args, **kwargs)
+        thread = threading.Thread(target=_runner, daemon=True)
+        thread.start()
+        while thread.is_alive():
+            sys.stdout.write(
+                f"\033[{h};1H\033[2K"
+                f"{_loading_line(msg, w, spinner_style)}"
+                "\033[?25l"
+            )
+            sys.stdout.flush()
+            thread.join(0.1)
+        if "error" in result:
+            raise result["error"]
+        return result.get("value")
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
         termios.tcflush(fd, termios.TCIFLUSH)

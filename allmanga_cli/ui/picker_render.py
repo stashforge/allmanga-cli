@@ -2,9 +2,9 @@
 
 import os
 import select
-import time
 
 from ..core.terminal import sanitize_terminal_text, truncate_display
+from .spinner import loading_line, spinner_frame
 
 
 NORMAL = "\033[38;5;252m"
@@ -14,26 +14,7 @@ RESET = "\033[0m"
 
 
 def loading_frame():
-    frames = [
-        "\u280b",
-        "\u2819",
-        "\u2839",
-        "\u2838",
-        "\u283c",
-        "\u2834",
-        "\u2826",
-        "\u2827",
-        "\u2807",
-        "\u280f",
-    ]
-    return frames[int(time.time() * 10) % len(frames)]
-
-
-def loading_line(message, width=80):
-    message = sanitize_terminal_text(message)
-    if len(message) > width - 4:
-        message = message[:max(1, width - 7)] + "..."
-    return f"\033[36m{loading_frame()} {message}\033[0m"
+    return spinner_frame()
 
 
 def get_key(descriptor):

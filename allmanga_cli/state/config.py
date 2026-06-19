@@ -16,6 +16,7 @@ DEFAULT_CONFIG = {
     "cover": False,
     "download_dir": "",
     "anilist_sort": "recent",
+    "spinner": "braille",
 }
 
 

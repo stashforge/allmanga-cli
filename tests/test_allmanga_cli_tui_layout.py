@@ -1,21 +1,30 @@
 import unittest
 from tests.app_namespace import load_app_namespace
+from allmanga_cli.ui import spinner
 namespace = load_app_namespace()
 
 
 class TuiLayoutTests(unittest.TestCase):
     def test_loading_frames_keep_original_braille_animation(self):
-        loading_frame = namespace["_loading_frame"]
-        original_time = loading_frame.__globals__["time"].time
+        original_time = spinner.time.time
         try:
             observed = []
             for timestamp in (0.0, 0.1, 0.2):
-                loading_frame.__globals__["time"].time = lambda t=timestamp: t
-                observed.append(loading_frame())
+                spinner.time.time = lambda t=timestamp: t
+                observed.append(namespace["_loading_frame"]())
         finally:
-            loading_frame.__globals__["time"].time = original_time
+            spinner.time.time = original_time
 
         self.assertEqual(observed, ["⠋", "⠙", "⠹"])
+
+    def test_spinner_supports_named_and_custom_frames(self):
+        self.assertEqual(spinner.spinner_frame("line", now=0.0), "-")
+        self.assertEqual(spinner.spinner_frame(["a", "b"], now=0.1), "b")
+        self.assertEqual(spinner.spinner_from_config({"spinner": "dots"}), "dots")
+        self.assertEqual(
+            spinner.spinner_from_config({"ui": {"spinner": "pulse"}}),
+            "pulse",
+        )
 
     def test_cover_command_uses_high_quality_relative_output(self):
         command = namespace["_chafa_cover_command"]("/tmp/cover.jpg")
