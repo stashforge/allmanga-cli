@@ -21,6 +21,7 @@ playback  — handle_episode_state, handle_play_state,
 from .search import handle_search_state, handle_history_state
 from .anilist import (
     handle_anilist_menu_state,
+    handle_anilist_airing_state,
     handle_anilist_browse_state,
     handle_anilist_search_state,
 )
@@ -41,6 +42,7 @@ __all__ = [
     "handle_search_state",
     "handle_history_state",
     "handle_anilist_menu_state",
+    "handle_anilist_airing_state",
     "handle_anilist_browse_state",
     "handle_anilist_search_state",
     "handle_details_state",

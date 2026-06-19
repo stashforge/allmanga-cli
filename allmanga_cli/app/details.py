@@ -43,7 +43,9 @@ def handle_details_state(
 
     _just_entered = ms.just_picked_anime
     if _just_entered:
-        if s.get("_id") and ui.search_prev_state in ("HISTORY", "SEARCH", "ANILIST_SEARCH", "ANILIST_BROWSE"):
+        if s.get("_id") and ui.search_prev_state in (
+            "HISTORY", "SEARCH", "ANILIST_SEARCH", "ANILIST_BROWSE", "ANILIST_AIRING"
+        ):
             entry = {"show": s, "translation_type": ttype_local}
             app_core.with_loading(
                 "Fetching episode catalog...",
@@ -64,7 +66,9 @@ def handle_details_state(
         if episode_ids:
             ms.current_ep = episode_id_at(episode_ids, 0)
 
-    from_anilist_context = ui.search_prev_state in ("ANILIST_BROWSE", "ANILIST_SEARCH")
+    from_anilist_context = ui.search_prev_state in (
+        "ANILIST_BROWSE", "ANILIST_SEARCH", "ANILIST_AIRING"
+    )
     s["_anilist_context"] = from_anilist_context
     use_anilist = bool(resolve_tracking_fn(ui.search_prev_state, args, cfg, s) and app_core.get_show_anilist_id(s))
 

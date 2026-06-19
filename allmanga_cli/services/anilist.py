@@ -202,6 +202,7 @@ def fetch_media(urlopen, read_json, token, media_id):
         bannerImage
         nextAiringEpisode {
           episode
+          airingAt
           timeUntilAiring
         }
         mediaListEntry {
@@ -302,7 +303,7 @@ def fetch_list(urlopen, read_json, token, status=None):
               genres
               startDate { year month day }
               coverImage { large }
-              nextAiringEpisode { episode timeUntilAiring }
+              nextAiringEpisode { episode airingAt timeUntilAiring }
             }
           }
         }
@@ -342,7 +343,7 @@ def search(urlopen, read_json, token, query_text):
           genres
           startDate { year month day }
           coverImage { large }
-          nextAiringEpisode { episode timeUntilAiring }
+          nextAiringEpisode { episode airingAt timeUntilAiring }
           mediaListEntry {
             status
             progress

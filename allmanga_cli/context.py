@@ -101,6 +101,9 @@ class UiState:
     anilist_browse_status: str | None = None
     """AniList list status being browsed (e.g. ``"CURRENT"``, ``"PLANNING"``)."""
 
+    anilist_airing_tab: str = "today"
+    """Current AniList airing tab: ``"today"``, ``"tomorrow"``, or ``"week"``."""
+
     # Mirror picker toast
     pref_toast: str = ""
     """Temporary toast message shown in the Mirrors picker."""

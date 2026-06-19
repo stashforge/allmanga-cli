@@ -76,6 +76,7 @@ def _configure_help_parser(parser):
 
 ANILIST_COMMAND_TARGETS = {
     "menu": "menu",
+    "airing": "airing",
     "search": "search",
     "watching": "CURRENT",
     "current": "CURRENT",
@@ -92,7 +93,7 @@ def _anilist_target(value):
     target = str(value or "").lower()
     if target not in ANILIST_COMMAND_TARGETS:
         raise argparse.ArgumentTypeError(
-            "use watching, planning, completed, paused, dropped, or rewatching"
+            "use airing, watching, planning, completed, paused, dropped, or rewatching"
         )
     return target
 
@@ -371,6 +372,7 @@ def build_command_parser():
         description=(
             "Browse your AniList library.\n\n"
             "Lists:\n"
+            "  airing         Upcoming episodes from your lists\n"
             "  watching       Currently watching\n"
             "  planning       Planning to watch\n"
             "  completed      Completed\n"
@@ -382,6 +384,7 @@ def build_command_parser():
             "Examples:\n"
             "  allmanga-cli anilist\n"
             "  allmanga-cli anilist watching\n"
+            "  allmanga-cli anilist airing\n"
             "  allmanga-cli anilist completed\n"
             "  allmanga-cli anilist search erased"
         ),

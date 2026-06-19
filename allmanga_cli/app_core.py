@@ -3140,7 +3140,7 @@ def main():
         if getattr(args, "sync", False) and ctx == "SEARCH":
             return bool(cfg.get("anilist_token") and show and get_show_anilist_id(show))
 
-        if ctx in ("ANILIST_BROWSE", "ANILIST_SEARCH"):
+        if ctx in ("ANILIST_BROWSE", "ANILIST_SEARCH", "ANILIST_AIRING"):
             return bool(cfg.get("anilist_token") and show and get_show_anilist_id(show))
 
         return False
@@ -3193,6 +3193,8 @@ def main():
     if args.anilist is not None:
         if args.anilist == "search":
             state = "ANILIST_SEARCH"
+        elif args.anilist == "airing":
+            state = "ANILIST_AIRING"
         else:
             if not cfg.get("anilist_token"):
                 print(f"\n{YELLOW}AniList account is not linked.{RESET}")
@@ -3236,6 +3238,8 @@ def main():
             state = handlers.handle_history_state(flags, ui, ms, cfg, args, ttype, resolveTracking)
         elif state == "ANILIST_MENU":
             state = handlers.handle_anilist_menu_state(flags, ui, ms, cfg, args, ttype, resolveTracking)
+        elif state == "ANILIST_AIRING":
+            state = handlers.handle_anilist_airing_state(flags, ui, ms, cfg, args, ttype, resolveTracking)
         elif state == "ANILIST_BROWSE":
             state = handlers.handle_anilist_browse_state(flags, ui, ms, cfg, args, ttype, resolveTracking)
         elif state == "ANILIST_SEARCH":

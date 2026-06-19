@@ -14,6 +14,12 @@ if TYPE_CHECKING:
 
 from ..domain.episodes import episode_id_at, episode_index_for_id
 from ..domain.titles import get_show_display_title
+from ..domain.airing import (
+    airing_rows,
+    airing_tab_label,
+    next_airing_tab,
+    previous_airing_tab,
+)
 from ..domain.sorting import (
     anilist_sort_label,
     next_anilist_sort_mode,
@@ -87,7 +93,8 @@ def handle_anilist_menu_state(
             "WATCHING": "CURRENT", "PLANNING": "PLANNING",
             "COMPLETED": "COMPLETED", "REWATCHING": "REPEATING",
             "PAUSED": "PAUSED", "DROPPED": "DROPPED",
-            "ALL": None, "CURRENT": "CURRENT", "REPEATING": "REPEATING"
+            "ALL": None, "AIRING": "ANILIST_AIRING",
+            "CURRENT": "CURRENT", "REPEATING": "REPEATING"
         }
         mapped = stat_map.get(req_stat, "INVALID")
         if mapped == "INVALID":
@@ -120,9 +127,175 @@ def handle_anilist_menu_state(
         ms.query_str = ""
         ms.anilist_search_parent = "ANILIST_MENU"
         return "ANILIST_SEARCH"
+    if stat_val == "ANILIST_AIRING":
+        return "ANILIST_AIRING"
 
     ui.anilist_browse_status = stat_val
     return "ANILIST_BROWSE"
+
+
+def _load_anilist_airing_shows(token, *, force_refresh=False):
+    return app_core.with_loading(
+        "Loading AniList airing schedule...",
+        app_core.fetch_anilist_list,
+        token,
+        None,
+        force_refresh,
+    )
+
+
+def _open_anilist_show_from_picker(
+    flags,
+    ui,
+    ms,
+    args,
+    ttype,
+    source_show,
+    parent_state,
+):
+    matched = app_core.with_loading(
+        "Matching title on AllAnime...",
+        app_core.match_anilist_show_to_allanime,
+        source_show,
+        ttype,
+    )
+
+    if not matched:
+        matched = app_core._run_manual_match_search(flags, ui, source_show, ttype)
+    if not matched:
+        return parent_state
+
+    ms.shows = [matched]
+    ui.ui_show_ctx = matched
+    ui.ui_ttype_ctx = ttype
+
+    ms.show_id = matched["_id"]
+    ms.show_title = get_show_display_title(matched)
+    ms.total_eps = matched.get("availableEpisodes", {}).get(ttype, 0)
+
+    episode_ids = app_core.load_episode_ids_for_selection(matched, ttype)
+    ms.total_eps = len(episode_ids) or ms.total_eps
+
+    if args.episode:
+        ms.current_ep = str(args.episode)
+        ms.current_ep_index = episode_index_for_id(episode_ids, ms.current_ep)
+        args.episode = None
+        if not episode_ids:
+            app_core.err(app_core.episode_catalog_error(matched))
+            return "DETAILS"
+        if ms.current_ep_index is None:
+            app_core.err(f"EP {ms.current_ep} is not available from this provider.")
+            return "EPISODE"
+        ms.current_ep = episode_id_at(episode_ids, ms.current_ep_index)
+        return "PLAY"
+
+    ui.search_prev_state = parent_state
+    ui.ep_prev_state = parent_state
+    ui.action_prev_state = parent_state
+    ms.just_picked_anime = True
+    return "DETAILS"
+
+
+def handle_anilist_airing_state(
+    flags: CliFlags,
+    ui: UiState,
+    ms: MachineState,
+    cfg: dict,
+    args: Any,
+    ttype: str,
+    resolve_tracking_fn,) -> str:
+    base_shows = _load_anilist_airing_shows(cfg["anilist_token"], force_refresh=True)
+    tab = getattr(ui, "anilist_airing_tab", "today")
+    rows = airing_rows(base_shows, tab)
+    shows = [show for show, _label in rows]
+    opts = [label for _show, label in rows]
+
+    def _rebuild(new_tab=None):
+        nonlocal tab, rows, shows, opts
+        if new_tab:
+            tab = new_tab
+            ui.anilist_airing_tab = tab
+        rows = airing_rows(base_shows, tab)
+        shows = [show for show, _label in rows]
+        opts = [label for _show, label in rows]
+        return opts, _airing_hdr(0)
+
+    def _airing_top_hdr(si):
+        if 0 <= si < len(shows):
+            ui.hovered_show_id = shows[si].get("_id")
+            ui.hovered_show_obj = shows[si]
+            app_core._hovered_show_id = ui.hovered_show_id
+            poster = app_core._get_poster(shows[si])
+            if poster:
+                return poster
+        return ""
+
+    def _airing_hdr(si):
+        try:
+            w = os.get_terminal_size().columns
+        except OSError:
+            w = 80
+        parts = []
+        selected_show = shows[si] if 0 <= si < len(shows) else {}
+        if selected_show:
+            app_core.build_info_panel(selected_show, ttype, w, parts)
+        else:
+            parts.extend([
+                "",
+                _fit_terminal_line(f"{_C_HINT}No airing episodes in {airing_tab_label(tab)}.{_RST}", w),
+                _fit_terminal_line(f"{_C_HINT}Use Tab/Ctrl+N to switch tabs or Ctrl+R to refresh.{_RST}", w),
+            ])
+        parts.append(app_core._poster_footer_line(
+            selected_show,
+            _footer_parts(
+                f"{len(shows)} airing",
+                *_anilist_badges(flags, args),
+                "Enter/Right open",
+                "Tab/Ctrl+N next tab",
+                "Shift+Tab/Ctrl+P prev tab",
+                "Ctrl+R refresh",
+                "Esc back",
+            ),
+            w,
+        ))
+        return "\n".join(parts)
+
+    def _airing_tab(_selected=None, direction=1):
+        return _rebuild(
+            previous_airing_tab(tab) if direction < 0 else next_airing_tab(tab)
+        )
+
+    def _airing_refresh(_selected=None):
+        nonlocal base_shows
+        base_shows = _load_anilist_airing_shows(cfg["anilist_token"], force_refresh=True)
+        return _rebuild(tab)
+
+    idx = tui_pick(
+        flags,
+        ui,
+        lambda: f"AniList Airing · {airing_tab_label(tab)}",
+        opts,
+        header_fn=_airing_hdr,
+        top_header_fn=_airing_top_hdr,
+        tab_fn=_airing_tab,
+        reverse_fn=_airing_refresh,
+        count_total=lambda: len(shows),
+        help_dict=picker_help(
+            "Open title",
+            "Back to lists",
+            "Back to lists",
+            "Next tab",
+            "Previous tab",
+            reverse_label="Refresh schedule",
+        ),
+    )
+    if idx in (-2, -3):
+        return "ANILIST_MENU"
+    if idx < 0:
+        return "ANILIST_AIRING"
+    return _open_anilist_show_from_picker(
+        flags, ui, ms, args, ttype, shows[idx], "ANILIST_AIRING"
+    )
 
 
 def handle_anilist_browse_state(

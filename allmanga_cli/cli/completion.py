@@ -7,7 +7,7 @@ COMMANDS = (
     "auth", "completion",
 )
 ANILIST_LISTS = (
-    "watching", "planning", "completed", "paused", "dropped", "rewatching",
+    "airing", "watching", "planning", "completed", "paused", "dropped", "rewatching",
     "search",
 )
 AUTH_ACTIONS = ("login", "logout", "status", "token")

@@ -244,7 +244,8 @@ class TuiLayoutTests(unittest.TestCase):
         frame = namespace["anilist_menu_loading_frame"]("CURRENT", 20, 80)
         plain = namespace["_strip_ansi"](frame)
 
-        self.assertIn("AniList Lists ❯ 7/7", plain)
+        self.assertIn("AniList Lists ❯ 8/8", plain)
+        self.assertIn("Airing", plain)
         self.assertIn("❯ Watching", plain)
         self.assertIn("Choose an AniList list.", plain)
         self.assertIn("Titles are matched to AllAnime before playback.", plain)

@@ -39,6 +39,11 @@ class AniListHttpTests(unittest.TestCase):
             "format": "TV",
             "episodes": 24,
             "status": "FINISHED",
+            "nextAiringEpisode": {
+                "episode": 6,
+                "airingAt": 1_800_000_000,
+                "timeUntilAiring": 300,
+            },
         }
         entry = {
             "progress": 5,
@@ -56,6 +61,8 @@ class AniListHttpTests(unittest.TestCase):
         self.assertEqual(show["_anilist_list"], "CURRENT")
         self.assertEqual(show["_anilist_progress"], 5)
         self.assertEqual(show["_anilist_updated_at"], 123456)
+        self.assertEqual(show["_next_airing_ep"], 6)
+        self.assertEqual(show["_next_airing_at"], 1_800_000_000)
 
     def test_shared_request_uses_secure_context_and_timeout(self):
         request = object()

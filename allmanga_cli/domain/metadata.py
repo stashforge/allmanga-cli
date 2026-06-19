@@ -29,6 +29,13 @@ def set_next_airing_fields(show, next_air):
     remaining = next_air.get("timeUntilAiring")
     show["_next_airing_time"] = remaining
     try:
+        airing_at = int(next_air.get("airingAt"))
+    except (TypeError, ValueError):
+        airing_at = None
+    if airing_at:
+        show["_next_airing_at"] = airing_at
+        return
+    try:
         show["_next_airing_at"] = int(time.time()) + int(remaining)
     except (TypeError, ValueError):
         pass

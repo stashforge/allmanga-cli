@@ -49,10 +49,12 @@ class CommandRouterTests(unittest.TestCase):
 
     def test_anilist_friendly_names_map_to_api_statuses(self):
         watching, _ = parse_cli_args(["anilist", "watching"])
+        airing, _ = parse_cli_args(["anilist", "airing"])
         rewatching, _ = parse_cli_args(["anilist", "rewatching"])
         search, _ = parse_cli_args(["anilist", "search", "erased"])
 
         self.assertEqual(watching.anilist, "CURRENT")
+        self.assertEqual(airing.anilist, "airing")
         self.assertEqual(rewatching.anilist, "REPEATING")
         self.assertEqual(search.anilist, "search")
         self.assertEqual(search.query, ["erased"])
@@ -126,6 +128,7 @@ class CommandRouterTests(unittest.TestCase):
         self.assertNotIn("--sync", download_help)
         self.assertNotIn("--incognito", download_help)
         self.assertIn("[list]", anilist_help)
+        self.assertIn("allmanga-cli anilist airing", anilist_help)
         self.assertIn("Lists:", anilist_help)
         self.assertLess(anilist_help.index("Lists:"), anilist_help.index("Arguments:"))
         self.assertIn("Omit to show the AniList menu.", anilist_help)

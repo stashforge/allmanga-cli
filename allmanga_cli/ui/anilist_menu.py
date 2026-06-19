@@ -9,6 +9,7 @@ from .picker_render import render_item
 
 
 LIST_STATUSES = {
+    "Airing": "ANILIST_AIRING",
     "Watching": "CURRENT",
     "Plan to Watch": "PLANNING",
     "Completed": "COMPLETED",
