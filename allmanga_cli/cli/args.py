@@ -24,7 +24,7 @@ def _help_color_enabled():
 
 class MinimalHelpFormatter(argparse.RawDescriptionHelpFormatter):
     def __init__(self, *args, **kwargs):
-        kwargs.setdefault("max_help_position", 30)
+        kwargs.setdefault("max_help_position", 22)
         super().__init__(*args, **kwargs)
         self._minimal_color = _help_color_enabled()
 

@@ -389,8 +389,26 @@ def handle_search_state(
         ms.just_picked_anime = True
         app_core.set_navigation_context(ui, search_prev="SEARCH", ep_prev="SEARCH", action_prev="SEARCH")
 
-        h = next((x for x in app_core.load_history() if x.get("show", {}).get("_id") == ms.show_id and x.get("translation_type") == ttype), None)
-        if h:
+        requested_episode_missing = False
+        if args.episode:
+            requested_ep = str(args.episode)
+            requested_idx = episode_index_for_id(episode_ids, requested_ep)
+            args.episode = None
+            if requested_idx is not None:
+                ms.current_ep_index = requested_idx
+                ms.current_ep = episode_id_at(episode_ids, requested_idx)
+                ms.selected_stream = None
+                app_core._clear_streams()
+                return "PLAY"
+
+            if episode_ids:
+                app_core.err(f"EP {requested_ep} is not available from this provider.")
+            else:
+                app_core.err(app_core.episode_catalog_error(s))
+            ms.current_ep_index = 0
+            ms.current_ep = episode_id_at(episode_ids, 0) if episode_ids else requested_ep
+            requested_episode_missing = True
+        elif (h := next((x for x in app_core.load_history() if x.get("show", {}).get("_id") == ms.show_id and x.get("translation_type") == ttype), None)):
             ms.current_ep = app_core.playback_ep_from_history_entry(h, ttype)
         else:
             ms.current_ep = episode_id_at(episode_ids, 0)
@@ -403,6 +421,8 @@ def handle_search_state(
             ms.current_ep_index = 0
             ms.current_ep = episode_id_at(episode_ids, 0)
 
+        if requested_episode_missing:
+            return "EPISODE"
         if sync_enabled:
             return "DETAILS"
         return "EPISODE"

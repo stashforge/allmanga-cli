@@ -196,6 +196,10 @@ def tui_pick(
     last_poster_tick = 0
     last_poster_key  = None
     last_clock_minute = int(time.time() // 60)
+    try:
+        last_terminal_size = os.get_terminal_size(tty_fd)
+    except OSError:
+        last_terminal_size = None
 
     def filt_list():
         if not query:
@@ -416,6 +420,14 @@ def tui_pick(
             clock_minute = int(time.time() // 60)
             if clock_minute != last_clock_minute:
                 last_clock_minute = clock_minute
+                _needs_redraw = True
+
+            try:
+                terminal_size = os.get_terminal_size(tty_fd)
+            except OSError:
+                terminal_size = None
+            if terminal_size != last_terminal_size:
+                last_terminal_size = terminal_size
                 _needs_redraw = True
 
             if live_fn is not None:
