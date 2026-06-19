@@ -7,7 +7,7 @@ from ..core.terminal import sanitize_terminal_text
 
 SPINNER_STYLES = {
     "braille": ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"],
-    "dots": [".", "..", "...", "...."],
+    "dots": [".   ", "..  ", "... ", "...."],
     "line": ["-", "\\", "|", "/"],
     "pulse": ["·", "•", "●", "•"],
 }
@@ -16,7 +16,14 @@ DEFAULT_SPINNER = "braille"
 
 def spinner_frames(style=None):
     if isinstance(style, (list, tuple)):
-        frames = [str(frame) for frame in style if str(frame)]
+        frames = []
+        for frame in style:
+            try:
+                value = str(frame)
+            except Exception:
+                continue
+            if value.strip():
+                frames.append(value)
         return frames or SPINNER_STYLES[DEFAULT_SPINNER]
     name = str(style or DEFAULT_SPINNER).strip().casefold()
     return SPINNER_STYLES.get(name, SPINNER_STYLES[DEFAULT_SPINNER])

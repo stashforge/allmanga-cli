@@ -185,7 +185,7 @@ from allmanga_cli.ui.picker_render import (
     match as _match,
     render_item as _render_item,
 )
-from allmanga_cli.ui.spinner import spinner_from_config
+from allmanga_cli.ui.spinner import DEFAULT_SPINNER, spinner_from_config
 from allmanga_cli.ui.anilist_menu import (
     LIST_STATUSES as ANILIST_LIST_STATUSES,
     loading_frame as anilist_menu_loading_frame,
@@ -494,12 +494,24 @@ def _request_poster_redraw():
     _picker_mod._needs_redraw = True
 
 
+_spinner_style = DEFAULT_SPINNER
+
+
+def _configured_loading_frame():
+    return _loading_frame(_spinner_style)
+
+
+def _configure_spinner_from_config(cfg):
+    global _spinner_style
+    _spinner_style = spinner_from_config(cfg)
+
+
 _poster_manager = PosterManager(
     enabled=lambda: bool(globals().get("SHOW_IMAGE", False)),
     cache_dir=cover_cache_dir,
     hovered_show_id=lambda: globals().get("_hovered_show_id"),
     request_redraw=_request_poster_redraw,
-    loading_frame=_loading_frame,
+    loading_frame=_configured_loading_frame,
 )
 try:
     import allmanga_cli.ui.picker as _picker_mod
@@ -542,7 +554,7 @@ def exit_alt_screen():
         _alt_screen_active = False
 
 def with_loading(msg, fn, *args, **kwargs):
-    spinner_style = spinner_from_config(load_config())
+    spinner_style = _spinner_style
     try:
         ts = os.get_terminal_size()
         w, h = ts.columns, ts.lines
@@ -1994,6 +2006,7 @@ def make_allanime_oneshot_search(query, ttype):
     results = []
     error = ""
     cfg = load_config()
+    spinner_style = spinner_from_config(cfg)
     token = cfg.get("anilist_token")
 
     def _fetch():
@@ -2054,7 +2067,7 @@ def make_allanime_oneshot_search(query, ttype):
             except OSError: w = 80
 
             msg = f"Searching AllAnime: {query}"
-            return _loading_line(msg, w)
+            return _loading_line(msg, w, spinner_style)
         return ""
 
     def get_error():
@@ -2070,6 +2083,7 @@ def make_anilist_oneshot_search(token, initial_query):
     results = []
     loading = True
     error = ""
+    spinner_style = _spinner_style
 
     def worker():
         nonlocal results, loading, error
@@ -2095,7 +2109,7 @@ def make_anilist_oneshot_search(token, initial_query):
             if len(q) > max_q > 0:
                 q = q[:max_q] + "..."
 
-            return _loading_line(f"Searching AniList: {q}", w)
+            return _loading_line(f"Searching AniList: {q}", w, spinner_style)
         return ""
 
     def live_fn(q):
@@ -2894,6 +2908,7 @@ def main():
 
     check_deps()
     cfg = load_config()
+    _configure_spinner_from_config(cfg)
 
     globals()["DEBUG_MODE"] = args.debug
     globals()["INCOGNITO_MODE"] = bool(args.incognito)

@@ -13,8 +13,8 @@ MATCH = "\033[38;2;137;180;250m"
 RESET = "\033[0m"
 
 
-def loading_frame():
-    return spinner_frame()
+def loading_frame(style=None):
+    return spinner_frame(style)
 
 
 def get_key(descriptor):

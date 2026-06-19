@@ -19,12 +19,22 @@ class TuiLayoutTests(unittest.TestCase):
         self.assertEqual(observed, ["⠋", "⠙", "⠹"])
 
     def test_spinner_supports_named_and_custom_frames(self):
+        for preset in ("braille", "dots", "line", "pulse"):
+            self.assertTrue(spinner.spinner_frames(preset))
         self.assertEqual(spinner.spinner_frame("line", now=0.0), "-")
         self.assertEqual(spinner.spinner_frame(["a", "b"], now=0.1), "b")
         self.assertEqual(spinner.spinner_from_config({"spinner": "dots"}), "dots")
         self.assertEqual(
             spinner.spinner_from_config({"ui": {"spinner": "pulse"}}),
             "pulse",
+        )
+        self.assertEqual(spinner.spinner_frames([]), spinner.spinner_frames("braille"))
+        self.assertEqual(spinner.spinner_frames(["", "   "]), spinner.spinner_frames("braille"))
+        self.assertEqual(spinner.spinner_frames(["", "  x "]), ["  x "])
+        self.assertEqual(spinner.spinner_frames("unknown"), spinner.spinner_frames("braille"))
+        self.assertEqual(
+            {len(frame) for frame in spinner.spinner_frames("dots")},
+            {4},
         )
 
     def test_poster_loading_tick_is_registered(self):
@@ -33,6 +43,17 @@ class TuiLayoutTests(unittest.TestCase):
         namespace["_poster_needs_tick"].__globals__["SHOW_IMAGE"] = True
 
         self.assertTrue(picker._poster_needs_tick(show))
+
+    def test_configured_loading_frame_uses_configured_spinner(self):
+        original_style = namespace["_spinner_style"]
+        original_time = spinner.time.time
+        try:
+            namespace["_configure_spinner_from_config"]({"spinner": "line"})
+            spinner.time.time = lambda: 0.2
+            self.assertEqual(namespace["_configured_loading_frame"](), "|")
+        finally:
+            namespace["_spinner_style"] = original_style
+            spinner.time.time = original_time
 
     def test_cover_command_uses_high_quality_relative_output(self):
         command = namespace["_chafa_cover_command"]("/tmp/cover.jpg")
