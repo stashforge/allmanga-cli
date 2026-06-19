@@ -1508,8 +1508,10 @@ def save_config(cfg):
 
 def save_anilist_token(cfg, token):
     if token and secret_state.set_secret(secret_state.ANILIST_KEY, token):
-        cfg["anilist_token"] = ""
-        save_config(cfg)
+        disk_cfg = dict(cfg)
+        disk_cfg["anilist_token"] = ""
+        save_config(disk_cfg)
+        cfg["anilist_token"] = token
         return "secret"
     cfg["anilist_token"] = token or ""
     save_config(cfg)

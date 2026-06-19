@@ -37,7 +37,8 @@ class TokenStorageTests(unittest.TestCase):
 
             self.assertEqual(mode, "secret")
             self.assertEqual(stored[secret_state.ANILIST_KEY], "new-token")
-            self.assertEqual(cfg["anilist_token"], "")
+            self.assertEqual(cfg["anilist_token"], "new-token")
+            self.assertNotIn("new-token", self.config_path.read_text())
         finally:
             secret_state.set_secret = original_set
 
