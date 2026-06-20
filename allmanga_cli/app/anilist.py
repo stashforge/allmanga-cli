@@ -300,7 +300,6 @@ def handle_anilist_airing_state(
         reverse_fn=_airing_refresh,
         count_total=lambda: len(shows),
         disabled_indices=disabled_rows,
-        reverse_items=False,
         help_dict=picker_help(
             "Open title",
             "Back to lists",

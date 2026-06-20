@@ -105,6 +105,14 @@ class AniListAiringTests(unittest.TestCase):
         self.assertIn('state = "ANILIST_AIRING"', route_block)
         self.assertIn('args.anilist = "menu"', route_block)
 
+    def test_airing_uses_bottom_up_picker_layout(self):
+        source = APP_ANILIST.read_text(encoding="utf-8")
+        picker_block = source.split('lambda: f"AniList Airing', 1)[1].split(
+            "help_dict=picker_help", 1
+        )[0]
+
+        self.assertNotIn("reverse_items=False", picker_block)
+
 
 if __name__ == "__main__":
     unittest.main()
