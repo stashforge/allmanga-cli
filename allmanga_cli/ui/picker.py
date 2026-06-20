@@ -538,7 +538,9 @@ def tui_pick(
 
             if key == "UP":
                 if filt:
-                    sel = move_selection(filt, sel, 1)
+                    sel = move_selection(
+                        filt, sel, -1 if not reverse_items else 1
+                    )
                 elif query_history:
                     history_idx = min(history_idx + 1, len(query_history) - 1)
                     if history_idx >= 0:
@@ -547,7 +549,9 @@ def tui_pick(
                         filt = filt_list()
             elif key == "DOWN":
                 if filt:
-                    sel = move_selection(filt, sel, -1)
+                    sel = move_selection(
+                        filt, sel, 1 if not reverse_items else -1
+                    )
                 elif query_history:
                     history_idx = max(history_idx - 1, -1)
                     if history_idx >= 0:

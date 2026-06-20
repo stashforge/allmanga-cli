@@ -268,6 +268,17 @@ class TuiLayoutTests(unittest.TestCase):
 
         self.assertIn("_clear_terminal_images()", help_block)
 
+    def test_top_to_bottom_picker_uses_natural_arrow_direction(self):
+        source = (
+            Path(__file__).resolve().parents[1]
+            / "allmanga_cli"
+            / "ui"
+            / "picker.py"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("not reverse_items else 1", source)
+        self.assertIn("1 if not reverse_items else -1", source)
+
 
 if __name__ == "__main__":
     unittest.main()
