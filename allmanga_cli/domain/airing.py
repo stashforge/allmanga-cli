@@ -11,6 +11,8 @@ AIRING_TAB_LABELS = {
     "tomorrow": "Tomorrow",
     "week": "Next 7 Days",
 }
+DIM = "\033[38;5;244m"
+RESET = "\033[0m"
 
 
 def normalize_airing_tab(tab):
@@ -62,11 +64,14 @@ def _airing_day_label(value, now):
     day = _start_of_day(value)
     if day == today:
         prefix = "Today"
+        date_text = value.strftime("%a, %d %b")
     elif day == today + _dt.timedelta(days=1):
         prefix = "Tomorrow"
+        date_text = value.strftime("%a, %d %b")
     else:
         prefix = value.strftime("%A")
-    return f"{prefix} · {value.strftime('%d %b')}"
+        date_text = value.strftime("%d %b")
+    return f"{prefix} · {date_text}"
 
 
 def _row_time(value, now):
@@ -114,8 +119,7 @@ def airing_row_label(show, *, tab="today", now=None, day_label_width=22):
     ep = show.get("_next_airing_ep") or "?"
     title = show.get("name") or show.get("englishName") or "Unknown"
     if tab == "week":
-        day_prefix = f"{day_text:<{day_label_width}}"
-        return f"{day_prefix} {time_text:>5}  EP {ep:<3} {title}"
+        return f"  {time_text:>5}  EP {ep:<3} {title}"
     return f"{time_text:>5}  EP {ep:<3} {title}"
 
 
@@ -127,11 +131,10 @@ def airing_rows(shows, tab="today", now=None):
     for show in filtered:
         timestamp = _airing_timestamp(show)
         day = _local_datetime(timestamp).date() if timestamp is not None else None
-        if tab == "week" and day == last_day:
-            label = airing_row_label(show, tab=tab, now=now)
-            label = " " * 22 + label[22:]
-        else:
-            label = airing_row_label(show, tab=tab, now=now)
+        if tab == "week" and day != last_day:
+            day_label = _airing_day_label(_local_datetime(timestamp), _coerce_now(now))
+            rows.append((None, f"{DIM}{day_label}{RESET}"))
+        label = airing_row_label(show, tab=tab, now=now)
         rows.append((show, label))
         last_day = day
     return rows

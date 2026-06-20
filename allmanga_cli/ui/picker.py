@@ -113,6 +113,8 @@ def tui_pick(
     auto_select_single_when_done: bool = False,
     keep_cursor_hidden_on_select: bool = False,
     count_total=None,
+    disabled_indices=None,
+    reverse_items=True,
 ):
     """Bottom-anchored alt-screen picker with flipped (bottom-up) item list.
 
@@ -198,6 +200,7 @@ def tui_pick(
     last_poster_key  = None
     last_clock_minute = int(time.time() // 60)
     pending_delete_index = None
+    disabled_indices = set(disabled_indices or ())
     try:
         last_terminal_size = os.get_terminal_size(tty_fd)
     except OSError:
@@ -210,6 +213,26 @@ def tui_pick(
             i for i, o in enumerate(options)
             if _match(query, _strip_ansi(o)) is not None
         ]
+
+    def first_selectable(filt):
+        for pos, option_index in enumerate(filt):
+            if option_index not in disabled_indices:
+                return pos
+        return 0
+
+    def move_selection(filt, current, delta):
+        if not filt:
+            return 0
+        selectable = [
+            pos for pos, option_index in enumerate(filt)
+            if option_index not in disabled_indices
+        ]
+        if not selectable:
+            return 0
+        if current not in selectable:
+            return selectable[0]
+        current_pos = selectable.index(current)
+        return selectable[(current_pos + delta) % len(selectable)]
 
     def render(filt):
         nonlocal scroll, last_poster_key
@@ -325,10 +348,15 @@ def tui_pick(
         for _ in range(GAP):
             out.append("\033[2K")
 
-        for vi in range(items_shown - 1, -1, -1):
+        item_positions = (
+            range(items_shown - 1, -1, -1)
+            if reverse_items else range(items_shown)
+        )
+        for vi in item_positions:
             oi     = visible[vi]
             is_sel = (scroll + vi == sel)
-            ptr    = f"{_C_PTR}\u276f{_RST}" if is_sel else " "
+            disabled = oi in disabled_indices
+            ptr    = f"{_C_PTR}\u276f{_RST}" if is_sel and not disabled else " "
             label  = _render_item(options[oi], query, is_sel, max_w=item_max_w)
             hint   = ""
             if is_sel and hints:
@@ -363,7 +391,11 @@ def tui_pick(
         else:
             total_count = count_total() if callable(count_total) else count_total
             total_count = len(options) if total_count is None else total_count
-            cstr = f"{_C_COUNT}{len(filt)}/{total_count}{_RST}"
+            filtered_count = (
+                sum(1 for option_index in filt if option_index not in disabled_indices)
+                if disabled_indices else len(filt)
+            )
+            cstr = f"{_C_COUNT}{filtered_count}/{total_count}{_RST}"
             hidden_below = scroll
             hidden_above = max(0, len(filt) - scroll - max_vis)
             si = ""
@@ -412,6 +444,7 @@ def tui_pick(
         termios.tcflush(tty_fd, termios.TCIFLUSH)
 
         filt   = filt_list()
+        sel    = first_selectable(filt)
         result = -2
 
         if (
@@ -459,6 +492,8 @@ def tui_pick(
                     break
 
             sel = max(0, min(sel, len(filt) - 1)) if filt else 0
+            if filt and filt[sel] in disabled_indices:
+                sel = first_selectable(filt)
 
             if flags.show_image and top_header_fn is not None and filt:
                 now     = time.time()
@@ -503,7 +538,7 @@ def tui_pick(
 
             if key == "UP":
                 if filt:
-                    sel = (sel + 1) % len(filt)
+                    sel = move_selection(filt, sel, 1)
                 elif query_history:
                     history_idx = min(history_idx + 1, len(query_history) - 1)
                     if history_idx >= 0:
@@ -512,7 +547,7 @@ def tui_pick(
                         filt = filt_list()
             elif key == "DOWN":
                 if filt:
-                    sel = (sel - 1) % len(filt)
+                    sel = move_selection(filt, sel, -1)
                 elif query_history:
                     history_idx = max(history_idx - 1, -1)
                     if history_idx >= 0:
@@ -522,9 +557,11 @@ def tui_pick(
                     cursor_pos = len(query)
                     filt = filt_list()
             elif key == "HOME":
-                sel = 0; scroll = 0
+                sel = first_selectable(filt); scroll = 0
             elif key == "END":
-                sel = max(0, len(filt) - 1)
+                sel = first_selectable(list(reversed(filt)))
+                if filt:
+                    sel = len(filt) - 1 - sel
             elif key in ("ENTER", "RIGHT"):
                 if is_search and key == "RIGHT":
                     if cursor_pos < len(query): cursor_pos += 1
@@ -533,7 +570,8 @@ def tui_pick(
                 if return_query_on_enter:
                     result = query
                     break
-                if filt: result = filt[sel]
+                if filt and filt[sel] not in disabled_indices:
+                    result = filt[sel]
                 break
             elif key == "?" and help_dict:
                 show_help = not show_help
@@ -555,12 +593,12 @@ def tui_pick(
                     if cursor_pos > 0:
                         query = query[:cursor_pos - 1] + query[cursor_pos:]
                         cursor_pos -= 1
-                        filt = filt_list(); sel = 0; scroll = 0
+                        filt = filt_list(); sel = first_selectable(filt); scroll = 0
                 else:
-                    query = query[:-1]; filt = filt_list(); sel = 0; scroll = 0
+                    query = query[:-1]; filt = filt_list(); sel = first_selectable(filt); scroll = 0
                     cursor_pos = len(query)
             elif key == "CTRL_U":
-                query = ""; filt = filt_list(); sel = 0; scroll = 0
+                query = ""; filt = filt_list(); sel = first_selectable(filt); scroll = 0
                 cursor_pos = 0
             elif key in ("TAB", "CTRL_N"):
                 if tab_fn:
@@ -571,8 +609,11 @@ def tui_pick(
                         res = tab_fn(selected)
                     if res:
                         options, cur_header = res[0], res[1]
+                        if len(res) > 2:
+                            disabled_indices.clear()
+                            disabled_indices.update(res[2] or ())
                         filt = filt_list()
-                        sel  = max(0, min(sel, len(filt) - 1)) if filt else 0
+                        sel  = first_selectable(filt)
             elif key in ("SHIFT_TAB", "CTRL_P"):
                 if tab_fn:
                     selected = filt[sel] if filt and sel < len(filt) else None
@@ -582,16 +623,22 @@ def tui_pick(
                         res = tab_fn(selected)
                     if res:
                         options, cur_header = res[0], res[1]
+                        if len(res) > 2:
+                            disabled_indices.clear()
+                            disabled_indices.update(res[2] or ())
                         filt = filt_list()
-                        sel  = max(0, min(sel, len(filt) - 1)) if filt else 0
+                        sel  = first_selectable(filt)
             elif key == "CTRL_R":
                 if reverse_fn:
                     selected = filt[sel] if filt and sel < len(filt) else None
                     res = reverse_fn(selected)
                     if res:
                         options, cur_header = res[0], res[1]
+                        if len(res) > 2:
+                            disabled_indices.clear()
+                            disabled_indices.update(res[2] or ())
                         filt = filt_list()
-                        sel  = max(0, min(sel, len(filt) - 1)) if filt else 0
+                        sel  = first_selectable(filt)
             elif key in ("DELETE", "CTRL_D"):
                 if delete_fn and filt:
                     pending_delete_index = filt[sel]
@@ -603,7 +650,7 @@ def tui_pick(
                     else:
                         query += key
                         cursor_pos = len(query)
-                    filt = filt_list(); sel = 0; scroll = 0
+                    filt = filt_list(); sel = first_selectable(filt); scroll = 0
 
     finally:
         termios.tcsetattr(tty_fd, termios.TCSADRAIN, old_attrs)

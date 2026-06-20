@@ -208,25 +208,36 @@ def handle_anilist_airing_state(
     base_shows = _load_anilist_airing_shows(cfg["anilist_token"], force_refresh=True)
     tab = getattr(ui, "anilist_airing_tab", "today")
     rows = airing_rows(base_shows, tab)
-    shows = [show for show, _label in rows]
+    row_shows = [show for show, _label in rows]
+    shows = [show for show in row_shows if show]
     opts = [label for _show, label in rows]
+    disabled_rows = {
+        index for index, show in enumerate(row_shows)
+        if show is None
+    }
 
     def _rebuild(new_tab=None):
-        nonlocal tab, rows, shows, opts
+        nonlocal tab, rows, row_shows, shows, opts, disabled_rows
         if new_tab:
             tab = new_tab
             ui.anilist_airing_tab = tab
         rows = airing_rows(base_shows, tab)
-        shows = [show for show, _label in rows]
+        row_shows = [show for show, _label in rows]
+        shows = [show for show in row_shows if show]
         opts = [label for _show, label in rows]
-        return opts, _airing_hdr(0)
+        disabled_rows = {
+            index for index, show in enumerate(row_shows)
+            if show is None
+        }
+        return opts, _airing_hdr(0), disabled_rows
 
     def _airing_top_hdr(si):
-        if 0 <= si < len(shows):
-            ui.hovered_show_id = shows[si].get("_id")
-            ui.hovered_show_obj = shows[si]
+        show = row_shows[si] if 0 <= si < len(row_shows) else None
+        if show:
+            ui.hovered_show_id = show.get("_id")
+            ui.hovered_show_obj = show
             app_core._hovered_show_id = ui.hovered_show_id
-            poster = app_core._get_poster(shows[si])
+            poster = app_core._get_poster(show)
             if poster:
                 return poster
         return ""
@@ -237,7 +248,7 @@ def handle_anilist_airing_state(
         except OSError:
             w = 80
         parts = []
-        selected_show = shows[si] if 0 <= si < len(shows) else {}
+        selected_show = row_shows[si] if 0 <= si < len(row_shows) and row_shows[si] else {}
         if selected_show:
             app_core.build_info_panel(selected_show, ttype, w, parts)
         else:
@@ -288,6 +299,8 @@ def handle_anilist_airing_state(
         tab_fn=_airing_tab,
         reverse_fn=_airing_refresh,
         count_total=lambda: len(shows),
+        disabled_indices=disabled_rows,
+        reverse_items=False,
         help_dict=picker_help(
             "Open title",
             "Back to lists",
@@ -303,8 +316,11 @@ def handle_anilist_airing_state(
         return "ANILIST_MENU"
     if idx < 0:
         return "ANILIST_AIRING"
+    selected = row_shows[idx] if 0 <= idx < len(row_shows) else None
+    if not selected:
+        return "ANILIST_AIRING"
     return _open_anilist_show_from_picker(
-        flags, ui, ms, args, ttype, shows[idx], "ANILIST_AIRING"
+        flags, ui, ms, args, ttype, selected, "ANILIST_AIRING"
     )
 
 

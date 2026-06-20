@@ -62,12 +62,17 @@ class AniListAiringTests(unittest.TestCase):
         tomorrow = self.show("Tomorrow", 26, 13)
 
         rows = airing_rows([tomorrow, second, first], "week", self.now)
+        row_shows = [show for show, _label in rows]
         labels = [label for _show, label in rows]
 
+        self.assertIsNone(row_shows[0])
+        self.assertIsNone(row_shows[3])
         self.assertIn("Today", labels[0])
+        self.assertIn("EP 11", labels[1])
         self.assertNotIn("Today", labels[1])
-        self.assertIn("Tomorrow", labels[2])
-        self.assertIn("EP 11", labels[0])
+        self.assertIn("EP 12", labels[2])
+        self.assertIn("Tomorrow", labels[3])
+        self.assertIn("EP 13", labels[4])
 
     def test_today_row_uses_local_time_and_episode(self):
         label = airing_row_label(self.show("Witch Hat", 2, 11), tab="today", now=self.now)
