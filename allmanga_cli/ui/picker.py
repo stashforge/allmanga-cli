@@ -244,6 +244,7 @@ def tui_pick(
             rows, cols = 24, 80
 
         if show_help and help_dict:
+            last_poster_key = None
             out = []
             out.append(_clear_terminal_images())
             out.append("\033[2K")
