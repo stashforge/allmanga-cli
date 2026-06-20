@@ -132,9 +132,11 @@ def get_episode_data(request_json, show_id, episode, ttype="sub"):
     extensions = {
         "persistedQuery": {"version": 1, "sha256Hash": query_hash}
     }
+    variables_json = json.dumps(variables, separators=(",", ":"))
+    extensions_json = json.dumps(extensions, separators=(",", ":"))
     url = (
-        f"{API_BASE}?variables={urllib.parse.quote(json.dumps(variables))}"
-        f"&extensions={urllib.parse.quote(json.dumps(extensions))}"
+        f"{API_BASE}?variables={urllib.parse.quote(variables_json)}"
+        f"&extensions={urllib.parse.quote(extensions_json)}"
     )
     response = request_json(
         url,
@@ -145,7 +147,8 @@ def get_episode_data(request_json, show_id, episode, ttype="sub"):
     )
     raw = response.get("data", {}).get("tobeparsed")
     if not raw:
-        raw = response.get("data", {}).get("episode", {}).get("sourceUrls")
+        episode_data = response.get("data", {}).get("episode") or {}
+        raw = episode_data.get("sourceUrls")
     if not raw:
         return None
     decoded = decrypt_tobeparsed(raw)

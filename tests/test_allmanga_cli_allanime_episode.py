@@ -1,5 +1,6 @@
 import json
 import unittest
+import urllib.parse
 
 from allmanga_cli.services import allanime
 
@@ -34,6 +35,44 @@ class AllAnimeEpisodeTests(unittest.TestCase):
                 "Referer": "https://youtu-chan.com",
             },
         )
+
+    def test_episode_request_uses_compact_graphql_json(self):
+        captured = {}
+
+        def request_json(url, **kwargs):
+            captured["url"] = url
+            return {"data": {"episode": None}}
+
+        result = allanime.get_episode_data(
+            request_json,
+            "show-id",
+            "203",
+            "sub",
+        )
+
+        self.assertIsNone(result)
+        parsed = urllib.parse.urlsplit(captured["url"])
+        query = urllib.parse.parse_qs(parsed.query)
+        self.assertEqual(
+            query["variables"][0],
+            '{"showId":"show-id","translationType":"sub","episodeString":"203"}',
+        )
+        self.assertNotIn(": ", query["variables"][0])
+        self.assertNotIn(", ", query["variables"][0])
+
+    def test_episode_null_from_provider_does_not_crash(self):
+        def request_json(url, **kwargs):
+            return {
+                "errors": [{"message": "NEED_CAPTCHA"}],
+                "data": {"episode": None},
+            }
+
+        self.assertIsNone(allanime.get_episode_data(
+            request_json,
+            "show-id",
+            "203",
+            "sub",
+        ))
 
 
 if __name__ == "__main__":
