@@ -3258,6 +3258,7 @@ def main():
             state = "ANILIST_SEARCH"
         elif args.anilist == "airing":
             state = "ANILIST_AIRING"
+            args.anilist = "menu"
         else:
             if not cfg.get("anilist_token"):
                 print(f"\n{YELLOW}AniList account is not linked.{RESET}")

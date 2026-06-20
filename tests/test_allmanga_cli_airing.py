@@ -17,6 +17,11 @@ APP_ANILIST = (
     / "app"
     / "anilist.py"
 )
+APP_CORE = (
+    Path(__file__).resolve().parents[1]
+    / "allmanga_cli"
+    / "app_core.py"
+)
 
 
 class AniListAiringTests(unittest.TestCase):
@@ -85,6 +90,15 @@ class AniListAiringTests(unittest.TestCase):
         self.assertIn("with_footer_loading", refresh_block)
         self.assertNotIn("_load_anilist_airing_shows", refresh_block)
         self.assertNotIn("with_anilist_menu_loading", refresh_block)
+
+    def test_direct_airing_argument_is_consumed_after_initial_route(self):
+        source = APP_CORE.read_text(encoding="utf-8")
+        route_block = source.split('elif args.anilist == "airing":', 1)[1].split(
+            "else:", 1
+        )[0]
+
+        self.assertIn('state = "ANILIST_AIRING"', route_block)
+        self.assertIn('args.anilist = "menu"', route_block)
 
 
 if __name__ == "__main__":
