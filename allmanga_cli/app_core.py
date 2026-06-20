@@ -1676,6 +1676,11 @@ def redact_sensitive_text(content):
         text,
     )
     text = re.sub(
+        r"(https?://[^\s'\"<>?]+)\?[^\s'\"<>]+",
+        r"\1?<redacted>",
+        text,
+    )
+    text = re.sub(
         r"\beyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b",
         "<redacted-jwt>",
         text,

@@ -135,14 +135,21 @@ class TokenStorageTests(unittest.TestCase):
 
     def test_sensitive_text_redaction(self):
         jwt = "eyJ" + "a" * 30 + "." + "b" * 12 + "." + "c" * 12
-        text = f"Authorization: Bearer secret-token\nvalue={jwt}"
+        signed_url = (
+            "https://cdn.example.test/video/stream.m3u8?"
+            "Expires=999999&Signature=very-secret&Key-Pair-Id=abc"
+        )
+        text = f"Authorization: Bearer secret-token\nvalue={jwt}\nurl={signed_url}"
 
         redacted = self.ns["redact_sensitive_text"](text)
 
         self.assertIn("Authorization: Bearer <redacted>", redacted)
         self.assertIn("<redacted-jwt>", redacted)
+        self.assertIn("https://cdn.example.test/video/stream.m3u8?<redacted>", redacted)
         self.assertNotIn("secret-token", redacted)
         self.assertNotIn(jwt, redacted)
+        self.assertNotIn("Signature=very-secret", redacted)
+        self.assertNotIn("Key-Pair-Id=abc", redacted)
 
 
 if __name__ == "__main__":
