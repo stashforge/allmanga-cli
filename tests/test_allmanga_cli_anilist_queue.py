@@ -195,6 +195,26 @@ class AniListQueueTests(unittest.TestCase):
         self.assertIn("started_at", queued[0])
         self.assertIn("completed_at", queued[0])
 
+    def test_queue_does_not_overwrite_existing_anilist_dates(self):
+        self.globals["scrobble_anilist"] = lambda *args, **kwargs: False
+        show = {
+            **self.show(),
+            "status": "FINISHED",
+            "episodeCount": 3,
+            "_anilist_started_at": {"year": 2026, "month": 6, "day": 1},
+            "_anilist_completed_at": {"year": 2026, "month": 6, "day": 2},
+        }
+
+        self.ns["queue_anilist_progress"](
+            "token", "Queue Test", 3, 123, show, "sub", "COMPLETED"
+        )
+        self.assertTrue(self.ns["flush_anilist_writes"](2))
+
+        queued = self.queue_file()
+        self.assertEqual(len(queued), 1)
+        self.assertNotIn("started_at", queued[0])
+        self.assertNotIn("completed_at", queued[0])
+
 
 if __name__ == "__main__":
     unittest.main()
