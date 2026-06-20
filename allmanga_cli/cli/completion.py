@@ -12,6 +12,8 @@ ANILIST_LISTS = (
 )
 AUTH_ACTIONS = ("login", "logout", "status", "token")
 SHELLS = ("bash", "zsh", "fish")
+QUALITIES = ("best", "1080p", "720p", "480p")
+PLAYERS = ("mpv", "mpvex", "vlc", "next")
 
 ROOT_OPTIONS = ("-h", "--help", "--debug")
 SEARCH_OPTIONS = (
@@ -53,6 +55,29 @@ _allmanga_cli_completion()
         COMPREPLY=( $(compgen -W "{_words(COMMANDS)} {_words(ROOT_OPTIONS)}" -- "$cur") )
         return 0
     fi
+
+    case "$prev" in
+        -q|--quality)
+            COMPREPLY=( $(compgen -W "{_words(QUALITIES)}" -- "$cur") )
+            return 0
+            ;;
+        -p|--player)
+            COMPREPLY=( $(compgen -W "{_words(PLAYERS)}" -- "$cur") )
+            return 0
+            ;;
+        install)
+            if [[ "$cmd" == "completion" ]]; then
+                COMPREPLY=( $(compgen -W "{_words(SHELLS)}" -- "$cur") )
+                return 0
+            fi
+            ;;
+        token)
+            if [[ "$cmd" == "auth" ]]; then
+                COMPREPLY=( $(compgen -W "--raw --debug -h --help" -- "$cur") )
+                return 0
+            fi
+            ;;
+    esac
 
     case "$cmd" in
         search)

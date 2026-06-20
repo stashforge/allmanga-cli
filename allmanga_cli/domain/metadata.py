@@ -74,12 +74,7 @@ def normalize_anilist_list_status(status):
 
 
 def format_progress(anime, local_only=False, ttype="sub"):
-    from allmanga_cli.domain.history import history_available_episode_count, history_full_episode_count
-    entry = {"show": anime, "translation_type": ttype}
-    available = history_available_episode_count(entry)
-    full = history_full_episode_count(entry)
-
-    total = full or available
+    total = positive_int(anime.get("episodeCount"))
 
     local_progress = anime.get("_local_progress")
     local_label = anime.get("_local_episode_label")

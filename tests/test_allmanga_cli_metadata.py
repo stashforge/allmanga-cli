@@ -34,6 +34,22 @@ class MetadataFormattingTests(unittest.TestCase):
         self.assertIn("8", progress)
         self.assertNotIn("?", progress)
 
+    def test_unknown_total_does_not_use_available_as_total(self):
+        anime = {
+            "_sync_enabled": True,
+            "_anilist_progress": 11,
+            "episodeCount": None,
+            "status": "RELEASING",
+            "_next_airing_ep": 12,
+        }
+
+        line = format_info_metadata_line(anime)
+
+        self.assertIn("EP", line)
+        self.assertIn(" 11", line)
+        self.assertIn("Avail 11", line)
+        self.assertNotIn("11/11", line)
+
     def test_available_count_only_appears_for_releasing_anime(self):
         releasing = {
             "status": "RELEASING",

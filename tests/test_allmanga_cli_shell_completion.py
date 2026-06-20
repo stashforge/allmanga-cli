@@ -21,6 +21,15 @@ class ShellCompletionTests(unittest.TestCase):
         self.assertIn("--no-sync", script)
         self.assertNotIn("--track", script)
 
+    def test_bash_completion_includes_nested_values(self):
+        script = generate_completion("bash")
+
+        self.assertIn('compgen -W "best 1080p 720p 480p"', script)
+        self.assertIn('compgen -W "mpv mpvex vlc next"', script)
+        self.assertIn('if [[ "$cmd" == "completion" ]]', script)
+        self.assertIn('if [[ "$cmd" == "auth" ]]', script)
+        self.assertIn('compgen -W "--raw --debug -h --help"', script)
+
     def test_zsh_and_fish_completion_include_anilist_lists(self):
         for shell in ("zsh", "fish"):
             with self.subTest(shell=shell):
@@ -28,6 +37,7 @@ class ShellCompletionTests(unittest.TestCase):
 
                 self.assertIn("watching", script)
                 self.assertIn("rewatching", script)
+                self.assertIn("airing", script)
                 self.assertIn("completion", script)
 
     def test_completion_install_paths_are_user_local(self):
