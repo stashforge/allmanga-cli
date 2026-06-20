@@ -288,7 +288,9 @@ class TuiLayoutTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         disabled_block = source.split("if disabled:", 1)[1].split("continue", 1)[0]
 
+        self.assertIn("_truncate_display", disabled_block)
         self.assertIn("_fit_terminal_line(label, cols)", disabled_block)
+        self.assertNotIn("_render_item", disabled_block)
         self.assertNotIn("ptr", disabled_block)
 
 
