@@ -59,8 +59,13 @@ def format_ep_progress(label, progress, total, local_only=False):
         progress = int(p) if p == p.to_integral_value() else str(p.normalize())
     except (_dec.InvalidOperation, TypeError, ValueError):
         return ""
-    prefix = f"\033[38;5;244mEP{DIM}"
+    prefix = f"\033[38;5;244mWatched{DIM}"
     return f"{prefix} {progress}/{total}" if total else f"{prefix} {progress}"
+
+
+def format_total_episodes(anime):
+    total = positive_int(anime.get("episodeCount"))
+    return f"\033[38;5;244mEP{DIM} {total}" if total else ""
 
 
 def normalize_anilist_list_status(status):
@@ -250,6 +255,8 @@ def format_info_metadata_line(
         progress = f"\033[38;5;244mEP{DIM} {override_ep_str}"
     else:
         progress = format_progress(anime, local_only=local_only, ttype=ttype)
+        if not progress:
+            progress = format_total_episodes(anime)
 
     available = format_available_episodes(anime, ttype, local_only=local_only)
     next_airing = format_next_airing(anime, now)

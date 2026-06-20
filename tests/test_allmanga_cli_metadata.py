@@ -18,7 +18,7 @@ class MetadataFormattingTests(unittest.TestCase):
             "episodeCount": 12,
         }
 
-        self.assertIn("EP", format_progress(anime))
+        self.assertIn("Watched", format_progress(anime))
         self.assertIn("8/12", format_progress(anime))
 
     def test_unknown_total_does_not_render_question_mark(self):
@@ -30,7 +30,7 @@ class MetadataFormattingTests(unittest.TestCase):
 
         progress = format_progress(anime)
 
-        self.assertIn("EP", progress)
+        self.assertIn("Watched", progress)
         self.assertIn("8", progress)
         self.assertNotIn("?", progress)
 
@@ -45,10 +45,26 @@ class MetadataFormattingTests(unittest.TestCase):
 
         line = format_info_metadata_line(anime)
 
-        self.assertIn("EP", line)
+        self.assertIn("Watched", line)
         self.assertIn(" 11", line)
         self.assertIn("Avail 11", line)
         self.assertNotIn("11/11", line)
+
+    def test_known_total_without_progress_shows_catalog_episode_count(self):
+        anime = {
+            "episodeCount": 12,
+            "status": "FINISHED",
+            "type": "TV",
+            "airedStart": {"year": 2024},
+            "score": 6.92,
+        }
+
+        line = format_info_metadata_line(anime)
+
+        self.assertIn("FINISHED", line)
+        self.assertIn("EP", line)
+        self.assertIn("12", line)
+        self.assertNotIn("Watched", line)
 
     def test_available_count_only_appears_for_releasing_anime(self):
         releasing = {
@@ -114,7 +130,7 @@ class MetadataFormattingTests(unittest.TestCase):
 
         line = format_info_metadata_line(anime, now=6_400)
 
-        self.assertIn("EP", line)
+        self.assertIn("Watched", line)
         self.assertIn("8/12", line)
         self.assertIn("Avail 8", line)
         self.assertIn("Next EP 9 in 1h", line)
@@ -136,7 +152,7 @@ class MetadataFormattingTests(unittest.TestCase):
         line = format_info_metadata_line(anime)
 
         self.assertLess(line.index("AL WATCHING"), line.index("AIRING"))
-        self.assertIn("EP", line)
+        self.assertIn("Watched", line)
         self.assertIn("10/13", line)
 
     def test_anilist_status_stays_visible_when_sync_is_off(self):
@@ -194,7 +210,7 @@ class MetadataFormattingTests(unittest.TestCase):
         line = format_info_metadata_line(anime)
 
         self.assertIn("AL WATCHING", line)
-        self.assertIn("EP", line)
+        self.assertIn("Watched", line)
         self.assertIn("6/13", line)
         self.assertNotIn("2/13", line)
 
