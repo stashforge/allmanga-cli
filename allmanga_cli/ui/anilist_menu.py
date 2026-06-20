@@ -56,7 +56,7 @@ def loading_frame(status, rows, columns, loading_text=""):
     )
     header_lines = menu_header().splitlines()
     if loading_text:
-        header_lines[0] = loading_text
+        header_lines[-1] = loading_text
     item_count = len(options)
     padding = max(0, rows - item_count - 1 - len(header_lines))
     output = [""] * padding

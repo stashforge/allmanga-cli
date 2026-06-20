@@ -252,6 +252,7 @@ class TuiLayoutTests(unittest.TestCase):
 
         self.assertIn("❯ Airing", plain)
         self.assertIn("Loading AniList airing schedule...", plain)
+        self.assertNotIn("Enter/Right=select Left=search Esc=quit", plain)
 
 
 if __name__ == "__main__":
