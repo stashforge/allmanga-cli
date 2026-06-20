@@ -222,6 +222,7 @@ def tui_pick(
 
         if show_help and help_dict:
             out = []
+            out.append(_clear_terminal_images())
             out.append("\033[2K")
             out.append(f"\033[2K  {_C_HINT}=== Keyboard Shortcuts ==={_RST}")
             out.append("\033[2K")

@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 from tests.app_namespace import load_app_namespace
 from allmanga_cli.ui import picker
 from allmanga_cli.ui import spinner
@@ -253,6 +254,19 @@ class TuiLayoutTests(unittest.TestCase):
         self.assertIn("❯ Airing", plain)
         self.assertIn("Loading AniList airing schedule...", plain)
         self.assertNotIn("Enter/Right=select Left=search Esc=quit", plain)
+
+    def test_picker_help_clears_terminal_images(self):
+        source = (
+            Path(__file__).resolve().parents[1]
+            / "allmanga_cli"
+            / "ui"
+            / "picker.py"
+        ).read_text(encoding="utf-8")
+        help_block = source.split("if show_help and help_dict:", 1)[1].split(
+            "return", 1
+        )[0]
+
+        self.assertIn("_clear_terminal_images()", help_block)
 
 
 if __name__ == "__main__":
