@@ -11,7 +11,7 @@ AIRING_TAB_LABELS = {
     "tomorrow": "Tomorrow",
     "week": "Next 5 Days",
 }
-DIM = "\033[38;2;203;166;247m"
+DIM = "\033[38;5;139m"
 RESET = "\033[0m"
 
 
