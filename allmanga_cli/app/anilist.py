@@ -246,17 +246,18 @@ def handle_anilist_airing_state(
                 _fit_terminal_line(f"{_C_HINT}No airing episodes in {airing_tab_label(tab)}.{_RST}", w),
                 _fit_terminal_line(f"{_C_HINT}Use Tab/Ctrl+N to switch tabs or Ctrl+R to refresh.{_RST}", w),
             ])
+        footer_text = _footer_parts(
+            f"{len(shows)} airing",
+            *_anilist_badges(flags, args),
+            "Enter/Right open",
+            "Tab/Ctrl+N next tab",
+            "Shift+Tab/Ctrl+P prev tab",
+            "Ctrl+R refresh",
+            "Esc back",
+        )
         parts.append(app_core._poster_footer_line(
             selected_show,
-            _footer_parts(
-                f"{len(shows)} airing",
-                *_anilist_badges(flags, args),
-                "Enter/Right open",
-                "Tab/Ctrl+N next tab",
-                "Shift+Tab/Ctrl+P prev tab",
-                "Ctrl+R refresh",
-                "Esc back",
-            ),
+            footer_text,
             w,
         ))
         return "\n".join(parts)
@@ -268,7 +269,13 @@ def handle_anilist_airing_state(
 
     def _airing_refresh(_selected=None):
         nonlocal base_shows
-        base_shows = _load_anilist_airing_shows(cfg["anilist_token"], force_refresh=True)
+        base_shows = app_core.with_footer_loading(
+            "Refreshing AniList airing schedule...",
+            app_core.fetch_anilist_list,
+            cfg["anilist_token"],
+            None,
+            True,
+        )
         return _rebuild(tab)
 
     idx = tui_pick(

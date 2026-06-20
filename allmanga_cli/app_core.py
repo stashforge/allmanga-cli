@@ -640,6 +640,35 @@ def with_anilist_menu_loading(status, msg, fn, *args, **kwargs):
     return result.get("value")
 
 
+def with_footer_loading(msg, fn, *args, **kwargs):
+    result = {}
+
+    def _runner():
+        try:
+            result["value"] = fn(*args, **kwargs)
+        except BaseException as exc:
+            result["error"] = exc
+
+    thread = threading.Thread(target=_runner, daemon=True)
+    thread.start()
+    while thread.is_alive():
+        try:
+            size = os.get_terminal_size()
+            columns, rows = size.columns, size.lines
+        except OSError:
+            columns, rows = 80, 24
+        sys.stdout.write(
+            f"\033[{rows};1H\033[2K"
+            f"{_loading_line(msg, columns, _spinner_style)}"
+            "\033[?25l"
+        )
+        sys.stdout.flush()
+        thread.join(0.1)
+    if "error" in result:
+        raise result["error"]
+    return result.get("value")
+
+
 def load_anilist_browse(token, status):
     return with_anilist_menu_loading(
         status,

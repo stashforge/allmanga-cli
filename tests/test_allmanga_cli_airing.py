@@ -1,5 +1,6 @@
 import datetime as dt
 import unittest
+from pathlib import Path
 
 from allmanga_cli.domain.airing import (
     airing_row_label,
@@ -7,6 +8,14 @@ from allmanga_cli.domain.airing import (
     filter_airing_shows,
     next_airing_tab,
     previous_airing_tab,
+)
+
+
+APP_ANILIST = (
+    Path(__file__).resolve().parents[1]
+    / "allmanga_cli"
+    / "app"
+    / "anilist.py"
 )
 
 
@@ -66,6 +75,16 @@ class AniListAiringTests(unittest.TestCase):
         self.assertEqual(next_airing_tab("today"), "tomorrow")
         self.assertEqual(next_airing_tab("tomorrow"), "week")
         self.assertEqual(previous_airing_tab("today"), "week")
+
+    def test_refresh_stays_on_airing_screen(self):
+        source = APP_ANILIST.read_text(encoding="utf-8")
+        refresh_block = source.split("def _airing_refresh", 1)[1].split(
+            "idx = tui_pick", 1
+        )[0]
+
+        self.assertIn("with_footer_loading", refresh_block)
+        self.assertNotIn("_load_anilist_airing_shows", refresh_block)
+        self.assertNotIn("with_anilist_menu_loading", refresh_block)
 
 
 if __name__ == "__main__":
