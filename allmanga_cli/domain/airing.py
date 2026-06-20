@@ -126,6 +126,33 @@ def airing_row_label(show, *, tab="today", now=None, day_label_width=22):
 def airing_rows(shows, tab="today", now=None):
     tab = normalize_airing_tab(tab)
     filtered = filter_airing_shows(shows, tab, now)
+    if tab == "week":
+        rows = []
+        groups = []
+        current_day = None
+        current_items = []
+        for show in filtered:
+            timestamp = _airing_timestamp(show)
+            day = _local_datetime(timestamp).date() if timestamp is not None else None
+            if current_day is not None and day != current_day:
+                groups.append((current_day, current_items))
+                current_items = []
+            current_day = day
+            current_items.append(show)
+        if current_day is not None:
+            groups.append((current_day, current_items))
+
+        for _day, items in groups:
+            for show in reversed(items):
+                rows.append((show, airing_row_label(show, tab=tab, now=now)))
+            timestamp = _airing_timestamp(items[0]) if items else None
+            if timestamp is not None:
+                day_label = _airing_day_label(
+                    _local_datetime(timestamp), _coerce_now(now)
+                )
+                rows.append((None, f"{DIM}{day_label}{RESET}"))
+        return rows
+
     rows = []
     last_day = None
     for show in filtered:

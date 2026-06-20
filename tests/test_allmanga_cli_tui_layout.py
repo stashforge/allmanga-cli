@@ -279,6 +279,18 @@ class TuiLayoutTests(unittest.TestCase):
         self.assertIn("not reverse_items else 1", source)
         self.assertIn("1 if not reverse_items else -1", source)
 
+    def test_disabled_picker_rows_render_without_pointer_gutter(self):
+        source = (
+            Path(__file__).resolve().parents[1]
+            / "allmanga_cli"
+            / "ui"
+            / "picker.py"
+        ).read_text(encoding="utf-8")
+        disabled_block = source.split("if disabled:", 1)[1].split("continue", 1)[0]
+
+        self.assertIn("_fit_terminal_line(label, cols)", disabled_block)
+        self.assertNotIn("ptr", disabled_block)
+
 
 if __name__ == "__main__":
     unittest.main()
