@@ -142,7 +142,9 @@ def airing_rows(shows, tab="today", now=None):
         if current_day is not None:
             groups.append((current_day, current_items))
 
-        for _day, items in groups:
+        for group_index, (_day, items) in enumerate(groups):
+            if group_index > 0:
+                rows.append((None, ""))
             for show in reversed(items):
                 rows.append((show, airing_row_label(show, tab=tab, now=now)))
             timestamp = _airing_timestamp(items[0]) if items else None
