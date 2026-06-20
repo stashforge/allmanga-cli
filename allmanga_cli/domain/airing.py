@@ -9,9 +9,9 @@ AIRING_TABS = ("today", "tomorrow", "week")
 AIRING_TAB_LABELS = {
     "today": "Today",
     "tomorrow": "Tomorrow",
-    "week": "Next 7 Days",
+    "week": "Next 5 Days",
 }
-DIM = "\033[38;5;244m"
+DIM = "\033[38;2;203;166;247m"
 RESET = "\033[0m"
 
 
@@ -85,13 +85,13 @@ def filter_airing_shows(shows, tab="today", now=None):
     now = _coerce_now(now)
     today = _start_of_day(now)
     tomorrow = today + _dt.timedelta(days=1)
-    week_end = today + _dt.timedelta(days=7)
+    next_five_end = today + _dt.timedelta(days=7)
     if tab == "today":
         start, end = today, tomorrow
     elif tab == "tomorrow":
         start, end = tomorrow, tomorrow + _dt.timedelta(days=1)
     else:
-        start, end = today, week_end
+        start, end = tomorrow + _dt.timedelta(days=1), next_five_end
 
     entries = []
     for show in shows or []:
@@ -143,8 +143,6 @@ def airing_rows(shows, tab="today", now=None):
             groups.append((current_day, current_items))
 
         for group_index, (_day, items) in enumerate(groups):
-            if group_index > 0:
-                rows.append((None, ""))
             for show in reversed(items):
                 rows.append((show, airing_row_label(show, tab=tab, now=now)))
             timestamp = _airing_timestamp(items[0]) if items else None

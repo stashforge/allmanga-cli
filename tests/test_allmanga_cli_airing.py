@@ -53,28 +53,26 @@ class AniListAiringTests(unittest.TestCase):
         )
         self.assertEqual(
             [show["name"] for show in filter_airing_shows(shows, "week", self.now)],
-            ["Today Show", "Tomorrow Show", "Later Show"],
+            ["Later Show"],
         )
 
     def test_week_rows_group_days_without_selectable_headers(self):
-        first = self.show("First", 2, 11)
-        second = self.show("Second", 4, 12)
-        tomorrow = self.show("Tomorrow", 26, 13)
+        first = self.show("First", 50, 11)
+        second = self.show("Second", 52, 12)
+        later = self.show("Later", 74, 13)
 
-        rows = airing_rows([tomorrow, second, first], "week", self.now)
+        rows = airing_rows([later, second, first], "week", self.now)
         row_shows = [show for show, _label in rows]
         labels = [label for _show, label in rows]
         displayed = list(reversed(labels))
 
         self.assertIsNone(row_shows[2])
-        self.assertIsNone(row_shows[3])
-        self.assertIsNone(row_shows[5])
-        self.assertIn("Tomorrow", displayed[0])
+        self.assertIsNone(row_shows[4])
+        self.assertIn("Monday", displayed[0])
         self.assertIn("EP 13", displayed[1])
-        self.assertEqual(displayed[2], "")
-        self.assertIn("Today", displayed[3])
-        self.assertIn("EP 11", displayed[4])
-        self.assertIn("EP 12", displayed[5])
+        self.assertIn("Sunday", displayed[2])
+        self.assertIn("EP 11", displayed[3])
+        self.assertIn("EP 12", displayed[4])
 
     def test_today_row_uses_local_time_and_episode(self):
         label = airing_row_label(self.show("Witch Hat", 2, 11), tab="today", now=self.now)
