@@ -201,6 +201,10 @@ def handle_play_state(
         return "ACTION_MENU"
     if ep_data.get("_provider_error") == "browser_verification_required":
         app_core._exit_player_screen()
+        ms.ep_cache_key = None
+        ms.ep_cache_data = None
+        ms.selected_stream = None
+        app_core._clear_streams()
         verification_url = app_core.allanime_episode_url(
             ms.show_id,
             ms.current_ep,
@@ -539,8 +543,8 @@ def handle_action_menu_state(
     verification_url = action_show.get("_provider_verification_url", "")
     verification_episode = action_show.get("_provider_verification_episode")
     if verification_url and str(verification_episode) == str(ms.current_ep):
-        opts.append("Open Episode")
-        acts.append("OPEN_EPISODE")
+        opts.append("Verify")
+        acts.append("VERIFY")
 
     opts += ["Replay", "Mirror", "Back", "Quit"]
     acts += ["REPLAY", "MIRRORS", "BACK", "QUIT"]
@@ -569,7 +573,7 @@ def handle_action_menu_state(
         elif act == "NEXT":     action_hints[opt] = f"EP {next_ep}"
         elif act == "PREV":   action_hints[opt] = f"EP {prev_ep}"
         elif act == "EPISODES": action_hints[opt] = "browse all"
-        elif act == "OPEN_EPISODE": action_hints[opt] = "browser verification"
+        elif act == "VERIFY": action_hints[opt] = "open episode page"
         elif act == "REPLAY": action_hints[opt] = f"EP {ms.current_ep} again"
         elif act == "MIRRORS":action_hints[opt] = "switch source"
         elif act == "BACK":   action_hints[opt] = "Back"
@@ -691,10 +695,14 @@ def handle_action_menu_state(
         ui.ep_prev_state = "ACTION_MENU"
         return "EPISODE"
 
-    elif a == "OPEN_EPISODE":
+    elif a == "VERIFY":
         url = action_show.get("_provider_verification_url", "")
+        ms.ep_cache_key = None
+        ms.ep_cache_data = None
+        ms.selected_stream = None
+        app_core._clear_streams()
         if app_core.open_external_url(url):
-            app_core.set_action_feedback(action_show, "Opened episode page. Complete verification, then replay.")
+            app_core.set_action_feedback(action_show, "Opened episode page. Verify in browser, then Replay.")
         elif url:
             app_core.set_action_feedback(action_show, f"Open in browser: {url}")
         else:
@@ -702,6 +710,10 @@ def handle_action_menu_state(
         return "ACTION_MENU"
 
     elif a == "REPLAY":
+        ms.ep_cache_key = None
+        ms.ep_cache_data = None
+        ms.selected_stream = None
+        app_core._clear_streams()
         return "PLAY"
 
     elif a == "MIRRORS":
