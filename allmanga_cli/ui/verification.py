@@ -72,7 +72,6 @@ def verification_page(
 
         episode_label = f"Episode {episode} · {str(ttype or '').capitalize()}"
         out = [
-            clear_terminal_images(),
             f"\033[2K{_WARN}{t('⚠ Verification required')}{_RESET}",
             f"\033[2K{_PAUSED}{t('● Playback paused')}{_RESET}",
             "\033[2K",
@@ -118,7 +117,7 @@ def verification_page(
         out.extend(["\033[2K", f"\033[2K{_HINT}{t('Enter select · O open page · R retry · Esc back')}{_RESET}"])
         while len(out) < rows:
             out.append("\033[2K")
-        return absolute_terminal_frame(out[:rows], rows, cols)
+        return clear_terminal_images() + absolute_terminal_frame(out[:rows], rows, cols)
 
     tty_fd = -1
     tty_file = None
