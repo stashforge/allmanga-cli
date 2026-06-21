@@ -40,6 +40,103 @@ RED     = "\033[1;31m"
 RESET   = "\033[0m"
 
 
+def _clear_episode_source_state(ms: "MachineState") -> None:
+    ms.ep_cache_key = None
+    ms.ep_cache_data = None
+    ms.selected_stream = None
+    app_core._clear_streams()
+
+
+def _handle_verification_page(
+    flags: "CliFlags",
+    ui: "UiState",
+    ms: "MachineState",
+    cfg: dict,
+    ttype: str,
+) -> str:
+    show = ui.ui_show_ctx or {}
+    episode_url = show.get("_provider_verification_url", "")
+    fallback_url = app_core.allanime_frontend_domain(cfg)
+    status_msg = ""
+
+    opts = [
+        "Open episode page",
+        "Open site",
+        "Verification done, retry",
+        "Back",
+    ]
+    hints = {
+        "Open episode page": "direct episode URL",
+        "Open site": "provider homepage",
+        "Verification done, retry": f"refetch EP {ms.current_ep}",
+        "Back": "return to actions",
+    }
+
+    def _verification_header(_selected):
+        try:
+            w = os.get_terminal_size().columns
+        except OSError:
+            w = 80
+        C_T = "\033[1;97m"
+        C_D = "\033[38;5;248m"
+        C_W = "\033[38;5;220m"
+        C_OK = "\033[32m"
+        R = "\033[0m"
+        _t = lambda s: _truncate_display(s, max(1, w - 1))
+
+        title = get_show_display_title(show) if show else ms.show_title
+        lines = [
+            f"{C_T}{_t('Provider verification')}{R}",
+            "",
+            f"{C_D}{_t('AllAnime blocked the episode source request.')}{R}",
+            f"{C_D}{_t('Open the episode in a browser, pass verification, then retry.')}{R}",
+            "",
+            f"{C_D}{_t(f'Episode: {title}')}{R}",
+            f"{C_D}{_t(f'EP {ms.current_ep} · {ttype}')}{R}",
+            "",
+            f"{C_D}{_t('Episode URL:')}{R}",
+            f"{C_W}{_t(episode_url or 'Unavailable')}{R}",
+            f"{C_D}{_t('Fallback:')}{R}",
+            f"{C_W}{_t(fallback_url)}{R}",
+        ]
+        if status_msg:
+            lines.extend(["", f"{C_OK}{_t(status_msg)}{R}"])
+        lines.append(f"{C_D}{_t('Enter=select  Left/Esc=back')}{R}")
+        return "\n".join(lines)
+
+    help_dict = picker_help("Select", "Back", "Back")
+
+    while True:
+        app_core.clear_terminal_images()
+        idx = tui_pick(
+            flags,
+            ui,
+            "Verify provider",
+            opts,
+            header_fn=_verification_header,
+            hints=hints,
+            help_dict=help_dict,
+        )
+        if idx in (-2, -3, 3):
+            return "ACTION_MENU"
+        if idx == 0:
+            if episode_url and app_core.open_external_url(episode_url):
+                status_msg = "Opened episode page."
+            elif episode_url:
+                status_msg = "Could not open browser. Copy the episode URL manually."
+            else:
+                status_msg = "Episode URL is unavailable."
+        elif idx == 1:
+            if app_core.open_external_url(fallback_url):
+                status_msg = "Opened provider site."
+            else:
+                status_msg = "Could not open browser. Copy the fallback URL manually."
+        elif idx == 2:
+            _clear_episode_source_state(ms)
+            app_core.set_action_feedback(show, f"Retrying EP {ms.current_ep} after verification.")
+            return "PLAY"
+
+
 def handle_episode_state(
     flags: CliFlags,
     ui: UiState,
@@ -573,7 +670,7 @@ def handle_action_menu_state(
         elif act == "NEXT":     action_hints[opt] = f"EP {next_ep}"
         elif act == "PREV":   action_hints[opt] = f"EP {prev_ep}"
         elif act == "EPISODES": action_hints[opt] = "browse all"
-        elif act == "VERIFY": action_hints[opt] = "open episode page"
+        elif act == "VERIFY": action_hints[opt] = "verification"
         elif act == "REPLAY": action_hints[opt] = f"EP {ms.current_ep} again"
         elif act == "MIRRORS":action_hints[opt] = "switch source"
         elif act == "BACK":   action_hints[opt] = "Back"
@@ -673,22 +770,19 @@ def handle_action_menu_state(
         ms.pending_osd_msg = marked_watched_osd(ms.current_ep, synced)
         ms.current_ep_index += 1
         ms.current_ep = episode_id_at(episode_ids, ms.current_ep_index)
-        ms.selected_stream = None
-        app_core._clear_streams()
+        _clear_episode_source_state(ms)
         return "PLAY"
 
     elif a == "NEXT":
         ms.current_ep_index += 1
         ms.current_ep = episode_id_at(episode_ids, ms.current_ep_index)
-        ms.selected_stream = None
-        app_core._clear_streams()
+        _clear_episode_source_state(ms)
         return "PLAY"
 
     elif a == "PREV":
         ms.current_ep_index -= 1
         ms.current_ep = episode_id_at(episode_ids, ms.current_ep_index)
-        ms.selected_stream = None
-        app_core._clear_streams()
+        _clear_episode_source_state(ms)
         return "PLAY"
 
     elif a == "EPISODES":
@@ -696,24 +790,10 @@ def handle_action_menu_state(
         return "EPISODE"
 
     elif a == "VERIFY":
-        url = action_show.get("_provider_verification_url", "")
-        ms.ep_cache_key = None
-        ms.ep_cache_data = None
-        ms.selected_stream = None
-        app_core._clear_streams()
-        if app_core.open_external_url(url):
-            app_core.set_action_feedback(action_show, "Opened episode page. Verify in browser, then Replay.")
-        elif url:
-            app_core.set_action_feedback(action_show, f"Open in browser: {url}")
-        else:
-            app_core.set_action_feedback(action_show, "Episode URL is unavailable.")
-        return "ACTION_MENU"
+        return _handle_verification_page(flags, ui, ms, cfg, ttype)
 
     elif a == "REPLAY":
-        ms.ep_cache_key = None
-        ms.ep_cache_data = None
-        ms.selected_stream = None
-        app_core._clear_streams()
+        _clear_episode_source_state(ms)
         return "PLAY"
 
     elif a == "MIRRORS":
