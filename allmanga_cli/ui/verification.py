@@ -20,6 +20,7 @@ _TITLE = "\033[1;97m"
 _DIM = "\033[38;5;248m"
 _HINT = "\033[38;5;244m"
 _WARN = "\033[38;5;220m"
+_ERROR = "\033[38;5;203m"
 _PTR = "\033[38;2;243;139;168m"
 _SEL = "\033[1;97m"
 _RESET = "\033[0m"
@@ -45,9 +46,10 @@ def verification_page(
 ):
     """Show a top-aligned verification page and return the selected action."""
     actions = [
-        ("open_episode", "Open episode page"),
+        ("open_episode", "Open verification page"),
+        ("retry", "Retry source request"),
         ("open_site", "Open site"),
-        ("retry", "Verification done, retry"),
+        ("show_urls", "Show alternate URLs"),
         ("back", "Back"),
     ]
     status = status_message
@@ -63,28 +65,38 @@ def verification_page(
         def t(text):
             return truncate_display(str(text), max(1, cols - 1))
 
+        episode_label = f"Episode {episode} · {str(ttype or '').capitalize()}"
         out = [
             clear_terminal_images(),
             "\033[2K",
-            f"\033[2K{_TITLE}{t('Provider verification')}{_RESET}",
+            f"\033[2K{_WARN}{t('⚠ Verification required')}{_RESET}",
+            f"\033[2K{_ERROR}{t('● Playback paused')}{_RESET}",
             "\033[2K",
             f"\033[2K{_DIM}{t('AllAnime blocked the episode source request.')}{_RESET}",
-            f"\033[2K{_DIM}{t('Open the episode in a browser, pass verification, then retry.')}{_RESET}",
+            f"\033[2K{_DIM}{t('Open the verification page, complete the browser check,')}{_RESET}",
+            f"\033[2K{_DIM}{t('then return here and retry.')}{_RESET}",
             "\033[2K",
-            f"\033[2K{_DIM}{t(f'Episode: {title}')}{_RESET}",
-            f"\033[2K{_DIM}{t(f'EP {episode} · {ttype}')}{_RESET}",
+            f"\033[2K{_TITLE}{t('Episode')}{_RESET}",
             "\033[2K",
-            f"\033[2K{_DIM}{t('Episode URL:')}{_RESET}",
+            f"\033[2K{_DIM}{t(title)}{_RESET}",
+            f"\033[2K{_DIM}{t(episode_label)}{_RESET}",
+            "\033[2K",
+            f"\033[2K{_TITLE}{t('Verification page')}{_RESET}",
+            "\033[2K",
             f"\033[2K{_WARN}{t(episode_url or 'Unavailable')}{_RESET}",
-            f"\033[2K{_DIM}{t('Site URL:')}{_RESET}",
-            f"\033[2K{_WARN}{t(site_url or 'Unavailable')}{_RESET}",
         ]
+        out.extend([
+            "\033[2K",
+            f"\033[2K{_TITLE}{t('Alternate URLs')}{_RESET}",
+            f"\033[2K{_DIM}{t('Homepage')}{_RESET}",
+            f"\033[2K{_WARN}{t(site_url or 'Unavailable')}{_RESET}",
+        ])
         if legacy_url:
             out.extend([
-                f"\033[2K{_DIM}{t('Legacy URL:')}{_RESET}",
+                f"\033[2K{_DIM}{t('Legacy')}{_RESET}",
                 f"\033[2K{_WARN}{t(legacy_url)}{_RESET}",
             ])
-        out.append("\033[2K")
+        out.extend(["\033[2K", f"\033[2K{_TITLE}{t('Actions')}{_RESET}", "\033[2K"])
 
         for idx, (_, label) in enumerate(actions):
             ptr = f"{_PTR}❯{_RESET}" if idx == selected else " "
@@ -95,10 +107,7 @@ def verification_page(
         if status:
             out.extend(["\033[2K", f"\033[2K{_WARN}{t(status)}{_RESET}"])
 
-        out.extend([
-            "\033[2K",
-            f"\033[2K{_HINT}{t('Enter=select  O=open episode  R=retry  Esc=back')}{_RESET}",
-        ])
+        out.extend(["\033[2K", f"\033[2K{_HINT}{t('Enter select · O open page · R retry · Esc back')}{_RESET}"])
         while len(out) < rows:
             out.append("\033[2K")
         return absolute_terminal_frame(out[:rows], rows, cols)
@@ -134,7 +143,11 @@ def verification_page(
             elif key in ("DOWN", "TAB"):
                 selected = (selected + 1) % len(actions)
             elif key in ("ENTER", "RIGHT"):
-                return actions[selected][0]
+                action = actions[selected][0]
+                if action == "show_urls":
+                    status = "Alternate URLs are shown above."
+                    continue
+                return action
             elif key in ("o", "O"):
                 return "open_episode"
             elif key in ("r", "R"):
