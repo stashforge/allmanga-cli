@@ -20,9 +20,10 @@ _TITLE = "\033[1;97m"
 _DIM = "\033[38;5;248m"
 _HINT = "\033[38;5;244m"
 _WARN = "\033[38;5;220m"
-_ERROR = "\033[38;5;203m"
+_PAUSED = "\033[38;5;215m"
+_LINK = "\033[38;2;137;220;235m"
 _PTR = "\033[38;2;243;139;168m"
-_SEL = "\033[38;2;137;180;250m"
+_SEL = "\033[1;38;2;137;220;235m"
 _NORMAL = "\033[38;5;252m"
 _RESET = "\033[0m"
 
@@ -46,14 +47,18 @@ def verification_page(
     status_message="",
 ):
     """Show a top-aligned verification page and return the selected action."""
-    actions = [
-        ("open_episode", "Open verification page"),
-        ("retry", "Retry source request"),
-        ("open_site", "Open site"),
-        ("back", "Back"),
-    ]
     status = status_message
     selected = 0
+    show_alternate_urls = True
+
+    def current_actions():
+        return [
+            ("open_episode", "Open verification page"),
+            ("retry", "Retry source request"),
+            ("open_site", "Open homepage"),
+            ("toggle_urls", "Hide alternate URLs" if show_alternate_urls else "Show alternate URLs"),
+            ("back", "Back"),
+        ]
 
     def draw(fd):
         try:
@@ -69,10 +74,10 @@ def verification_page(
         out = [
             clear_terminal_images(),
             f"\033[2K{_WARN}{t('⚠ Verification required')}{_RESET}",
-            f"\033[2K{_ERROR}{t('● Playback paused')}{_RESET}",
+            f"\033[2K{_PAUSED}{t('● Playback paused')}{_RESET}",
             "\033[2K",
             f"\033[2K{_DIM}{t('AllAnime blocked the episode source request.')}{_RESET}",
-            f"\033[2K{_DIM}{t('Open the verification page, complete the browser check,')}{_RESET}",
+            f"\033[2K{_DIM}{t('Open the verification page and complete the browser check,')}{_RESET}",
             f"\033[2K{_DIM}{t('then return here and retry.')}{_RESET}",
             "\033[2K",
             f"\033[2K{_TITLE}{t('Episode')}{_RESET}",
@@ -80,24 +85,26 @@ def verification_page(
             f"\033[2K{_DIM}{t(episode_label)}{_RESET}",
             "\033[2K",
             f"\033[2K{_TITLE}{t('Verification page')}{_RESET}",
-            f"\033[2K{_WARN}{t(episode_url or 'Unavailable')}{_RESET}",
+            f"\033[2K{_LINK}{t(episode_url or 'Unavailable')}{_RESET}",
         ]
-        out.extend([
-            "\033[2K",
-            f"\033[2K{_TITLE}{t('Alternate URLs')}{_RESET}",
-            f"\033[2K{_DIM}{t('Homepage')}{_RESET}",
-            f"\033[2K{_WARN}{t(site_url or 'Unavailable')}{_RESET}",
-        ])
-        if legacy_url:
+        if show_alternate_urls:
             out.extend([
-                f"\033[2K{_DIM}{t('Legacy')}{_RESET}",
-                f"\033[2K{_WARN}{t(legacy_url)}{_RESET}",
+                "\033[2K",
+                f"\033[2K{_TITLE}{t('Alternate URLs')}{_RESET}",
+                f"\033[2K{_DIM}{t('Homepage')}{_RESET}",
+                f"\033[2K{_LINK}{t(site_url or 'Unavailable')}{_RESET}",
             ])
-        out.append(
-            f"\033[2K{_DIM}{t('Note: open one of these, play any episode once, then come back.')}{_RESET}"
-        )
+            if legacy_url:
+                out.extend([
+                    f"\033[2K{_DIM}{t('Legacy')}{_RESET}",
+                    f"\033[2K{_LINK}{t(legacy_url)}{_RESET}",
+                ])
+            out.append(
+                f"\033[2K{_DIM}{t('Note: open one page, play any episode once, then retry here.')}{_RESET}"
+            )
         out.extend(["\033[2K", f"\033[2K{_TITLE}{t('Actions')}{_RESET}"])
 
+        actions = current_actions()
         for idx, (_, label) in enumerate(actions):
             ptr = f"{_PTR}❯{_RESET}" if idx == selected else " "
             style = _SEL if idx == selected else _NORMAL
@@ -139,11 +146,15 @@ def verification_page(
             if key in ("ESC", "LEFT"):
                 return "back"
             if key in ("UP", "SHIFT_TAB"):
-                selected = (selected - 1) % len(actions)
+                selected = (selected - 1) % len(current_actions())
             elif key in ("DOWN", "TAB"):
-                selected = (selected + 1) % len(actions)
+                selected = (selected + 1) % len(current_actions())
             elif key in ("ENTER", "RIGHT"):
-                return actions[selected][0]
+                action = current_actions()[selected][0]
+                if action == "toggle_urls":
+                    show_alternate_urls = not show_alternate_urls
+                    continue
+                return action
             elif key in ("o", "O"):
                 return "open_episode"
             elif key in ("r", "R"):
