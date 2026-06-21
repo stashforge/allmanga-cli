@@ -17,6 +17,7 @@ DEFAULT_CONFIG = {
     "download_dir": "",
     "anilist_sort": "recent",
     "spinner": "braille",
+    "allanime_frontend_domain": "https://mkissa.to",
 }
 
 

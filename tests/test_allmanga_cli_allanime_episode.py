@@ -4,9 +4,39 @@ import urllib.parse
 
 from allmanga_cli.services import allanime
 from allmanga_cli.core.api import ProviderVerificationRequired
+from allmanga_cli import app_core
+from allmanga_cli.state.config import DEFAULT_CONFIG
 
 
 class AllAnimeEpisodeTests(unittest.TestCase):
+    def test_default_frontend_domain_is_configured(self):
+        self.assertEqual(
+            DEFAULT_CONFIG["allanime_frontend_domain"],
+            "https://mkissa.to",
+        )
+
+    def test_episode_browser_url_uses_show_episode_and_translation(self):
+        self.assertEqual(
+            app_core.allanime_episode_url(
+                "srGrP23qJnjsHrRYD",
+                "11",
+                "sub",
+                {"allanime_frontend_domain": "https://mkissa.to/"},
+            ),
+            "https://mkissa.to/anime/srGrP23qJnjsHrRYD/p-11-sub",
+        )
+
+    def test_episode_browser_url_encodes_ids_and_falls_back_to_default_domain(self):
+        self.assertEqual(
+            app_core.allanime_episode_url(
+                "show id",
+                "6.5",
+                "dub",
+                {"allanime_frontend_domain": "not a url"},
+            ),
+            "https://mkissa.to/anime/show%20id/p-6.5-dub",
+        )
+
     def test_episode_request_uses_youtu_chan_origin_and_referer(self):
         captured = {}
 

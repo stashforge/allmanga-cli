@@ -6,6 +6,7 @@ allmanga-cli — Terminal anime stream player (AllAnime / AllManga)
 import sys, shutil, threading, os, re, json, time
 import hashlib, subprocess
 import tty, termios, select, signal, atexit, tempfile, getpass, traceback
+import urllib.parse
 from datetime import date
 from typing import Optional
 
@@ -1569,6 +1570,59 @@ def load_config():
 
 def save_config(cfg):
     return save_config_file(CFG_PATH, cfg, disabled=is_incognito())
+
+
+def allanime_frontend_domain(cfg=None):
+    default = "https://mkissa.to"
+    candidate = str((cfg or {}).get("allanime_frontend_domain") or default).strip()
+    try:
+        return validate_http_url(candidate).rstrip("/")
+    except ValueError:
+        return default
+
+
+def allanime_episode_url(show_id, episode, ttype="sub", cfg=None):
+    show_id = str(show_id or "").strip()
+    episode = str(episode or "").strip()
+    ttype = str(ttype or "sub").strip().lower()
+    if not show_id or not episode:
+        return ""
+    if ttype not in ("sub", "dub", "raw"):
+        ttype = "sub"
+    base = allanime_frontend_domain(cfg)
+    encoded_show = urllib.parse.quote(show_id, safe="")
+    encoded_episode = urllib.parse.quote(episode, safe="")
+    return f"{base}/anime/{encoded_show}/p-{encoded_episode}-{ttype}"
+
+
+def open_external_url(url):
+    try:
+        url = validate_http_url(url)
+    except ValueError:
+        return False
+    if is_termux():
+        opener = shutil.which("termux-open-url")
+        command = [opener, url] if opener else []
+    elif sys.platform == "darwin":
+        command = ["open", url]
+    elif os.name == "nt":
+        command = ["cmd", "/c", "start", "", url]
+    else:
+        opener = shutil.which("xdg-open")
+        command = [opener, url] if opener else []
+    if not command:
+        return False
+    try:
+        subprocess.Popen(
+            command,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        return True
+    except Exception:
+        return False
+
 
 def sanitize_token(token):
     value = str(token or "").strip()
