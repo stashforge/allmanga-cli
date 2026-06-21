@@ -96,12 +96,13 @@ def verification_page(
             ])
             if legacy_url:
                 out.extend([
-                    f"\033[2K{_DIM}{t('Legacy')}{_RESET}",
+                    f"\033[2K{_DIM}{t('Legacy site')}{_RESET}",
                     f"\033[2K{_LINK}{t(legacy_url)}{_RESET}",
                 ])
-            out.append(
-                f"\033[2K{_DIM}{t('Note: open one page, play any episode once, then retry here.')}{_RESET}"
-            )
+            out.extend([
+                "\033[2K",
+                f"\033[2K{_DIM}{t('Note: open either page, play any episode once, then retry here.')}{_RESET}",
+            ])
         out.extend(["\033[2K", f"\033[2K{_TITLE}{t('Actions')}{_RESET}"])
 
         actions = current_actions()
