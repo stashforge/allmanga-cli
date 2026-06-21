@@ -66,6 +66,21 @@ class MetadataFormattingTests(unittest.TestCase):
         self.assertIn("12", line)
         self.assertNotIn("Watched", line)
 
+    def test_override_episode_label_does_not_duplicate_ep_prefix(self):
+        anime = {
+            "_sync_enabled": True,
+            "_anilist_list": "CURRENT",
+            "_anilist_progress": 11,
+            "episodeCount": None,
+            "status": "RELEASING",
+        }
+
+        line = format_info_metadata_line(anime, override_ep_str="11/11")
+
+        self.assertIn("EP", line)
+        self.assertIn("11/11", line)
+        self.assertNotIn("EP EP", line)
+
     def test_available_count_only_appears_for_releasing_anime(self):
         releasing = {
             "status": "RELEASING",

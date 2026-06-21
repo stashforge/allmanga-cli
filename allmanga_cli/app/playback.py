@@ -194,7 +194,10 @@ def handle_play_state(
 
     if not ep_data:
         app_core._exit_player_screen()
-        app_core.err(f"Could not load EP {ms.current_ep}.")
+        app_core.set_action_feedback(
+            ui.ui_show_ctx,
+            f"Could not load EP {ms.current_ep}. Provider may require browser verification.",
+        )
         return "ACTION_MENU"
 
     first_source_name = None
@@ -224,7 +227,10 @@ def handle_play_state(
 
     if ms.selected_stream is None:
         app_core._exit_player_screen()
-        app_core.err("No playable streams found.")
+        app_core.set_action_feedback(
+            ui.ui_show_ctx,
+            "No playable streams found. Try again after browser verification.",
+        )
         return "ACTION_MENU"
 
     if args.print_url:
@@ -575,7 +581,7 @@ def handle_action_menu_state(
         has_feedback = (time.time() - float(feedback_time)) < 3.0 if feedback_time else False
         feedback_msg = action_show.get("_action_feedback", "")
 
-        ep_str = f"EP {ms.current_ep}/{ms.total_eps}"
+        ep_str = f"{ms.current_ep}/{ms.total_eps}"
         app_core.build_info_panel(action_show, ttype, w, parts, override_ep_str=ep_str)
 
         if has_feedback and len(parts) >= 4:
@@ -741,7 +747,7 @@ def handle_mirrors_state(
 
         parts = []
         if ui.ui_show_ctx:
-            ep_str = f"EP {ms.current_ep}/{ms.total_eps}"
+            ep_str = f"{ms.current_ep}/{ms.total_eps}"
             app_core.build_info_panel(ui.ui_show_ctx, ttype, w, parts, override_ep_str=ep_str)
 
         toast = ui.pref_toast
@@ -761,7 +767,11 @@ def handle_mirrors_state(
         with app_core._bg_lock:
             still_alive = app_core._bg_thread and app_core._bg_thread.is_alive()
         if not still_alive:
-            print(f"{RED}No mirrors found.{RESET}")
+            if ui.ui_show_ctx:
+                app_core.set_action_feedback(
+                    ui.ui_show_ctx,
+                    "No mirrors available. Try replay after browser verification.",
+                )
             return "ACTION_MENU"
 
     def _tab_pref(opt_idx):
