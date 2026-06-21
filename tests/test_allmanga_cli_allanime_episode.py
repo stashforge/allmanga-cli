@@ -3,6 +3,7 @@ import unittest
 import urllib.parse
 
 from allmanga_cli.services import allanime
+from allmanga_cli.core.api import ProviderVerificationRequired
 
 
 class AllAnimeEpisodeTests(unittest.TestCase):
@@ -62,10 +63,7 @@ class AllAnimeEpisodeTests(unittest.TestCase):
 
     def test_episode_null_from_provider_does_not_crash(self):
         def request_json(url, **kwargs):
-            return {
-                "errors": [{"message": "NEED_CAPTCHA"}],
-                "data": {"episode": None},
-            }
+            return {"data": {"episode": None}}
 
         self.assertIsNone(allanime.get_episode_data(
             request_json,
@@ -73,6 +71,21 @@ class AllAnimeEpisodeTests(unittest.TestCase):
             "203",
             "sub",
         ))
+
+    def test_episode_captcha_response_is_classified(self):
+        def request_json(url, **kwargs):
+            return {
+                "errors": [{"message": "NEED_CAPTCHA"}],
+                "data": {"episode": None},
+            }
+
+        with self.assertRaises(ProviderVerificationRequired):
+            allanime.get_episode_data(
+                request_json,
+                "show-id",
+                "203",
+                "sub",
+            )
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@ import urllib.parse
 
 _logger = logging.getLogger(__name__)
 
-from ..core.api import SearchFailure
+from ..core.api import ProviderVerificationRequired, SearchFailure
 from ..domain.episodes import normalize_episode_ids
 from ..media.decryption import decrypt_tobeparsed
 from .http import API_BASE, CLOCK_BASE
@@ -145,6 +145,10 @@ def get_episode_data(request_json, show_id, episode, ttype="sub"):
             "Referer": "https://youtu-chan.com",
         },
     )
+    if _needs_browser_verification(response):
+        raise ProviderVerificationRequired(
+            "AllAnime requires browser verification."
+        )
     raw = response.get("data", {}).get("tobeparsed")
     if not raw:
         episode_data = response.get("data", {}).get("episode") or {}
@@ -153,6 +157,14 @@ def get_episode_data(request_json, show_id, episode, ttype="sub"):
         return None
     decoded = decrypt_tobeparsed(raw)
     return json.loads(decoded) if decoded else None
+
+
+def _needs_browser_verification(response):
+    for error in response.get("errors") or []:
+        message = str((error or {}).get("message") or "").upper()
+        if "CAPTCHA" in message or "VERIFICATION" in message:
+            return True
+    return False
 
 
 def get_clock_links(request_json, path):

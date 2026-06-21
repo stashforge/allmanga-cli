@@ -199,6 +199,13 @@ def handle_play_state(
             f"Could not load EP {ms.current_ep}. Provider may require browser verification.",
         )
         return "ACTION_MENU"
+    if ep_data.get("_provider_error") == "browser_verification_required":
+        app_core._exit_player_screen()
+        app_core.set_action_feedback(
+            ui.ui_show_ctx,
+            "Browser verification required. Open the site in a browser, play once, then replay.",
+        )
+        return "ACTION_MENU"
 
     first_source_name = None
     if ms.selected_stream is None:

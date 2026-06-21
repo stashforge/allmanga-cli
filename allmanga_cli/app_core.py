@@ -11,6 +11,7 @@ from typing import Optional
 
 from allmanga_cli.core.api import (
     MAX_API_JSON_BYTES,
+    ProviderVerificationRequired,
     SearchFailure,
     anilist_account_cache_key,
     read_json_response,
@@ -2817,6 +2818,11 @@ def episode_catalog_error(show):
 def get_episode_data(show_id, ep, ttype="sub"):
     try:
         return allanime_service.get_episode_data(_req, show_id, ep, ttype)
+    except ProviderVerificationRequired:
+        return {
+            "_provider_error": "browser_verification_required",
+            "episode": {"sourceUrls": []},
+        }
     except Exception as e:
         err(f"Episode fetch failed: {e}"); return None
 
