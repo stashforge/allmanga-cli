@@ -659,7 +659,7 @@ def handle_action_menu_state(
         has_feedback = (time.time() - float(feedback_time)) < 3.0 if feedback_time else False
         feedback_msg = action_show.get("_action_feedback", "")
 
-        ep_str = f"{ms.current_ep}/{ms.total_eps}"
+        ep_str = str(ms.current_ep)
         app_core.build_info_panel(action_show, ttype, w, parts, override_ep_str=ep_str)
 
         if has_feedback and len(parts) >= 4:
@@ -826,7 +826,7 @@ def handle_mirrors_state(
 
         parts = []
         if ui.ui_show_ctx:
-            ep_str = f"{ms.current_ep}/{ms.total_eps}"
+            ep_str = str(ms.current_ep)
             app_core.build_info_panel(ui.ui_show_ctx, ttype, w, parts, override_ep_str=ep_str)
 
         toast = ui.pref_toast

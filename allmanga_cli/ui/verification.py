@@ -50,7 +50,6 @@ def verification_page(
         ("open_episode", "Open verification page"),
         ("retry", "Retry source request"),
         ("open_site", "Open site"),
-        ("show_urls", "Show alternate URLs"),
         ("back", "Back"),
     ]
     status = status_message
@@ -86,7 +85,6 @@ def verification_page(
         out.extend([
             "\033[2K",
             f"\033[2K{_TITLE}{t('Alternate URLs')}{_RESET}",
-            f"\033[2K{_DIM}{t('Open one of these, play any episode once, then come back.')}{_RESET}",
             f"\033[2K{_DIM}{t('Homepage')}{_RESET}",
             f"\033[2K{_WARN}{t(site_url or 'Unavailable')}{_RESET}",
         ])
@@ -95,6 +93,9 @@ def verification_page(
                 f"\033[2K{_DIM}{t('Legacy')}{_RESET}",
                 f"\033[2K{_WARN}{t(legacy_url)}{_RESET}",
             ])
+        out.append(
+            f"\033[2K{_DIM}{t('Note: open one of these, play any episode once, then come back.')}{_RESET}"
+        )
         out.extend(["\033[2K", f"\033[2K{_TITLE}{t('Actions')}{_RESET}"])
 
         for idx, (_, label) in enumerate(actions):
@@ -142,11 +143,7 @@ def verification_page(
             elif key in ("DOWN", "TAB"):
                 selected = (selected + 1) % len(actions)
             elif key in ("ENTER", "RIGHT"):
-                action = actions[selected][0]
-                if action == "show_urls":
-                    status = "Alternate URLs are shown above."
-                    continue
-                return action
+                return actions[selected][0]
             elif key in ("o", "O"):
                 return "open_episode"
             elif key in ("r", "R"):
