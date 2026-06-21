@@ -267,7 +267,7 @@ def handle_play_state(
             ui.ui_show_ctx,
             "Browser verification required. Open the site in a browser, play once, then replay.",
         )
-        return "ACTION_MENU"
+        return _handle_verification_page(flags, ui, ms, cfg, ttype)
     ui.ui_show_ctx.pop("_provider_verification_url", None)
     ui.ui_show_ctx.pop("_provider_verification_episode", None)
 
