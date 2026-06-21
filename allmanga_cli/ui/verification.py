@@ -22,7 +22,8 @@ _HINT = "\033[38;5;244m"
 _WARN = "\033[38;5;220m"
 _ERROR = "\033[38;5;203m"
 _PTR = "\033[38;2;243;139;168m"
-_SEL = "\033[1;97m"
+_SEL = "\033[38;2;137;180;250m"
+_NORMAL = "\033[38;5;252m"
 _RESET = "\033[0m"
 
 
@@ -68,7 +69,6 @@ def verification_page(
         episode_label = f"Episode {episode} · {str(ttype or '').capitalize()}"
         out = [
             clear_terminal_images(),
-            "\033[2K",
             f"\033[2K{_WARN}{t('⚠ Verification required')}{_RESET}",
             f"\033[2K{_ERROR}{t('● Playback paused')}{_RESET}",
             "\033[2K",
@@ -77,17 +77,16 @@ def verification_page(
             f"\033[2K{_DIM}{t('then return here and retry.')}{_RESET}",
             "\033[2K",
             f"\033[2K{_TITLE}{t('Episode')}{_RESET}",
-            "\033[2K",
             f"\033[2K{_DIM}{t(title)}{_RESET}",
             f"\033[2K{_DIM}{t(episode_label)}{_RESET}",
             "\033[2K",
             f"\033[2K{_TITLE}{t('Verification page')}{_RESET}",
-            "\033[2K",
             f"\033[2K{_WARN}{t(episode_url or 'Unavailable')}{_RESET}",
         ]
         out.extend([
             "\033[2K",
             f"\033[2K{_TITLE}{t('Alternate URLs')}{_RESET}",
+            f"\033[2K{_DIM}{t('Open one of these, play any episode once, then come back.')}{_RESET}",
             f"\033[2K{_DIM}{t('Homepage')}{_RESET}",
             f"\033[2K{_WARN}{t(site_url or 'Unavailable')}{_RESET}",
         ])
@@ -96,12 +95,12 @@ def verification_page(
                 f"\033[2K{_DIM}{t('Legacy')}{_RESET}",
                 f"\033[2K{_WARN}{t(legacy_url)}{_RESET}",
             ])
-        out.extend(["\033[2K", f"\033[2K{_TITLE}{t('Actions')}{_RESET}", "\033[2K"])
+        out.extend(["\033[2K", f"\033[2K{_TITLE}{t('Actions')}{_RESET}"])
 
         for idx, (_, label) in enumerate(actions):
             ptr = f"{_PTR}❯{_RESET}" if idx == selected else " "
-            style = _SEL if idx == selected else ""
-            reset = _RESET if idx == selected else ""
+            style = _SEL if idx == selected else _NORMAL
+            reset = _RESET
             out.append(f"\033[2K{fit_terminal_line(f'{ptr} {style}{label}{reset}', cols)}")
 
         if status:
