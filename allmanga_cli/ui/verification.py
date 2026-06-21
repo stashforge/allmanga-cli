@@ -76,7 +76,7 @@ def verification_page(
             f"\033[2K{_WARN}{t('⚠ Verification required')}{_RESET}",
             f"\033[2K{_PAUSED}{t('● Playback paused')}{_RESET}",
             "\033[2K",
-            f"\033[2K{_DIM}{t('AllAnime blocked the episode source request.')}{_RESET}",
+            f"\033[2K{_DIM}{t('AllAnime requires browser verification before loading this episode.')}{_RESET}",
             f"\033[2K{_DIM}{t('Open the verification page and complete the browser check,')}{_RESET}",
             f"\033[2K{_DIM}{t('then return here and retry.')}{_RESET}",
             "\033[2K",
