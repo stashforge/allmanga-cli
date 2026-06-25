@@ -42,6 +42,17 @@ RED     = "\033[1;31m"
 RESET   = "\033[0m"
 
 
+def _episode_labels_for(show: dict, ttype: str) -> dict:
+    if not show or show.get("_episode_labels_ttype") != ttype:
+        return {}
+    return show.get("_episode_labels") or {}
+
+
+def _display_episode_label(show: dict, episode_id, ttype: str) -> str:
+    labels = _episode_labels_for(show, ttype)
+    return str(labels.get(str(episode_id)) or episode_id)
+
+
 def _clear_episode_source_state(ms: "MachineState") -> None:
     ms.ep_cache_key = None
     ms.ep_cache_data = None
@@ -87,7 +98,8 @@ def _handle_verification_page(
                 status_msg = "Could not open browser. Copy the site URL manually."
         elif result == "retry":
             _clear_episode_source_state(ms)
-            app_core.set_action_feedback(show, f"Retrying EP {ms.current_ep} after verification.")
+            ep_label = _display_episode_label(show, ms.current_ep, ttype)
+            app_core.set_action_feedback(show, f"Retrying EP {ep_label} after verification.")
             return "PLAY"
 
 
@@ -141,10 +153,7 @@ def handle_episode_state(
         return ui.ep_prev_state
 
     ms.total_eps = len(episode_ids) or ms.total_eps
-    episode_labels = (
-        show.get("_episode_labels") or {}
-        if show.get("_episode_labels_ttype") == ttype else {}
-    )
+    episode_labels = _episode_labels_for(show, ttype)
     display_order = list(range(len(episode_ids)))
     if app_core.get_episode_order(ms.show_id, cfg.get("episode_order", "asc")) == "desc":
         display_order.reverse()
@@ -254,17 +263,15 @@ def handle_play_state(
         return "EPISODE"
 
     ms.current_ep = episode_id_at(episode_ids, ms.current_ep_index)
-    episode_labels = (
-        s_ctx.get("_episode_labels") or {}
-        if s_ctx.get("_episode_labels_ttype") == ttype else {}
-    )
+    episode_labels = _episode_labels_for(s_ctx, ttype)
+    current_ep_label = _display_episode_label(s_ctx, ms.current_ep, ttype)
 
     _player_ui_state = app_core._player_ui_state
     _player_ui_state.update({
         "active": True,
         "show": ui.ui_show_ctx,
         "current_ep": ms.current_ep,
-        "current_ep_label": episode_labels.get(str(ms.current_ep), str(ms.current_ep)),
+        "current_ep_label": current_ep_label,
         "total_eps": ms.total_eps,
         "status_lines": [],
         "stream_info": {},
@@ -283,7 +290,7 @@ def handle_play_state(
     if _cache_key == ms.ep_cache_key and ms.ep_cache_data:
         ep_data = ms.ep_cache_data
     else:
-        app_core.info(f"Loading EP {ms.current_ep} metadata...")
+        app_core.info(f"Loading EP {current_ep_label} metadata...")
         ep_data = app_core.get_episode_data(
             ms.show_id,
             ms.current_ep,
@@ -298,7 +305,7 @@ def handle_play_state(
         _clear_episode_source_state(ms)
         app_core.set_action_feedback(
             ui.ui_show_ctx,
-            f"Could not load EP {ms.current_ep}. Check connection or try another mirror.",
+            f"Could not load EP {current_ep_label}. Check connection or try another mirror.",
         )
         return "ACTION_MENU"
     if ep_data.get("_provider_error") == "browser_verification_required":
@@ -642,11 +649,8 @@ def handle_action_menu_state(
 
     next_ep = episode_id_at(episode_ids, ms.current_ep_index + 1) if ms.current_ep_index + 1 < ms.total_eps else None
     prev_ep = episode_id_at(episode_ids, ms.current_ep_index - 1) if ms.current_ep_index > 0 else None
-    episode_labels = (
-        action_show.get("_episode_labels") or {}
-        if action_show.get("_episode_labels_ttype") == ttype else {}
-    )
-    current_ep_label = episode_labels.get(str(ms.current_ep), str(ms.current_ep))
+    episode_labels = _episode_labels_for(action_show, ttype)
+    current_ep_label = _display_episode_label(action_show, ms.current_ep, ttype)
     next_ep_label = episode_labels.get(str(next_ep), str(next_ep)) if next_ep is not None else ""
     prev_ep_label = episode_labels.get(str(prev_ep), str(prev_ep)) if prev_ep is not None else ""
 
@@ -728,7 +732,7 @@ def handle_action_menu_state(
         has_feedback = (time.time() - float(feedback_time)) < 3.0 if feedback_time else False
         feedback_msg = action_show.get("_action_feedback", "")
 
-        ep_str = str(ms.current_ep)
+        ep_str = current_ep_label
         app_core.build_info_panel(action_show, ttype, w, parts, override_ep_str=ep_str)
 
         if has_feedback and len(parts) >= 4:
@@ -774,10 +778,10 @@ def handle_action_menu_state(
                 app_core.set_action_feedback(action_show, "AniList sync failed.")
         else:
             app_core.with_loading(
-                f"Saving EP {ms.current_ep} locally…",
+                f"Saving EP {current_ep_label} locally…",
                 app_core.save_history, action_show, ms.current_ep, ttype
             )
-            app_core.set_action_feedback(action_show, f"Marked EP {ms.current_ep} as watched locally.")
+            app_core.set_action_feedback(action_show, f"Marked EP {current_ep_label} as watched locally.")
 
         app_core.save_resume_time(ms.show_id, ms.current_ep, 0)
         return synced
@@ -895,7 +899,7 @@ def handle_mirrors_state(
 
         parts = []
         if ui.ui_show_ctx:
-            ep_str = str(ms.current_ep)
+            ep_str = _display_episode_label(ui.ui_show_ctx, ms.current_ep, ttype)
             app_core.build_info_panel(ui.ui_show_ctx, ttype, w, parts, override_ep_str=ep_str)
 
         toast = ui.pref_toast
