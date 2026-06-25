@@ -109,6 +109,19 @@ def _open_provider_verification(
     ui.ui_show_ctx["_provider_verification_url"] = verification_url
     ui.ui_show_ctx["_provider_verification_episode"] = str(ms.current_ep)
     app_core.set_action_feedback(ui.ui_show_ctx, feedback)
+    return "PROVIDER_VERIFY"
+
+
+def handle_provider_verify_state(
+    flags: "CliFlags",
+    ui: "UiState",
+    ms: "MachineState",
+    cfg: dict,
+    args: Any,
+    ttype: str,
+    resolve_tracking_fn,
+) -> str:
+    del args, resolve_tracking_fn
     return _handle_verification_page(flags, ui, ms, cfg, ttype)
 
 
@@ -391,7 +404,7 @@ def handle_play_state(
         verification_episode = ui.ui_show_ctx.get("_provider_verification_episode")
         if verification_url and str(verification_episode) == str(ms.current_ep):
             app_core._exit_player_screen()
-            return _handle_verification_page(flags, ui, ms, cfg, ttype)
+            return "PROVIDER_VERIFY"
 
         app_core._exit_player_screen()
         return "ACTION_MENU"
@@ -765,7 +778,7 @@ def handle_action_menu_state(
         return "EPISODE"
 
     elif a == "VERIFY":
-        return _handle_verification_page(flags, ui, ms, cfg, ttype)
+        return "PROVIDER_VERIFY"
 
     elif a == "REPLAY":
         _clear_episode_source_state(ms)

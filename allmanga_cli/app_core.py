@@ -3385,6 +3385,8 @@ def main():
             state = handlers.handle_play_state(flags, ui, ms, cfg, args, ttype, quality, resolveTracking)
         elif state == "ACTION_MENU":
             state = handlers.handle_action_menu_state(flags, ui, ms, cfg, args, ttype, resolveTracking)
+        elif state == "PROVIDER_VERIFY":
+            state = handlers.handle_provider_verify_state(flags, ui, ms, cfg, args, ttype, resolveTracking)
         elif state == "MIRRORS":
             state = handlers.handle_mirrors_state(flags, ui, ms, cfg, args, ttype, resolveTracking)
         else:
