@@ -7,6 +7,7 @@ from allmanga_cli.providers.models import (
     normalize_episode_catalog,
     normalize_episode_sources,
     normalize_title,
+    title_provider_key,
     title_provider_id,
 )
 from allmanga_cli.services import allanime as allanime_service
@@ -41,6 +42,7 @@ class AllAnimeProviderTests(unittest.TestCase):
         self.assertEqual(title["_provider"], "example")
         self.assertEqual(title["_provider_name"], "Example")
         self.assertEqual(title_provider_id(title), "show-id")
+        self.assertEqual(title_provider_key(title), "example")
 
     def test_episode_catalog_adds_provider_fields_without_changing_ids(self):
         catalog = normalize_episode_catalog(

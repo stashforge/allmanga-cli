@@ -55,6 +55,12 @@ def title_provider_id(title: dict[str, Any] | None) -> str:
     return str(title.get("_provider_id") or title.get("_id") or "")
 
 
+def title_provider_key(title: dict[str, Any] | None, default: str = "allanime") -> str:
+    if not isinstance(title, dict):
+        return default
+    return str(title.get("_provider") or default)
+
+
 def normalize_episode_catalog(
     catalog: dict[str, Any] | None,
     *,

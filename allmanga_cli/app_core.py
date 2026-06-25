@@ -202,6 +202,7 @@ from allmanga_cli.services.http import (
     request_json as _req,
 )
 from allmanga_cli.providers import ALLANIME, get_provider
+from allmanga_cli.providers.models import title_provider_id, title_provider_key
 from allmanga_cli.services import allanime as allanime_service
 from allmanga_cli.services import anilist as anilist_service
 
@@ -2721,6 +2722,10 @@ def _allanime_provider():
     return get_provider("allanime", _req)
 
 
+def _provider_for_title(show):
+    return get_provider(title_provider_key(show), _req)
+
+
 def search_anime(query, ttype="sub", raise_errors=False):
     try:
         return _allanime_provider().search(query, ttype)
@@ -2745,8 +2750,8 @@ def get_allanime_show(show_id):
         debug_warn("AllAnime show fetch failed", e)
         return None
 
-def fetch_episode_catalog(show_id, ttype="sub"):
-    return _allanime_provider().episode_catalog(show_id, ttype)
+def fetch_episode_catalog(show_id, ttype="sub", provider_id="allanime"):
+    return get_provider(provider_id, _req).episode_catalog(show_id, ttype)
 
 def fetch_episode_ids(show_id, ttype="sub"):
     """Compatibility wrapper; use fetch_episode_catalog() for state details."""
@@ -2812,9 +2817,9 @@ def ensure_episode_ids(show, ttype):
             update_available_count_from_episode_ids(show, ttype, legacy_ids)
             return legacy_ids
 
-    show_id = show.get("_id")
+    show_id = title_provider_id(show)
     if show_id:
-        catalog = fetch_episode_catalog(show_id, ttype)
+        catalog = _provider_for_title(show).episode_catalog(show_id, ttype)
     else:
         catalog = {
             "state": "unavailable",
