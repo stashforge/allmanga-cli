@@ -53,3 +53,39 @@ def title_provider_id(title: dict[str, Any] | None) -> str:
     if not isinstance(title, dict):
         return ""
     return str(title.get("_provider_id") or title.get("_id") or "")
+
+
+def normalize_episode_catalog(
+    catalog: dict[str, Any] | None,
+    *,
+    provider_id: str,
+    provider_title_id: str,
+) -> dict[str, Any]:
+    normalized = dict(catalog or {})
+    ids = [str(episode) for episode in normalized.get("ids") or []]
+    normalized["ids"] = ids
+    normalized["_provider"] = provider_id
+    normalized["_provider_id"] = str(provider_title_id or "")
+    normalized["_provider_episode_ids"] = ids
+    return normalized
+
+
+def normalize_episode_sources(
+    payload: dict[str, Any] | None,
+    *,
+    provider_id: str,
+    provider_title_id: str,
+    episode: str,
+) -> dict[str, Any] | None:
+    if not isinstance(payload, dict):
+        return None
+    normalized = dict(payload)
+    episode_data = dict(normalized.get("episode") or {})
+    sources = list(episode_data.get("sourceUrls") or [])
+    episode_data["sourceUrls"] = sources
+    normalized["episode"] = episode_data
+    normalized["_provider"] = provider_id
+    normalized["_provider_id"] = str(provider_title_id or "")
+    normalized["_provider_episode"] = str(episode)
+    normalized["_provider_sources"] = sources
+    return normalized

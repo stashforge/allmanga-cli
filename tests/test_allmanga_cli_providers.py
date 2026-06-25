@@ -3,7 +3,12 @@ import unittest
 
 from allmanga_cli.providers import ALLANIME, get_provider
 from allmanga_cli.providers.allanime import AllAnimeProvider
-from allmanga_cli.providers.models import normalize_title, title_provider_id
+from allmanga_cli.providers.models import (
+    normalize_episode_catalog,
+    normalize_episode_sources,
+    normalize_title,
+    title_provider_id,
+)
 from allmanga_cli.services import allanime as allanime_service
 
 
@@ -29,6 +34,32 @@ class AllAnimeProviderTests(unittest.TestCase):
         self.assertEqual(title["_provider"], "example")
         self.assertEqual(title["_provider_name"], "Example")
         self.assertEqual(title_provider_id(title), "show-id")
+
+    def test_episode_catalog_adds_provider_fields_without_changing_ids(self):
+        catalog = normalize_episode_catalog(
+            {"state": "loaded", "ids": [1, "2.5"], "detail": {"sub": ["2.5", "1"]}},
+            provider_id="example",
+            provider_title_id="title-id",
+        )
+
+        self.assertEqual(catalog["ids"], ["1", "2.5"])
+        self.assertEqual(catalog["_provider_episode_ids"], ["1", "2.5"])
+        self.assertEqual(catalog["_provider"], "example")
+        self.assertEqual(catalog["_provider_id"], "title-id")
+
+    def test_episode_sources_adds_provider_fields_and_keeps_allanime_shape(self):
+        source = {"sourceName": "Yt-mp4"}
+        payload = normalize_episode_sources(
+            {"episode": {"sourceUrls": [source]}},
+            provider_id="example",
+            provider_title_id="title-id",
+            episode="6.5",
+        )
+
+        self.assertEqual(payload["episode"]["sourceUrls"], [source])
+        self.assertEqual(payload["_provider_sources"], [source])
+        self.assertEqual(payload["_provider_episode"], "6.5")
+        self.assertEqual(payload["_provider"], "example")
 
     def test_browser_url_builds_show_and_episode_urls(self):
         provider = AllAnimeProvider()
@@ -107,11 +138,20 @@ class AllAnimeProviderTests(unittest.TestCase):
                     "ids": ["1"],
                     "detail": {"sub": ["1"]},
                     "error": "",
+                    "_provider": "allanime",
+                    "_provider_id": "show-id",
+                    "_provider_episode_ids": ["1"],
                 },
             )
             self.assertEqual(
                 provider.episode_sources("show-id", "1"),
-                {"episode": {"sourceUrls": []}},
+                {
+                    "episode": {"sourceUrls": []},
+                    "_provider": "allanime",
+                    "_provider_id": "show-id",
+                    "_provider_episode": "1",
+                    "_provider_sources": [],
+                },
             )
         finally:
             allanime_service.decrypt_tobeparsed = original_decrypt
