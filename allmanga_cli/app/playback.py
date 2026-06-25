@@ -90,6 +90,28 @@ def _handle_verification_page(
             return "PLAY"
 
 
+def _open_provider_verification(
+    flags: "CliFlags",
+    ui: "UiState",
+    ms: "MachineState",
+    cfg: dict,
+    ttype: str,
+    feedback: str,
+) -> str:
+    app_core._exit_player_screen()
+    _clear_episode_source_state(ms)
+    verification_url = app_core.allanime_episode_url(
+        ms.show_id,
+        ms.current_ep,
+        ttype,
+        cfg,
+    )
+    ui.ui_show_ctx["_provider_verification_url"] = verification_url
+    ui.ui_show_ctx["_provider_verification_episode"] = str(ms.current_ep)
+    app_core.set_action_feedback(ui.ui_show_ctx, feedback)
+    return _handle_verification_page(flags, ui, ms, cfg, ttype)
+
+
 def handle_episode_state(
     flags: CliFlags,
     ui: UiState,
@@ -243,31 +265,23 @@ def handle_play_state(
         ms.ep_cache_data = ep_data
 
     if not ep_data:
-        app_core._exit_player_screen()
-        app_core.set_action_feedback(
-            ui.ui_show_ctx,
-            f"Could not load EP {ms.current_ep}. Provider may require browser verification.",
-        )
-        return "ACTION_MENU"
-    if ep_data.get("_provider_error") == "browser_verification_required":
-        app_core._exit_player_screen()
-        ms.ep_cache_key = None
-        ms.ep_cache_data = None
-        ms.selected_stream = None
-        app_core._clear_streams()
-        verification_url = app_core.allanime_episode_url(
-            ms.show_id,
-            ms.current_ep,
-            ttype,
+        return _open_provider_verification(
+            flags,
+            ui,
+            ms,
             cfg,
+            ttype,
+            f"Could not load EP {ms.current_ep}. Browser verification may be required.",
         )
-        ui.ui_show_ctx["_provider_verification_url"] = verification_url
-        ui.ui_show_ctx["_provider_verification_episode"] = str(ms.current_ep)
-        app_core.set_action_feedback(
-            ui.ui_show_ctx,
+    if ep_data.get("_provider_error") == "browser_verification_required":
+        return _open_provider_verification(
+            flags,
+            ui,
+            ms,
+            cfg,
+            ttype,
             "Browser verification required. Open the site in a browser, play once, then replay.",
         )
-        return _handle_verification_page(flags, ui, ms, cfg, ttype)
     ui.ui_show_ctx.pop("_provider_verification_url", None)
     ui.ui_show_ctx.pop("_provider_verification_episode", None)
 
@@ -297,12 +311,14 @@ def handle_play_state(
         return "MIRRORS"
 
     if ms.selected_stream is None:
-        app_core._exit_player_screen()
-        app_core.set_action_feedback(
-            ui.ui_show_ctx,
+        return _open_provider_verification(
+            flags,
+            ui,
+            ms,
+            cfg,
+            ttype,
             "No playable streams found. Try again after browser verification.",
         )
-        return "ACTION_MENU"
 
     if args.print_url:
         app_core._exit_player_screen(close_alt=True)
