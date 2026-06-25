@@ -6,7 +6,6 @@ allmanga-cli — Terminal anime stream player (AllAnime / AllManga)
 import sys, shutil, threading, os, re, json, time
 import hashlib, subprocess
 import tty, termios, select, signal, atexit, tempfile, getpass, traceback
-import urllib.parse
 from datetime import date
 from typing import Optional
 
@@ -202,6 +201,8 @@ from allmanga_cli.services.http import (
     is_alive,
     request_json as _req,
 )
+from allmanga_cli.providers import ALLANIME
+from allmanga_cli.providers.allanime import AllAnimeProvider
 from allmanga_cli.services import allanime as allanime_service
 from allmanga_cli.services import anilist as anilist_service
 
@@ -1573,26 +1574,15 @@ def save_config(cfg):
 
 
 def allanime_frontend_domain(cfg=None):
-    default = "https://mkissa.to"
-    candidate = str((cfg or {}).get("allanime_frontend_domain") or default).strip()
-    try:
-        return validate_http_url(candidate).rstrip("/")
-    except ValueError:
-        return default
+    return ALLANIME.browser_url("", cfg=cfg)
 
 
 def allanime_episode_url(show_id, episode, ttype="sub", cfg=None):
     show_id = str(show_id or "").strip()
     episode = str(episode or "").strip()
-    ttype = str(ttype or "sub").strip().lower()
     if not show_id or not episode:
         return ""
-    if ttype not in ("sub", "dub", "raw"):
-        ttype = "sub"
-    base = allanime_frontend_domain(cfg)
-    encoded_show = urllib.parse.quote(show_id, safe="")
-    encoded_episode = urllib.parse.quote(episode, safe="")
-    return f"{base}/anime/{encoded_show}/p-{encoded_episode}-{ttype}"
+    return ALLANIME.browser_url(show_id, episode, ttype, cfg)
 
 
 def open_external_url(url):
@@ -2724,9 +2714,13 @@ def match_anilist_show_to_allanime(anilist_show, ttype):
     return None
 
 # ── API ───────────────────────────────────────────────────────────────────────
+def _allanime_provider():
+    return AllAnimeProvider(_req)
+
+
 def search_anime(query, ttype="sub", raise_errors=False):
     try:
-        return allanime_service.search_anime(_req, query, ttype)
+        return _allanime_provider().search(query, ttype)
     except SearchFailure as e:
         debug_warn("AllAnime search failed", e)
         if raise_errors:
@@ -2743,13 +2737,13 @@ def search_anime(query, ttype="sub", raise_errors=False):
 
 def get_allanime_show(show_id):
     try:
-        return allanime_service.get_show(_req, show_id)
+        return _allanime_provider().get_title(show_id)
     except Exception as e:
         debug_warn("AllAnime show fetch failed", e)
         return None
 
 def fetch_episode_catalog(show_id, ttype="sub"):
-    return allanime_service.fetch_episode_catalog(_req, show_id, ttype)
+    return _allanime_provider().episode_catalog(show_id, ttype)
 
 def fetch_episode_ids(show_id, ttype="sub"):
     """Compatibility wrapper; use fetch_episode_catalog() for state details."""
@@ -2871,7 +2865,7 @@ def episode_catalog_error(show):
 
 def get_episode_data(show_id, ep, ttype="sub"):
     try:
-        return allanime_service.get_episode_data(_req, show_id, ep, ttype)
+        return _allanime_provider().episode_sources(show_id, ep, ttype)
     except ProviderVerificationRequired:
         return {
             "_provider_error": "browser_verification_required",
