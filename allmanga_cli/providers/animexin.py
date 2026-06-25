@@ -8,6 +8,7 @@ import urllib.parse
 import urllib.request
 
 from .models import normalize_episode_catalog, normalize_episode_sources, normalize_titles
+from .schema import build_title
 from .wordpress import WordPressAnimeProvider, fetch_html
 from ..services.http import UA
 
@@ -93,26 +94,22 @@ class AnimeXinProvider(WordPressAnimeProvider):
         latest = str(item.get("post_latest") or "").strip()
         available = _latest_episode_count(latest)
         ttype = "dub" if sub_type == "dub" else "sub"
-        available_episodes = {"sub": 0, "dub": 0}
-        if available:
-            available_episodes[ttype] = available
-        return {
-            "_id": link,
-            "name": title,
-            "englishName": "",
-            "nativeName": "",
-            "altNames": [],
-            "thumbnail": str(item.get("post_image") or ""),
-            "type": str(item.get("post_type") or "ONA").strip() or "ONA",
-            "season": {},
-            "score": None,
-            "availableEpisodes": available_episodes,
-            "status": "",
-            "episodeCount": None,
-            "_provider_latest": latest,
-            "_provider_genres": str(item.get("post_genres") or "").strip(),
-            "_provider_wp_id": str(item.get("ID") or ""),
-        }
+        return build_title(
+            provider=self.id,
+            provider_name=self.name,
+            provider_id=link,
+            name=title,
+            thumbnail=item.get("post_image") or "",
+            media_type=str(item.get("post_type") or "ONA").strip() or "ONA",
+            available_sub=available if ttype == "sub" else 0,
+            available_dub=available if ttype == "dub" else 0,
+            genres=item.get("post_genres") or "",
+            extra={
+                "_provider_latest": latest,
+                "_provider_genres": str(item.get("post_genres") or "").strip(),
+                "_provider_wp_id": str(item.get("ID") or ""),
+            },
+        )
 
 
 def _latest_episode_count(value: str) -> int:

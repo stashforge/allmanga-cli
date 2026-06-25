@@ -12,6 +12,7 @@ from typing import Callable
 
 from bs4 import BeautifulSoup
 
+from .schema import build_catalog, build_episode, build_title
 from ..services.http import UA
 
 
@@ -248,18 +249,21 @@ class WordPressAnimeProvider:
     def episode_catalog(self, provider_id: str, ttype: str = "sub") -> dict:
         del ttype
         entries = list(reversed(parse_series(self.base_url, self._fetch(provider_id))))
-        ids = [entry.url for entry in entries]
-        labels = {
-            entry.url: episode_number(entry.title or entry.meta, str(index + 1))
-            for index, entry in enumerate(entries)
-        }
-        return {
-            "state": "loaded",
-            "ids": ids,
-            "labels": labels,
-            "detail": {"sub": ids, "dub": []},
-            "error": "",
-        }
+        episodes = []
+        for index, entry in enumerate(entries):
+            label = entry.meta or episode_number(entry.title, str(index + 1))
+            episodes.append(build_episode(
+                episode_id=entry.url,
+                label=label,
+                title=entry.title,
+                url=entry.url,
+                translation_type="sub",
+            ))
+        return build_catalog(
+            provider=self.id,
+            provider_id=provider_id,
+            episodes={"sub": episodes, "dub": [], "raw": []},
+        )
 
     def episode_sources(self, provider_id: str, episode: str, ttype: str = "sub") -> dict | None:
         del provider_id, ttype
@@ -288,17 +292,10 @@ class WordPressAnimeProvider:
         return episode or provider_id or self.base_url
 
     def _title_from_entry(self, entry: Entry) -> dict:
-        return {
-            "_id": entry.url,
-            "name": entry.title,
-            "englishName": "",
-            "nativeName": "",
-            "altNames": [],
-            "thumbnail": "",
-            "type": "ONA",
-            "season": {},
-            "score": None,
-            "availableEpisodes": {"sub": 0, "dub": 0},
-            "status": "",
-            "episodeCount": None,
-        }
+        return build_title(
+            provider=self.id,
+            provider_name=self.name,
+            provider_id=entry.url,
+            name=entry.title,
+            media_type="ONA",
+        )
