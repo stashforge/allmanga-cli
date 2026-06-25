@@ -1,9 +1,11 @@
 import subprocess
 import sys
 import unittest
+from unittest.mock import patch
 from tests.app_namespace import load_app_namespace
 namespace = load_app_namespace()
 communicate_with_cleanup = namespace["communicate_with_cleanup"]
+open_external_url = namespace["open_external_url"]
 read_bounded_process_stdout = namespace["read_bounded_process_stdout"]
 
 
@@ -108,6 +110,55 @@ class ProcessCleanupTests(unittest.TestCase):
             )
 
         self.assertIsNotNone(process.returncode)
+
+    def test_termux_url_open_uses_termux_open_url_first(self):
+        calls = []
+
+        def fake_which(name):
+            return "/bin/termux-open-url" if name == "termux-open-url" else None
+
+        with patch.dict(open_external_url.__globals__, {"is_termux": lambda: True}):
+            with patch.object(
+                open_external_url.__globals__["shutil"],
+                "which",
+                side_effect=fake_which,
+            ):
+                with patch.object(
+                    open_external_url.__globals__["subprocess"],
+                    "Popen",
+                    side_effect=lambda command, **kwargs: calls.append(command),
+                ):
+                    self.assertTrue(open_external_url("https://mkissa.to"))
+
+        self.assertEqual(calls, [["/bin/termux-open-url", "https://mkissa.to"]])
+
+    def test_termux_url_open_falls_back_to_android_intent(self):
+        calls = []
+
+        with patch.dict(open_external_url.__globals__, {"is_termux": lambda: True}):
+            with patch.object(
+                open_external_url.__globals__["shutil"],
+                "which",
+                return_value=None,
+            ):
+                with patch.object(
+                    open_external_url.__globals__["subprocess"],
+                    "Popen",
+                    side_effect=lambda command, **kwargs: calls.append(command),
+                ):
+                    self.assertTrue(open_external_url("https://mkissa.to"))
+
+        self.assertEqual(
+            calls,
+            [[
+                "am",
+                "start",
+                "-a",
+                "android.intent.action.VIEW",
+                "-d",
+                "https://mkissa.to",
+            ]],
+        )
 
 
 if __name__ == "__main__":

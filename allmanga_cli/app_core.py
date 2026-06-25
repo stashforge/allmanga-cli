@@ -1591,8 +1591,12 @@ def open_external_url(url):
     except ValueError:
         return False
     if is_termux():
-        opener = shutil.which("termux-open-url")
-        command = [opener, url] if opener else []
+        opener = shutil.which("termux-open-url") or shutil.which("termux-open")
+        command = (
+            [opener, url]
+            if opener else
+            ["am", "start", "-a", "android.intent.action.VIEW", "-d", url]
+        )
     elif sys.platform == "darwin":
         command = ["open", url]
     elif os.name == "nt":

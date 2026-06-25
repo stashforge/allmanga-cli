@@ -387,6 +387,12 @@ def handle_play_state(
             app_core._clear_streams()
             return "PLAY"
 
+        verification_url = ui.ui_show_ctx.get("_provider_verification_url", "")
+        verification_episode = ui.ui_show_ctx.get("_provider_verification_episode")
+        if verification_url and str(verification_episode) == str(ms.current_ep):
+            app_core._exit_player_screen()
+            return _handle_verification_page(flags, ui, ms, cfg, ttype)
+
         app_core._exit_player_screen()
         return "ACTION_MENU"
 
