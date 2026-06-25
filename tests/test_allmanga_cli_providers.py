@@ -1,7 +1,7 @@
 import json
 import unittest
 
-from allmanga_cli.providers import ALLANIME, get_provider
+from allmanga_cli.providers import ALLANIME, get_provider, provider_key
 from allmanga_cli.providers.allanime import AllAnimeProvider
 from allmanga_cli.providers.models import (
     normalize_episode_catalog,
@@ -19,6 +19,13 @@ class ProviderRegistryTests(unittest.TestCase):
 
     def test_unknown_provider_falls_back_to_allanime(self):
         self.assertIs(get_provider("missing-provider"), ALLANIME)
+        self.assertEqual(provider_key("missing-provider"), "allanime")
+
+    def test_request_bound_provider_uses_same_registry_fallback(self):
+        provider = get_provider("missing-provider", lambda *args, **kwargs: {})
+
+        self.assertIsInstance(provider, AllAnimeProvider)
+        self.assertIsNot(provider, ALLANIME)
 
 
 class AllAnimeProviderTests(unittest.TestCase):

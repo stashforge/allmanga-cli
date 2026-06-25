@@ -201,8 +201,7 @@ from allmanga_cli.services.http import (
     is_alive,
     request_json as _req,
 )
-from allmanga_cli.providers import ALLANIME
-from allmanga_cli.providers.allanime import AllAnimeProvider
+from allmanga_cli.providers import ALLANIME, get_provider
 from allmanga_cli.services import allanime as allanime_service
 from allmanga_cli.services import anilist as anilist_service
 
@@ -2719,7 +2718,7 @@ def match_anilist_show_to_allanime(anilist_show, ttype):
 
 # ── API ───────────────────────────────────────────────────────────────────────
 def _allanime_provider():
-    return AllAnimeProvider(_req)
+    return get_provider("allanime", _req)
 
 
 def search_anime(query, ttype="sub", raise_errors=False):
