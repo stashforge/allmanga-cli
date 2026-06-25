@@ -5,6 +5,8 @@ import os
 import re
 import sys
 
+from allmanga_cli.providers import available_providers
+
 _ANSI_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
 COMMAND_NAMES = {
@@ -13,6 +15,11 @@ COMMAND_NAMES = {
 }
 
 COMPLETION_SHELLS = ("bash", "zsh", "fish")
+
+
+def _provider_help():
+    providers = ", ".join(sorted(available_providers()))
+    return f"Streaming provider: {providers}" if providers else "Streaming provider"
 
 def _help_color_enabled():
     return (
@@ -137,9 +144,9 @@ def _set_cli_defaults(parser):
 
 def _add_provider_option(group):
     group.add_argument(
-        "--provider",
+        "-P", "--provider",
         metavar="PROVIDER",
-        help="Streaming provider to search",
+        help=_provider_help(),
     )
 
 

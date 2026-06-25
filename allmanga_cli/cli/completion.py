@@ -22,12 +22,12 @@ ROOT_OPTIONS = ("-h", "--help", "--debug")
 SEARCH_OPTIONS = (
     "-e", "--episode", "-q", "--quality", "--dub", "-b", "--binge",
     "-p", "--player", "-s", "--sources", "--print-url", "-t", "--sync",
-    "--no-sync", "--cover", "--json", "--provider", "--incognito", "--debug", "-h",
+    "--no-sync", "--cover", "--json", "-P", "--provider", "--incognito", "--debug", "-h",
     "--help",
 )
 DOWNLOAD_OPTIONS = (
     "-e", "--episode", "-q", "--quality", "--dub", "-s", "--sources",
-    "--cover", "--provider", "--debug", "-h", "--help",
+    "--cover", "-P", "--provider", "--debug", "-h", "--help",
 )
 DOWNLOADS_OPTIONS = ("-p", "--player", "--debug", "-h", "--help")
 ANILIST_OPTIONS = ("--cover", "--json", "--incognito", "--debug", "-h", "--help")
@@ -68,7 +68,7 @@ _allmanga_cli_completion()
             COMPREPLY=( $(compgen -W "{_words(PLAYERS)}" -- "$cur") )
             return 0
             ;;
-        --provider)
+        -P|--provider)
             COMPREPLY=( $(compgen -W "{_words(PROVIDERS)}" -- "$cur") )
             return 0
             ;;

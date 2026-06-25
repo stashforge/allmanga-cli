@@ -29,6 +29,11 @@ class CommandRouterTests(unittest.TestCase):
         self.assertEqual(args.provider, "allanime")
         self.assertFalse(args.download)
 
+    def test_provider_short_alias_maps_to_provider(self):
+        args, _ = parse_cli_args(["search", "renegade", "-P", "animexin"])
+
+        self.assertEqual(args.provider, "animexin")
+
     def test_track_aliases_are_not_supported(self):
         with redirect_stderr(StringIO()):
             with self.assertRaises(SystemExit):

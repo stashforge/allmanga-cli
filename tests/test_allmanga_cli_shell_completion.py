@@ -19,6 +19,7 @@ class ShellCompletionTests(unittest.TestCase):
         )
         self.assertIn("--sync", script)
         self.assertIn("--no-sync", script)
+        self.assertIn("-P", script)
         self.assertIn("--provider", script)
         self.assertNotIn("--track", script)
 
