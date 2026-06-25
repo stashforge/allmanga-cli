@@ -180,13 +180,13 @@ from allmanga_cli.ui.covers import (
 )
 from allmanga_cli.ui.poster import PosterManager
 from allmanga_cli.ui.picker_render import (
-    clear_terminal_images as _clear_terminal_images,
     get_key as _get_key,
     loading_frame as _loading_frame,
     loading_line as _loading_line,
     match as _match,
     render_item as _render_item,
 )
+from allmanga_cli.ui import terminal_images
 from allmanga_cli.ui.spinner import DEFAULT_SPINNER, spinner_from_config
 from allmanga_cli.ui.anilist_menu import (
     LIST_STATUSES as ANILIST_LIST_STATUSES,
@@ -529,7 +529,7 @@ def _clear_poster_downloads():
 
 
 def clear_terminal_images():
-    sys.stdout.write(_clear_terminal_images())
+    sys.stdout.write(terminal_images.clear_now())
     sys.stdout.flush()
 
 
@@ -550,10 +550,14 @@ _alt_screen_active = False
 
 def enter_alt_screen():
     global _alt_screen_active
+    pending_image_clear = terminal_images.clear_if_active()
     if not _alt_screen_active:
-        sys.stdout.write("\033[?1049h\033[2J\033[?25l")
+        sys.stdout.write(pending_image_clear + "\033[?1049h\033[2J\033[?25l")
         sys.stdout.flush()
         _alt_screen_active = True
+    elif pending_image_clear:
+        sys.stdout.write(pending_image_clear)
+        sys.stdout.flush()
 
 def exit_alt_screen():
     global _alt_screen_active
@@ -784,6 +788,8 @@ def render_player_screen():
 
     poster_raw = _get_player_poster(show)
     native_poster = poster_raw if _poster_uses_native_protocol(poster_raw) else ""
+    if native_poster:
+        terminal_images.mark_active()
     poster_lines = _poster_symbol_lines(poster_raw, POSTER_HEIGHT, w)
     out = []
 

@@ -44,13 +44,13 @@ from .covers import (
 )
 from .fallback import fallback_pick as fallback_tui_pick
 from .picker_render import (
-    clear_terminal_images as _clear_terminal_images,
     get_key as _get_key,
     loading_frame as _loading_frame,
     loading_line as _loading_line,
     match as _match,
     render_item as _render_item,
 )
+from . import terminal_images
 
 if TYPE_CHECKING:
     from ..context import CliFlags, UiState
@@ -246,7 +246,7 @@ def tui_pick(
         if show_help and help_dict:
             last_poster_key = None
             out = []
-            out.append(_clear_terminal_images())
+            out.append(terminal_images.clear_now())
             out.append("\033[2K")
             out.append(f"\033[2K  {_C_HINT}=== Keyboard Shortcuts ==={_RST}")
             out.append("\033[2K")
@@ -421,13 +421,14 @@ def tui_pick(
 
         poster_changed = poster_key != last_poster_key
         clear_prefix = (
-            _clear_terminal_images() + "\033[2J"
+            terminal_images.clear_now() + "\033[2J"
             if poster_changed and (poster_key is not None or last_poster_key is not None)
             else ""
         )
         last_poster_key = poster_key
         overlay = ""
         if poster_changed and native_poster and poster_row is not None:
+            terminal_images.mark_active()
             overlay = f"\033[{poster_row};1H{native_poster}"
         frame = _absolute_terminal_frame(out, rows, cols)
         buf = (
@@ -443,7 +444,7 @@ def tui_pick(
     # Main event loop
     # -----------------------------------------------------------------------
     try:
-        tty_file.write(b"\033[2J\033[?25l")
+        tty_file.write((terminal_images.clear_if_active() + "\033[2J\033[?25l").encode())
         tty_file.flush()
         tty.setraw(tty_fd)
         termios.tcflush(tty_fd, termios.TCIFLUSH)
@@ -662,11 +663,6 @@ def tui_pick(
                     filt = filt_list(); sel = first_selectable(filt); scroll = 0
 
     finally:
-        if flags.show_image and top_header_fn is not None:
-            try:
-                tty_file.write(_clear_terminal_images().encode())
-            except Exception:
-                pass
         termios.tcsetattr(tty_fd, termios.TCSADRAIN, old_attrs)
         # Cursor restoration is handled by the global atexit / finally block in
         # app.py to prevent cursor flickering during rapid screen transitions.

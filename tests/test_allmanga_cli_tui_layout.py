@@ -266,7 +266,7 @@ class TuiLayoutTests(unittest.TestCase):
             "return", 1
         )[0]
 
-        self.assertIn("_clear_terminal_images()", help_block)
+        self.assertIn("terminal_images.clear_now()", help_block)
         self.assertIn("last_poster_key = None", help_block)
 
     def test_top_to_bottom_picker_uses_natural_arrow_direction(self):

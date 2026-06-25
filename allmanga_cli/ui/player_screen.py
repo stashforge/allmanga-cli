@@ -27,6 +27,7 @@ from .covers import (
     poster_symbol_lines as _poster_symbol_lines,
     poster_uses_native_protocol as _poster_uses_native_protocol,
 )
+from . import terminal_images
 
 if TYPE_CHECKING:
     from ..context import UiState, CliFlags
@@ -104,7 +105,6 @@ def deactivate(close_alt: bool = False) -> None:
         ``False`` when transitioning to the action menu.
     """
     if close_alt:
-        from .picker_render import clear_terminal_images as _clear_terminal_images
         # Exit alt screen
         sys.stdout.write("\033[?1049l\033[?25h")
         sys.stdout.flush()
@@ -248,6 +248,8 @@ def render(
         poster_raw = poster_manager.get(show) or ""
 
     native_poster = poster_raw if _poster_uses_native_protocol(poster_raw) else ""
+    if native_poster:
+        terminal_images.mark_active()
     poster_lines = _poster_symbol_lines(poster_raw, POSTER_HEIGHT, w)
     out = []
 
