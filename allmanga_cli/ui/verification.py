@@ -6,6 +6,7 @@ import os
 import select
 import sys
 import termios
+import time
 import tty
 
 from ..core.terminal import (
@@ -131,13 +132,17 @@ def verification_page(
         sys.stdout.flush()
         _set_app_alt_screen(True)
         tty.setraw(tty_fd)
+
+        tty_file.write((draw(tty_fd) + "\033[1;1H\033[?25l").encode())
+        tty_file.flush()
+        time.sleep(0.05)
         termios.tcflush(tty_fd, termios.TCIFLUSH)
 
         while True:
-            tty_file.write((draw(tty_fd) + "\033[1;1H\033[?25l").encode())
-            tty_file.flush()
             ready = select.select([tty_fd], [], [], 0.25)[0]
             if not ready:
+                tty_file.write((draw(tty_fd) + "\033[1;1H\033[?25l").encode())
+                tty_file.flush()
                 continue
             key = get_key(tty_fd)
             termios.tcflush(tty_fd, termios.TCIFLUSH)
