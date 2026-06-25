@@ -4,7 +4,7 @@ from pathlib import Path
 
 from allmanga_cli.providers import available_providers
 
-COMMANDS = (
+BASE_COMMANDS = (
     "search", "download", "downloads", "anilist", "history", "continue",
     "auth", "completion",
 )
@@ -17,6 +17,7 @@ SHELLS = ("bash", "zsh", "fish")
 QUALITIES = ("best", "1080p", "720p", "480p")
 PLAYERS = ("mpv", "mpvex", "vlc", "next")
 PROVIDERS = tuple(sorted(available_providers()))
+COMMANDS = BASE_COMMANDS + PROVIDERS
 
 ROOT_OPTIONS = ("-h", "--help", "--debug")
 SEARCH_OPTIONS = (
@@ -42,6 +43,10 @@ COMPLETION_OPTIONS = ("install", "--debug", "-h", "--help")
 
 def _words(values):
     return " ".join(values)
+
+
+def _case_words(values):
+    return "|".join(values) or "__none__"
 
 
 def bash_completion():
@@ -87,6 +92,13 @@ _allmanga_cli_completion()
     esac
 
     case "$cmd" in
+        {_case_words(PROVIDERS)})
+            if [[ $COMP_CWORD -eq 2 ]]; then
+                COMPREPLY=( $(compgen -W "search" -- "$cur") )
+            else
+                COMPREPLY=( $(compgen -W "{_words(SEARCH_OPTIONS)}" -- "$cur") )
+            fi
+            ;;
         search)
             COMPREPLY=( $(compgen -W "{_words(SEARCH_OPTIONS)}" -- "$cur") )
             ;;
@@ -127,9 +139,17 @@ commands=(
   'continue:Continue the last watched title'
   'auth:Login or logout from AniList'
   'completion:Generate shell completion'
+{"".join(f"  '{provider}:Search {provider}'\n" for provider in PROVIDERS)}
 )
 
 case $words[2] in
+  {'|'.join(PROVIDERS)})
+    if [[ $CURRENT -eq 3 ]]; then
+      _arguments '*:: :(search)'
+    else
+      _arguments '*:: :(({_words(SEARCH_OPTIONS)}))'
+    fi
+    ;;
   anilist)
     _arguments '*:: :(({_words(ANILIST_LISTS)} {_words(ANILIST_OPTIONS)}))'
     ;;
@@ -201,6 +221,12 @@ def fish_completion():
         "auth": AUTH_OPTIONS,
         "completion": COMPLETION_OPTIONS,
     }
+    for provider in PROVIDERS:
+        lines.append(
+            "complete -c allmanga-cli -n "
+            f"'__fish_seen_subcommand_from {provider}' -a search"
+        )
+        command_options[provider] = SEARCH_OPTIONS
     for command, options in command_options.items():
         for option in options:
             lines.append(

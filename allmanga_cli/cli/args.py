@@ -21,6 +21,9 @@ def _provider_help():
     providers = ", ".join(sorted(available_providers()))
     return f"Streaming provider: {providers}" if providers else "Streaming provider"
 
+def _provider_command_names():
+    return set(available_providers())
+
 def _help_color_enabled():
     return (
         os.environ.get("NO_COLOR") is None
@@ -335,6 +338,32 @@ def build_command_parser():
     search.add_argument("query", nargs="+", help="Anime title to search")
     _add_search_options(search)
 
+    for provider_id, provider in sorted(available_providers().items()):
+        provider_parser = commands.add_parser(
+            provider_id,
+            help=f"Search {provider.name}",
+            usage=f"allmanga-cli {provider_id} search <query> [options]",
+            description=f"Search and watch anime from {provider.name}.",
+            epilog=(
+                "Examples:\n"
+                f"  allmanga-cli {provider_id} search renegade\n"
+                f"  allmanga-cli {provider_id} search renegade -e 3"
+            ),
+            add_help=False,
+            formatter_class=MinimalHelpFormatter,
+        )
+        _configure_help_parser(provider_parser)
+        provider_parser._positionals.title = "Arguments"
+        provider_parser.add_argument(
+            "provider_action",
+            choices=["search"],
+            metavar="<action>",
+            help=argparse.SUPPRESS,
+        )
+        provider_parser.add_argument("query", nargs="+", help="Anime title to search")
+        _add_search_options(provider_parser)
+        provider_parser.set_defaults(provider=provider_id)
+
     download = commands.add_parser(
         "download",
         help="Download episodes",
@@ -598,7 +627,11 @@ def parse_cli_args(argv=None):
         return parser.parse_args(nested_argv), parser
     use_commands = bool(
         meaningful
-        and (meaningful[0] in COMMAND_NAMES or meaningful[0] in ("-h", "--help"))
+        and (
+            meaningful[0] in COMMAND_NAMES
+            or meaningful[0] in _provider_command_names()
+            or meaningful[0] in ("-h", "--help")
+        )
     )
     parser = build_command_parser() if use_commands else build_legacy_parser()
     args = parser.parse_args(argv)
@@ -635,4 +668,9 @@ def parse_cli_args(argv=None):
                 parser.error("completion requires bash, zsh, or fish")
             args.completion_shell = values[0]
         del args.completion_args
+    elif args.command in _provider_command_names():
+        if args.provider_action != "search":
+            parser.error(f"{args.command} only supports search for now")
+        args.command = "search"
+        del args.provider_action
     return args, parser

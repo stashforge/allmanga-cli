@@ -34,6 +34,14 @@ class CommandRouterTests(unittest.TestCase):
 
         self.assertEqual(args.provider, "animexin")
 
+    def test_provider_command_maps_to_search_with_provider_selected(self):
+        args, _ = parse_cli_args(["animexin", "search", "renegade", "-e", "43"])
+
+        self.assertEqual(args.command, "search")
+        self.assertEqual(args.provider, "animexin")
+        self.assertEqual(args.query, ["renegade"])
+        self.assertEqual(args.episode, "43")
+
     def test_track_aliases_are_not_supported(self):
         with redirect_stderr(StringIO()):
             with self.assertRaises(SystemExit):

@@ -17,6 +17,7 @@ class ShellCompletionTests(unittest.TestCase):
             "search download downloads anilist history continue auth completion",
             script,
         )
+        self.assertIn("animexin", script)
         self.assertIn("--sync", script)
         self.assertIn("--no-sync", script)
         self.assertIn("-P", script)
@@ -29,6 +30,8 @@ class ShellCompletionTests(unittest.TestCase):
         self.assertIn('compgen -W "best 1080p 720p 480p"', script)
         self.assertIn('compgen -W "mpv mpvex vlc next"', script)
         self.assertIn('compgen -W "allanime animexin"', script)
+        self.assertIn("allanime|animexin)", script)
+        self.assertIn('compgen -W "search"', script)
         self.assertIn('if [[ "$cmd" == "completion" ]]', script)
         self.assertIn('if [[ "$cmd" == "auth" ]]', script)
         self.assertIn('compgen -W "--raw --debug -h --help"', script)
