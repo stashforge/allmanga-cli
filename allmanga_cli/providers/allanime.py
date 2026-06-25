@@ -8,6 +8,7 @@ from typing import Any
 from ..media.urls import validate_http_url
 from ..services import allanime as allanime_service
 from ..services.http import request_json
+from .models import normalize_title, normalize_titles
 
 
 class AllAnimeProvider:
@@ -18,10 +19,19 @@ class AllAnimeProvider:
         self._request_json = request_json_fn
 
     def search(self, query: str, ttype: str = "sub") -> list[dict[str, Any]]:
-        return allanime_service.search_anime(self._request_json, query, ttype)
+        results = allanime_service.search_anime(self._request_json, query, ttype)
+        return normalize_titles(
+            results,
+            provider_id=self.id,
+            provider_name=self.name,
+        )
 
     def get_title(self, provider_id: str) -> dict[str, Any] | None:
-        return allanime_service.get_show(self._request_json, provider_id)
+        return normalize_title(
+            allanime_service.get_show(self._request_json, provider_id),
+            provider_id=self.id,
+            provider_name=self.name,
+        )
 
     def episode_catalog(self, provider_id: str, ttype: str = "sub") -> dict[str, Any]:
         return allanime_service.fetch_episode_catalog(
@@ -71,4 +81,3 @@ def _frontend_domain(cfg: dict[str, Any] | None = None) -> str:
         return validate_http_url(candidate).rstrip("/")
     except ValueError:
         return default
-

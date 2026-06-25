@@ -3,6 +3,7 @@ import unittest
 
 from allmanga_cli.providers import ALLANIME, get_provider
 from allmanga_cli.providers.allanime import AllAnimeProvider
+from allmanga_cli.providers.models import normalize_title, title_provider_id
 from allmanga_cli.services import allanime as allanime_service
 
 
@@ -16,6 +17,19 @@ class ProviderRegistryTests(unittest.TestCase):
 
 
 class AllAnimeProviderTests(unittest.TestCase):
+    def test_normalized_title_preserves_existing_shape_and_adds_provider_fields(self):
+        title = normalize_title(
+            {"_id": "show-id", "name": "Test"},
+            provider_id="example",
+            provider_name="Example",
+        )
+
+        self.assertEqual(title["_id"], "show-id")
+        self.assertEqual(title["_provider_id"], "show-id")
+        self.assertEqual(title["_provider"], "example")
+        self.assertEqual(title["_provider_name"], "Example")
+        self.assertEqual(title_provider_id(title), "show-id")
+
     def test_browser_url_builds_show_and_episode_urls(self):
         provider = AllAnimeProvider()
 
@@ -77,7 +91,15 @@ class AllAnimeProviderTests(unittest.TestCase):
             )
 
             self.assertEqual(provider.search("slime"), [])
-            self.assertEqual(provider.get_title("show-id"), {"_id": "show-id"})
+            self.assertEqual(
+                provider.get_title("show-id"),
+                {
+                    "_id": "show-id",
+                    "_provider": "allanime",
+                    "_provider_id": "show-id",
+                    "_provider_name": "AllAnime",
+                },
+            )
             self.assertEqual(
                 provider.episode_catalog("show-id"),
                 {
