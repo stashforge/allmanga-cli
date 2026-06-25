@@ -1,0 +1,122 @@
+import base64
+import unittest
+
+from allmanga_cli.providers import get_provider, provider_key
+from allmanga_cli.providers.animexin import AnimeXinProvider
+from allmanga_cli.providers.wordpress import (
+    parse_mirrors,
+    parse_series,
+    parse_episode,
+)
+
+
+def encoded_iframe(src: str) -> str:
+    return base64.b64encode(f'<iframe src="{src}"></iframe>'.encode()).decode()
+
+
+class WordPressProviderTests(unittest.TestCase):
+    def test_animexin_is_auto_discovered(self):
+        self.assertEqual(provider_key("animexin"), "animexin")
+        self.assertIsInstance(get_provider("animexin"), AnimeXinProvider)
+
+    def test_animexin_ignores_registry_request_json_argument(self):
+        provider = AnimeXinProvider(
+            request_json_fn=lambda *_args, **_kwargs: self.fail("request_json should not be used"),
+            fetch=lambda _url: '<div class="listupd"></div>',
+        )
+
+        self.assertEqual(provider.search("renegade"), [])
+
+    def test_parse_mirrors_decodes_and_normalizes_embeds(self):
+        page = f'''
+        <select class="mirror">
+          <option value="{encoded_iframe('https://geo.dailymotion.com/player/x.html?video=abc')}">Dailymotion</option>
+          <option value="{encoded_iframe('https://play.d.tube?v=XJongYZtZ6LtCjsBx2JNWn')}">DTube</option>
+        </select>
+        '''
+
+        mirrors = parse_mirrors("https://animexin.dev", page)
+
+        self.assertEqual(mirrors[0].url, "https://www.dailymotion.com/video/abc")
+        self.assertEqual(
+            mirrors[1].url,
+            "https://nas2.d.tube/videos/f56ea345-c383-4ec3-b7cd-5f81ba94114b/master.m3u8",
+        )
+
+    def test_parse_series_reads_episode_urls(self):
+        page = '''
+        <div class="episodelist">
+          <ul>
+            <li><a href="https://animexin.dev/show-episode-2/"><h3>Show Episode 2</h3><span>Eps 2</span></a></li>
+            <li><a href="https://animexin.dev/show-episode-1/"><h3>Show Episode 1</h3><span>Eps 1</span></a></li>
+          </ul>
+        </div>
+        '''
+
+        episodes = parse_series("https://animexin.dev", page)
+
+        self.assertEqual(
+            [episode.url for episode in episodes],
+            [
+                "https://animexin.dev/show-episode-2/",
+                "https://animexin.dev/show-episode-1/",
+            ],
+        )
+
+    def test_parse_episode_extracts_mirrors(self):
+        page = f'''
+        <h1 class="entry-title">Renegade Immortal Episode 142 Indonesia, English Sub</h1>
+        Released on <span>May 24, 2026</span> · series <a href="https://animexin.dev/renegade-immortal/">Renegade Immortal</a>
+        <option value="{encoded_iframe('https://odysee.com/%24/embed/%40Haiii%3Ab%2FAnimeXin.dev-renegade-ep-142%3Af?r=abc')}">Odysee</option>
+        '''
+
+        episode = parse_episode("https://animexin.dev", page)
+
+        self.assertEqual(episode.title, "Renegade Immortal Episode 142 Indonesia, English Sub")
+        self.assertEqual(episode.series_title, "Renegade Immortal")
+        self.assertEqual(episode.mirrors[0].label, "Odysee")
+        self.assertEqual(
+            episode.mirrors[0].url,
+            "https://odysee.com/@Haiii:b/AnimeXin.dev-renegade-ep-142:f",
+        )
+
+    def test_animexin_provider_returns_url_episode_ids_and_sources(self):
+        pages = {
+            "https://animexin.dev/?s=renegade": '''
+                <div class="listupd">
+                  <article><a href="https://animexin.dev/renegade-immortal/" title="Renegade Immortal"><h2>Renegade Immortal</h2></a></article>
+                  <article><a href="https://animexin.dev/renegade-immortal-episode-1/" title="Renegade Immortal Episode 1"><h2>Renegade Immortal Episode 1</h2></a></article>
+                </div>
+            ''',
+            "https://animexin.dev/renegade-immortal/": '''
+                <div class="episodelist"><ul>
+                  <li><a href="https://animexin.dev/renegade-immortal-episode-2/"><h3>Renegade Immortal Episode 2</h3></a></li>
+                  <li><a href="https://animexin.dev/renegade-immortal-episode-1/"><h3>Renegade Immortal Episode 1</h3></a></li>
+                </ul></div>
+            ''',
+            "https://animexin.dev/renegade-immortal-episode-1/": f'''
+                <h1 class="entry-title">Renegade Immortal Episode 1</h1>
+                <option value="{encoded_iframe('https://play.d.tube?v=XJongYZtZ6LtCjsBx2JNWn')}">DTube</option>
+            ''',
+        }
+        provider = AnimeXinProvider(fetch=lambda url: pages[url])
+
+        results = provider.search("renegade")
+        catalog = provider.episode_catalog(results[0]["_provider_id"])
+        sources = provider.episode_sources(
+            results[0]["_provider_id"],
+            catalog["ids"][0],
+        )
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["_provider"], "animexin")
+        self.assertEqual(catalog["ids"][0], "https://animexin.dev/renegade-immortal-episode-1/")
+        self.assertEqual(catalog["labels"][catalog["ids"][0]], "1")
+        self.assertEqual(
+            sources["episode"]["sourceUrls"][0]["link"],
+            "https://nas2.d.tube/videos/f56ea345-c383-4ec3-b7cd-5f81ba94114b/master.m3u8",
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -27,7 +27,7 @@ class ShellCompletionTests(unittest.TestCase):
 
         self.assertIn('compgen -W "best 1080p 720p 480p"', script)
         self.assertIn('compgen -W "mpv mpvex vlc next"', script)
-        self.assertIn('compgen -W "allanime"', script)
+        self.assertIn('compgen -W "allanime animexin"', script)
         self.assertIn('if [[ "$cmd" == "completion" ]]', script)
         self.assertIn('if [[ "$cmd" == "auth" ]]', script)
         self.assertIn('compgen -W "--raw --debug -h --help"', script)

@@ -2894,9 +2894,10 @@ def episode_catalog_error(show):
         or "Episode catalog is unavailable. Try again later."
     )
 
-def get_episode_data(show_id, ep, ttype="sub"):
+def get_episode_data(show_id, ep, ttype="sub", provider_id="allanime"):
+    provider_id = provider_key(provider_id)
     try:
-        return _allanime_provider().episode_sources(show_id, ep, ttype)
+        return get_provider(provider_id, _req).episode_sources(show_id, ep, ttype)
     except ProviderVerificationRequired:
         return {
             "_provider_error": "browser_verification_required",
@@ -3123,8 +3124,8 @@ def browse_download_library(flags, ui, cfg, args):
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
-def fetch_episode_stream(show_id, ep_number, ttype="sub", quality="best"):
-    ep_data = get_episode_data(show_id, ep_number, ttype)
+def fetch_episode_stream(show_id, ep_number, ttype="sub", quality="best", provider_id="allanime"):
+    ep_data = get_episode_data(show_id, ep_number, ttype, provider_id=provider_id)
     if not ep_data: return None
     sources = ep_data.get("episode",{}).get("sourceUrls",[])
     pref = get_preferred_mirror(show_id)

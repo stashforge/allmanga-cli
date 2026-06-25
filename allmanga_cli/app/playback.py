@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 from ..domain.episodes import episode_id_at, episode_index_for_id, episode_progress_number, episode_label
 from ..domain.titles import get_show_display_title
 from ..domain.tracking import tracking_status_for_progress
+from ..providers.models import title_provider_key
 from ..playback.rules import (
     playback_looks_complete,
     playback_updates_history,
@@ -268,12 +269,18 @@ def handle_play_state(
     except ImportError:
         pass
 
-    _cache_key = (ms.show_id, ms.current_ep, ttype)
+    provider_id = title_provider_key(ui.ui_show_ctx)
+    _cache_key = (ms.show_id, ms.current_ep, ttype, provider_id)
     if _cache_key == ms.ep_cache_key and ms.ep_cache_data:
         ep_data = ms.ep_cache_data
     else:
         app_core.info(f"Loading EP {ms.current_ep} metadata...")
-        ep_data = app_core.get_episode_data(ms.show_id, ms.current_ep, ttype)
+        ep_data = app_core.get_episode_data(
+            ms.show_id,
+            ms.current_ep,
+            ttype,
+            provider_id=provider_id,
+        )
         ms.ep_cache_key  = _cache_key
         ms.ep_cache_data = ep_data
 
@@ -310,7 +317,13 @@ def handle_play_state(
             _ipc_player.prefetched_res = None
         else:
             app_core.info("Finding a playable stream...")
-            res = app_core.fetch_episode_stream(ms.show_id, ms.current_ep, ttype, cfg.get("quality", "best"))
+            res = app_core.fetch_episode_stream(
+                ms.show_id,
+                ms.current_ep,
+                ttype,
+                cfg.get("quality", "best"),
+                provider_id=provider_id,
+            )
 
         if res:
             ms.selected_stream, first_source_name, _, streams = res
@@ -368,7 +381,13 @@ def handle_play_state(
             ep_idx = episode_index_for_id(episode_ids, ep_num)
         if ep_idx is None:
             return None
-        return app_core.fetch_episode_stream(ms.show_id, episode_id_at(episode_ids, ep_idx), ttype, cfg.get("quality", "best"))
+        return app_core.fetch_episode_stream(
+            ms.show_id,
+            episode_id_at(episode_ids, ep_idx),
+            ttype,
+            cfg.get("quality", "best"),
+            provider_id=provider_id,
+        )
 
     is_binge = args.binge or cfg.get("binge", False)
 
