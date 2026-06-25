@@ -247,6 +247,7 @@ _player_ui_state = {
     "active": False,
     "show": None,
     "current_ep": 0,
+    "current_ep_label": "",
     "total_eps": 0,
     "status_lines": [],
     "stream_info": {},
@@ -716,7 +717,11 @@ def render_player_screen():
     info_bits = []
     if sn: info_bits.append(f"Season {sn}")
     if s["current_ep"] and s["total_eps"]:
-        info_bits.append(f"Episode {s['current_ep']}/{s['total_eps']}")
+        label = s.get("current_ep_label") or str(s["current_ep"])
+        if str(label).casefold().startswith(("episode ", "ep ", "part ", "ova", "movie", "special")):
+            info_bits.append(f"{label}/{s['total_eps']}")
+        else:
+            info_bits.append(f"Episode {label}/{s['total_eps']}")
     ep_str = " \u2022 ".join(info_bits)
 
     si = s.get("stream_info", {})

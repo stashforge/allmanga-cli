@@ -1,4 +1,5 @@
 import unittest
+from io import StringIO
 from unittest.mock import patch
 
 import allmanga_cli.app_core as app_core
@@ -59,6 +60,29 @@ class EpisodeLabelTests(unittest.TestCase):
             "Part 3",
         )
         self.assertEqual(episode_label("2", {"2": "2"}), "Episode 2")
+
+    def test_legacy_player_screen_uses_display_episode_label(self):
+        app_core._player_ui_state.update({
+            "active": True,
+            "show": {"name": "Against the Gods"},
+            "current_ep": "https://animexin.dev/against-the-gods-episode-43/",
+            "current_ep_label": "43",
+            "total_eps": 43,
+            "status_lines": [],
+            "stream_info": {},
+            "mpv_props": None,
+        })
+
+        with patch.object(app_core, "enter_alt_screen"), \
+                patch.object(app_core, "_get_player_poster", return_value=""), \
+                patch.object(app_core.os, "get_terminal_size", return_value=app_core.os.terminal_size((100, 30))), \
+                patch.object(app_core.sys, "stdout", StringIO()) as stdout:
+            app_core.render_player_screen()
+
+        output = stdout.getvalue()
+        self.assertIn("Episode 43/43", output)
+        self.assertNotIn("https://animexin.dev/against-the-gods-episode-43/", output)
+        app_core._player_ui_state["active"] = False
 
     def test_parse_episode_label_handles_decimal_and_integer_labels(self):
         decimal_label = parse_episode_label("24.5")
