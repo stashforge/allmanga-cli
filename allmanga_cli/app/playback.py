@@ -108,6 +108,7 @@ def _open_provider_verification(
     )
     ui.ui_show_ctx["_provider_verification_url"] = verification_url
     ui.ui_show_ctx["_provider_verification_episode"] = str(ms.current_ep)
+    ui.ui_show_ctx["_provider_verification_seen"] = False
     app_core.set_action_feedback(ui.ui_show_ctx, feedback)
     return "PROVIDER_VERIFY"
 
@@ -122,7 +123,10 @@ def handle_provider_verify_state(
     resolve_tracking_fn,
 ) -> str:
     del args, resolve_tracking_fn
-    return _handle_verification_page(flags, ui, ms, cfg, ttype)
+    result = _handle_verification_page(flags, ui, ms, cfg, ttype)
+    if result == "ACTION_MENU":
+        ui.ui_show_ctx["_provider_verification_seen"] = True
+    return result
 
 
 def handle_episode_state(
@@ -600,6 +604,15 @@ def handle_action_menu_state(
     opts, acts = [], []
     is_tracking = resolve_tracking_fn(ui.search_prev_state, args, cfg)
     action_show = ui.ui_show_ctx
+    verification_url = action_show.get("_provider_verification_url", "")
+    verification_episode = action_show.get("_provider_verification_episode")
+    if (
+        verification_url
+        and str(verification_episode) == str(ms.current_ep)
+        and not action_show.get("_provider_verification_seen")
+    ):
+        return "PROVIDER_VERIFY"
+
     episode_ids = app_core.ensure_episode_ids(action_show, ttype)
 
     if not episode_ids:
@@ -625,8 +638,6 @@ def handle_action_menu_state(
     if prev_ep is not None: opts.append("Previous"); acts.append("PREV")
     if ms.total_eps > 1: opts.append("Episodes"); acts.append("EPISODES")
 
-    verification_url = action_show.get("_provider_verification_url", "")
-    verification_episode = action_show.get("_provider_verification_episode")
     if verification_url and str(verification_episode) == str(ms.current_ep):
         opts.append("Verify")
         acts.append("VERIFY")
