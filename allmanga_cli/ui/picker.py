@@ -662,6 +662,11 @@ def tui_pick(
                     filt = filt_list(); sel = first_selectable(filt); scroll = 0
 
     finally:
+        if flags.show_image and top_header_fn is not None:
+            try:
+                tty_file.write(_clear_terminal_images().encode())
+            except Exception:
+                pass
         termios.tcsetattr(tty_fd, termios.TCSADRAIN, old_attrs)
         # Cursor restoration is handled by the global atexit / finally block in
         # app.py to prevent cursor flickering during rapid screen transitions.

@@ -226,7 +226,6 @@ def handle_play_state(
     resolve_tracking_fn,
 ) -> str:
     app_core.enter_alt_screen()
-    app_core.clear_terminal_images()
 
     s_ctx = ui.ui_show_ctx
     sync_enabled = resolve_tracking_fn(ui.search_prev_state, args, cfg, s_ctx)
