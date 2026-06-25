@@ -278,14 +278,13 @@ def handle_play_state(
         ms.ep_cache_data = ep_data
 
     if not ep_data:
-        return _open_provider_verification(
-            flags,
-            ui,
-            ms,
-            cfg,
-            ttype,
-            f"Could not load EP {ms.current_ep}. Browser verification may be required.",
+        app_core._exit_player_screen()
+        _clear_episode_source_state(ms)
+        app_core.set_action_feedback(
+            ui.ui_show_ctx,
+            f"Could not load EP {ms.current_ep}. Check connection or try another mirror.",
         )
+        return "ACTION_MENU"
     if ep_data.get("_provider_error") == "browser_verification_required":
         return _open_provider_verification(
             flags,
@@ -325,14 +324,13 @@ def handle_play_state(
         return "MIRRORS"
 
     if ms.selected_stream is None:
-        return _open_provider_verification(
-            flags,
-            ui,
-            ms,
-            cfg,
-            ttype,
-            "No playable streams found. Try again after browser verification.",
+        app_core._exit_player_screen()
+        _clear_episode_source_state(ms)
+        app_core.set_action_feedback(
+            ui.ui_show_ctx,
+            "No playable streams found. Try another mirror.",
         )
+        return "ACTION_MENU"
 
     if args.print_url:
         app_core._exit_player_screen(close_alt=True)
