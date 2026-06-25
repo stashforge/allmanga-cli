@@ -123,6 +123,39 @@ class StreamUrlTests(unittest.TestCase):
             "https://www.mp4upload.com/",
         )
 
+    def test_pre_resolved_provider_stream_is_passed_through(self):
+        streams = stream_resolver.resolve_source(
+            {
+                "sourceName": "Provider CDN",
+                "streamUrl": "https://cdn.example/video.m3u8",
+                "type": "hls",
+                "resolution": "720p",
+                "referer": "https://provider.example/watch",
+                "headers": {"User-Agent": "Test", "Cookie": "secret=1"},
+            },
+            silent=True,
+        )
+
+        self.assertEqual(len(streams), 1)
+        self.assertEqual(streams[0]["source_name"], "Provider CDN")
+        self.assertEqual(streams[0]["link"], "https://cdn.example/video.m3u8")
+        self.assertEqual(streams[0]["type"], "hls")
+        self.assertEqual(streams[0]["resolution"], "720p")
+        self.assertEqual(streams[0]["referer"], "https://provider.example/watch")
+        self.assertNotIn("Cookie", streams[0]["headers"])
+        self.assertFalse(streams[0]["android_safe"])
+
+    def test_pre_resolved_provider_stream_rejects_unsafe_url(self):
+        streams = stream_resolver.resolve_source(
+            {
+                "sourceName": "Provider CDN",
+                "link": "file:///etc/passwd",
+            },
+            silent=True,
+        )
+
+        self.assertEqual(streams, [])
+
 
 if __name__ == "__main__":
     unittest.main()

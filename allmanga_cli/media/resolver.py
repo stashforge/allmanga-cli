@@ -35,6 +35,53 @@ def configure_reporters(info, ok, warn):
     _warn = warn
 
 
+def _pre_resolved_stream(source, name, priority, warn):
+    stream_url = source.get("link") or source.get("streamUrl") or ""
+    if not stream_url:
+        return None
+    try:
+        stream_url = validate_stream_url(stream_url)
+    except ValueError:
+        warn(f"[{name}] rejected an unsafe stream URL")
+        return []
+
+    headers = {
+        key: value
+        for key, value in proxy_filtered_headers(source.get("headers") or {}).items()
+        if key.casefold() not in {"authorization", "cookie"}
+    }
+    referer = source.get("referer") or headers.get("Referer", "")
+    try:
+        referer = validate_optional_referer(referer)
+    except ValueError:
+        referer = ""
+        headers = {
+            key: value
+            for key, value in headers.items()
+            if key.casefold() != "referer"
+        }
+
+    stream_type = str(source.get("type") or "").strip().lower()
+    if stream_type not in {"mp4", "hls", "external", "dash"}:
+        stream_type = "hls" if ".m3u8" in stream_url else "mp4"
+
+    resolution = str(source.get("resolution") or "Adaptive")
+    android_safe = source.get("android_safe")
+    if android_safe is None:
+        android_safe = stream_type == "mp4"
+
+    return [{
+        "source_name": name,
+        "link": stream_url,
+        "type": stream_type,
+        "resolution": resolution,
+        "referer": referer,
+        "headers": headers,
+        "source_priority": priority,
+        "android_safe": bool(android_safe),
+    }]
+
+
 def _extract_mp4upload(url):
     request = urllib.request.Request(
         url,
@@ -88,6 +135,10 @@ def resolve_source(source, silent=False):
             _warn(message)
 
     result = []
+    pre_resolved = _pre_resolved_stream(source, name, priority, warn)
+    if pre_resolved is not None:
+        return pre_resolved
+
     if not url:
         return result
     if not url.startswith("--"):
