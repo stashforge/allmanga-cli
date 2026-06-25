@@ -88,6 +88,9 @@ class AllAnimeProvider:
         return f"{base}/anime/{encoded_id}/p-{encoded_episode}-{safe_ttype}"
 
 
+PROVIDER_CLASS = AllAnimeProvider
+
+
 def _frontend_domain(cfg: dict[str, Any] | None = None) -> str:
     default = "https://mkissa.to"
     candidate = str((cfg or {}).get("allanime_frontend_domain") or default).strip()

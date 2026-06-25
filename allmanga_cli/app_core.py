@@ -201,7 +201,7 @@ from allmanga_cli.services.http import (
     is_alive,
     request_json as _req,
 )
-from allmanga_cli.providers import ALLANIME, get_provider
+from allmanga_cli.providers import ALLANIME, get_provider, provider_key
 from allmanga_cli.providers.models import title_provider_id, title_provider_key
 from allmanga_cli.services import allanime as allanime_service
 from allmanga_cli.services import anilist as anilist_service
@@ -2239,13 +2239,19 @@ def search_anilist(token, query, raise_errors=False):
             raise SearchFailure(search_failure_message("AniList", e)) from e
         return []
 
-def make_allanime_oneshot_search(query, ttype):
+def provider_display_name(provider_id="allanime"):
+    return get_provider(provider_id).name
+
+
+def make_provider_oneshot_search(query, ttype, provider_id="allanime"):
     loading = True
     results = []
     error = ""
     cfg = load_config()
     spinner_style = spinner_from_config(cfg)
     token = cfg.get("anilist_token")
+    provider_id = provider_key(provider_id)
+    provider_name = provider_display_name(provider_id)
 
     def _fetch():
         nonlocal loading, results, error
@@ -2256,7 +2262,12 @@ def make_allanime_oneshot_search(query, ttype):
             def _fetch_aa():
                 nonlocal shows, error
                 try:
-                    shows = search_anime(query, ttype, raise_errors=True)
+                    shows = search_anime(
+                        query,
+                        ttype,
+                        raise_errors=True,
+                        provider_id=provider_id,
+                    )
                 except SearchFailure as exc:
                     error = str(exc)
                     shows = []
@@ -2286,7 +2297,7 @@ def make_allanime_oneshot_search(query, ttype):
             if shows: results.extend(shows)
         except Exception as e:
             if not error:
-                error = search_failure_message("AllAnime", e)
+                error = search_failure_message(provider_name, e)
             try:
                 write_exception_log("bg_crash.log")
             except Exception as log_error:
@@ -2304,7 +2315,7 @@ def make_allanime_oneshot_search(query, ttype):
             try: w = os.get_terminal_size().columns
             except OSError: w = 80
 
-            msg = f"Searching AllAnime: {query}"
+            msg = f"Searching {provider_name}: {query}"
             return _loading_line(msg, w, spinner_style)
         return ""
 
@@ -2316,6 +2327,10 @@ def make_allanime_oneshot_search(query, ttype):
         return opts, get_loading(), not loading
 
     return live_fn, get_results, get_loading, get_error
+
+
+def make_allanime_oneshot_search(query, ttype):
+    return make_provider_oneshot_search(query, ttype, "allanime")
 
 def make_anilist_oneshot_search(token, initial_query):
     results = []
@@ -2732,18 +2747,20 @@ def _provider_for_title(show):
     return get_provider(title_provider_key(show), _req)
 
 
-def search_anime(query, ttype="sub", raise_errors=False):
+def search_anime(query, ttype="sub", raise_errors=False, provider_id="allanime"):
+    provider_id = provider_key(provider_id)
+    provider_name = provider_display_name(provider_id)
     try:
-        return _allanime_provider().search(query, ttype)
+        return get_provider(provider_id, _req).search(query, ttype)
     except SearchFailure as e:
-        debug_warn("AllAnime search failed", e)
+        debug_warn(f"{provider_name} search failed", e)
         if raise_errors:
             raise
         err(f"Search failed: {e}")
         return []
     except Exception as e:
-        debug_warn("AllAnime search failed", e)
-        failure = SearchFailure(search_failure_message("AllAnime", e))
+        debug_warn(f"{provider_name} search failed", e)
+        failure = SearchFailure(search_failure_message(provider_name, e))
         if raise_errors:
             raise failure from e
         err(f"Search failed: {failure}")
@@ -3188,7 +3205,11 @@ def main():
             if not q:
                 print(json.dumps({"error": "No query provided."}, indent=2))
             else:
-                res = search_anime(q, ttype)
+                res = search_anime(
+                    q,
+                    ttype,
+                    provider_id=getattr(args, "provider", "allanime"),
+                )
                 print(json.dumps(res, indent=2))
         sys.exit(0)
 

@@ -131,7 +131,17 @@ def _set_cli_defaults(parser):
         auth_status=False,
         auth_token=False,
         auth_token_raw=False,
+        provider="allanime",
     )
+
+
+def _add_provider_option(group):
+    group.add_argument(
+        "--provider",
+        metavar="PROVIDER",
+        help="Streaming provider to search",
+    )
+
 
 def _add_debug_option(parser, *, suppress_default=False):
     kwargs = {
@@ -178,6 +188,7 @@ def _add_search_options(parser):
     output = parser.add_argument_group("Output options")
     output.add_argument("--cover", action="store_true", help="Show cover images")
     output.add_argument("--json", action="store_true", help="Print search results as JSON")
+    _add_provider_option(output)
 
     global_options = parser.add_argument_group("Global options")
     global_options.add_argument(
@@ -205,6 +216,7 @@ def _add_download_options(parser):
     )
     output = parser.add_argument_group("Output options")
     output.add_argument("--cover", action="store_true", help="Show cover images")
+    _add_provider_option(output)
     global_options = parser.add_argument_group("Global options")
     _add_debug_option(global_options, suppress_default=True)
     global_options.add_argument(
@@ -561,6 +573,7 @@ def build_legacy_parser():
     parser.add_argument("-a", "--anilist", nargs="?", const="menu", default=None, help="Browse AniList (e.g., CURRENT, PLANNING)")
     parser.add_argument("-c", "--continue-last", action="store_true", dest="cont", help="Resume last watched")
     parser.add_argument("--cover", action="store_true", help="Show image cover in search results")
+    parser.add_argument("--provider", default="allanime", help="Streaming provider to search")
     parser.add_argument("--incognito", action="store_true", help="Do not save local playback data or update AniList")
     _add_debug_option(parser)
     parser.add_argument("--json", action="store_true", help="Print search results as JSON and exit")

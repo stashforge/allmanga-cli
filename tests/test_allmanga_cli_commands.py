@@ -16,13 +16,17 @@ build_anilist_search_parser = namespace["build_anilist_search_parser"]
 class CommandRouterTests(unittest.TestCase):
     def test_search_command_maps_to_existing_runtime_fields(self):
         args, _ = parse_cli_args(
-            ["search", "slime", "-e", "3", "-q", "1080p", "--sync"]
+            [
+                "search", "slime", "-e", "3", "-q", "1080p",
+                "--sync", "--provider", "allanime",
+            ]
         )
 
         self.assertEqual(args.query, ["slime"])
         self.assertEqual(args.episode, "3")
         self.assertEqual(args.quality, "1080p")
         self.assertTrue(args.sync)
+        self.assertEqual(args.provider, "allanime")
         self.assertFalse(args.download)
 
     def test_track_aliases_are_not_supported(self):
@@ -37,12 +41,15 @@ class CommandRouterTests(unittest.TestCase):
                 parse_cli_args(["slime", "--no-track"])
 
     def test_download_and_library_commands_are_distinct(self):
-        download, _ = parse_cli_args(["download", "slime", "-e", "2-4"])
+        download, _ = parse_cli_args(
+            ["download", "slime", "-e", "2-4", "--provider", "allanime"]
+        )
         library, _ = parse_cli_args(["downloads", "--player", "vlc"])
 
         self.assertTrue(download.download)
         self.assertFalse(download.downloads)
         self.assertEqual(download.query, ["slime"])
+        self.assertEqual(download.provider, "allanime")
         self.assertTrue(library.downloads)
         self.assertFalse(library.download)
         self.assertEqual(library.player, "vlc")
@@ -83,13 +90,14 @@ class CommandRouterTests(unittest.TestCase):
         self.assertTrue(completion_install.completion_install)
 
     def test_legacy_invocations_remain_supported(self):
-        bare, _ = parse_cli_args(["slime", "-e", "3"])
+        bare, _ = parse_cli_args(["slime", "-e", "3", "--provider", "allanime"])
         anilist, _ = parse_cli_args(["-a", "CURRENT"])
         history, _ = parse_cli_args(["-H"])
         login, _ = parse_cli_args(["--login"])
 
         self.assertEqual(bare.query, ["slime"])
         self.assertEqual(bare.episode, "3")
+        self.assertEqual(bare.provider, "allanime")
         self.assertEqual(anilist.anilist, "CURRENT")
         self.assertTrue(history.history)
         self.assertTrue(login.login)
@@ -124,9 +132,11 @@ class CommandRouterTests(unittest.TestCase):
         self.assertNotIn("--player PLAYER", search_help)
         self.assertIn("Playback options:", search_help)
         self.assertIn("Tracking options:", search_help)
+        self.assertIn("--provider", search_help)
         self.assertNotIn("Browse downloaded episodes", search_help)
         self.assertNotIn("--sync", download_help)
         self.assertNotIn("--incognito", download_help)
+        self.assertIn("--provider", download_help)
         self.assertIn("[list]", anilist_help)
         self.assertIn("allmanga-cli anilist airing", anilist_help)
         self.assertIn("Lists:", anilist_help)

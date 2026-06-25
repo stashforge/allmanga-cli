@@ -236,6 +236,8 @@ def handle_search_state(
     ms.ep_cache_key = None
     ms.ep_cache_data = None
     app_core._clear_poster_downloads()
+    provider_id = app_core.provider_key(getattr(args, "provider", "allanime"))
+    provider_name = app_core.provider_display_name(provider_id)
 
     def _search_input_header(provider_name, esc_action="quit"):
         def _hdr(si):
@@ -316,7 +318,7 @@ def handle_search_state(
         res = tui_pick(
             flags, ui,
             "Search Anime", [],
-            header_fn=_search_input_header("AllAnime"),
+            header_fn=_search_input_header(provider_name),
             return_query_on_enter=True,
             query_history=app_core.load_search_history(),
             is_search=True,
@@ -338,9 +340,13 @@ def handle_search_state(
     # Step 2: Fetch Results ONCE
     live_fn, get_results, get_loading, get_error = app_core._cached_search_results(
         ms.query_str,
-        "_last_aa_query_str",
-        "_last_aa_shows",
-        lambda: app_core.make_allanime_oneshot_search(ms.query_str, ttype)
+        f"_last_{provider_id}_query_str",
+        f"_last_{provider_id}_shows",
+        lambda: app_core.make_provider_oneshot_search(
+            ms.query_str,
+            ttype,
+            provider_id,
+        )
     )
 
     # Step 3: Title Selection Page
@@ -354,7 +360,7 @@ def handle_search_state(
         idx = tui_pick(
             flags, ui,
             "Search Anime", initial_opts,
-            header_fn=_search_result_header("AllAnime", ms.query_str, ttype, get_results, get_loading),
+            header_fn=_search_result_header(provider_name, ms.query_str, ttype, get_results, get_loading),
             top_header_fn=_search_cover_header(get_results),
             live_fn=live_fn,
             is_search=False,

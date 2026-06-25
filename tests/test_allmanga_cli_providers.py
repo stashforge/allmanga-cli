@@ -1,7 +1,17 @@
 import json
+import sys
+import tempfile
+import textwrap
 import unittest
+from pathlib import Path
 
-from allmanga_cli.providers import ALLANIME, get_provider, provider_key
+from allmanga_cli.providers import (
+    ALLANIME,
+    available_providers,
+    discover_provider_factories,
+    get_provider,
+    provider_key,
+)
 from allmanga_cli.providers.allanime import AllAnimeProvider
 from allmanga_cli.providers.models import (
     normalize_episode_catalog,
@@ -27,6 +37,49 @@ class ProviderRegistryTests(unittest.TestCase):
 
         self.assertIsInstance(provider, AllAnimeProvider)
         self.assertIsNot(provider, ALLANIME)
+
+    def test_registry_discovers_provider_class_modules(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            package = root / "demo_providers"
+            package.mkdir()
+            (package / "__init__.py").write_text("", encoding="utf-8")
+            (package / "base.py").write_text(
+                "raise RuntimeError('base should be skipped')",
+                encoding="utf-8",
+            )
+            (package / "sample.py").write_text(
+                textwrap.dedent(
+                    """
+                    class SampleProvider:
+                        id = "sample"
+                        name = "Sample"
+
+                    PROVIDER_CLASS = SampleProvider
+                    """
+                ),
+                encoding="utf-8",
+            )
+
+            sys.path.insert(0, temp_dir)
+            try:
+                factories = discover_provider_factories(
+                    [str(package)],
+                    "demo_providers",
+                )
+            finally:
+                sys.path.remove(temp_dir)
+                sys.modules.pop("demo_providers", None)
+                sys.modules.pop("demo_providers.sample", None)
+
+        self.assertEqual(set(factories), {"sample"})
+        self.assertEqual(factories["sample"].name, "Sample")
+
+    def test_available_providers_includes_discovered_allanime(self):
+        providers = available_providers()
+
+        self.assertIn("allanime", providers)
+        self.assertIs(providers["allanime"], ALLANIME)
 
 
 class AllAnimeProviderTests(unittest.TestCase):

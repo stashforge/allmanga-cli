@@ -19,6 +19,7 @@ class ShellCompletionTests(unittest.TestCase):
         )
         self.assertIn("--sync", script)
         self.assertIn("--no-sync", script)
+        self.assertIn("--provider", script)
         self.assertNotIn("--track", script)
 
     def test_bash_completion_includes_nested_values(self):
@@ -26,6 +27,7 @@ class ShellCompletionTests(unittest.TestCase):
 
         self.assertIn('compgen -W "best 1080p 720p 480p"', script)
         self.assertIn('compgen -W "mpv mpvex vlc next"', script)
+        self.assertIn('compgen -W "allanime"', script)
         self.assertIn('if [[ "$cmd" == "completion" ]]', script)
         self.assertIn('if [[ "$cmd" == "auth" ]]', script)
         self.assertIn('compgen -W "--raw --debug -h --help"', script)

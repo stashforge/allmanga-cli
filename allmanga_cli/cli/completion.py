@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+from allmanga_cli.providers import available_providers
+
 COMMANDS = (
     "search", "download", "downloads", "anilist", "history", "continue",
     "auth", "completion",
@@ -14,17 +16,18 @@ AUTH_ACTIONS = ("login", "logout", "status", "token")
 SHELLS = ("bash", "zsh", "fish")
 QUALITIES = ("best", "1080p", "720p", "480p")
 PLAYERS = ("mpv", "mpvex", "vlc", "next")
+PROVIDERS = tuple(sorted(available_providers()))
 
 ROOT_OPTIONS = ("-h", "--help", "--debug")
 SEARCH_OPTIONS = (
     "-e", "--episode", "-q", "--quality", "--dub", "-b", "--binge",
     "-p", "--player", "-s", "--sources", "--print-url", "-t", "--sync",
-    "--no-sync", "--cover", "--json", "--incognito", "--debug", "-h",
+    "--no-sync", "--cover", "--json", "--provider", "--incognito", "--debug", "-h",
     "--help",
 )
 DOWNLOAD_OPTIONS = (
     "-e", "--episode", "-q", "--quality", "--dub", "-s", "--sources",
-    "--cover", "--debug", "-h", "--help",
+    "--cover", "--provider", "--debug", "-h", "--help",
 )
 DOWNLOADS_OPTIONS = ("-p", "--player", "--debug", "-h", "--help")
 ANILIST_OPTIONS = ("--cover", "--json", "--incognito", "--debug", "-h", "--help")
@@ -63,6 +66,10 @@ _allmanga_cli_completion()
             ;;
         -p|--player)
             COMPREPLY=( $(compgen -W "{_words(PLAYERS)}" -- "$cur") )
+            return 0
+            ;;
+        --provider)
+            COMPREPLY=( $(compgen -W "{_words(PROVIDERS)}" -- "$cur") )
             return 0
             ;;
         install)
@@ -175,6 +182,12 @@ def fish_completion():
         lines.append(
             "complete -c allmanga-cli -n "
             "'__fish_seen_subcommand_from completion' -a "
+            f"{item}"
+        )
+    for item in PROVIDERS:
+        lines.append(
+            "complete -c allmanga-cli -n "
+            "'__fish_seen_argument -l provider' -a "
             f"{item}"
         )
 
