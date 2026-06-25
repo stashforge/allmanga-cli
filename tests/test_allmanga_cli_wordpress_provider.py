@@ -23,9 +23,40 @@ class WordPressProviderTests(unittest.TestCase):
         provider = AnimeXinProvider(
             request_json_fn=lambda *_args, **_kwargs: self.fail("request_json should not be used"),
             fetch=lambda _url: '<div class="listupd"></div>',
+            ajax_fetch=lambda _query: {},
         )
 
         self.assertEqual(provider.search("renegade"), [])
+
+    def test_animexin_search_uses_ajax_json_and_normalizes_title_shape(self):
+        provider = AnimeXinProvider(
+            ajax_fetch=lambda _query: {
+                "anime": [{
+                    "all": [{
+                        "ID": 19375,
+                        "post_title": "Perfect World Movie: Ashes of Perfect Fire",
+                        "post_link": "https://animexin.dev/perfect-world-movie-ashes-of-perfect-fire/",
+                        "post_image": "https://animexin.dev/poster.jpg",
+                        "post_genres": "Action, Adventure",
+                        "post_type": "ONA",
+                        "post_latest": "Part 3",
+                        "post_sub": "Sub",
+                    }],
+                }],
+            },
+        )
+
+        results = provider.search("perfect world")
+
+        self.assertEqual(results[0]["name"], "Perfect World Movie: Ashes of Perfect Fire")
+        self.assertEqual(results[0]["_provider"], "animexin")
+        self.assertEqual(
+            results[0]["_provider_id"],
+            "https://animexin.dev/perfect-world-movie-ashes-of-perfect-fire/",
+        )
+        self.assertEqual(results[0]["thumbnail"], "https://animexin.dev/poster.jpg")
+        self.assertEqual(results[0]["availableEpisodes"]["sub"], 3)
+        self.assertEqual(results[0]["_provider_genres"], "Action, Adventure")
 
     def test_parse_mirrors_decodes_and_normalizes_embeds(self):
         page = f'''
@@ -45,10 +76,10 @@ class WordPressProviderTests(unittest.TestCase):
 
     def test_parse_series_reads_episode_urls(self):
         page = '''
-        <div class="episodelist">
+        <div class="eplister">
           <ul>
-            <li><a href="https://animexin.dev/show-episode-2/"><h3>Show Episode 2</h3><span>Eps 2</span></a></li>
-            <li><a href="https://animexin.dev/show-episode-1/"><h3>Show Episode 1</h3><span>Eps 1</span></a></li>
+            <li><a href="https://animexin.dev/show-part-3/"><div class="epl-num">Part 3</div><div class="epl-title">Show Part 3</div></a></li>
+            <li><a href="https://animexin.dev/show-episode-2/"><div class="epl-num">2</div><div class="epl-title">Show Episode 2</div></a></li>
           </ul>
         </div>
         '''
@@ -58,10 +89,11 @@ class WordPressProviderTests(unittest.TestCase):
         self.assertEqual(
             [episode.url for episode in episodes],
             [
+                "https://animexin.dev/show-part-3/",
                 "https://animexin.dev/show-episode-2/",
-                "https://animexin.dev/show-episode-1/",
             ],
         )
+        self.assertEqual([episode.meta for episode in episodes], ["Part 3", "2"])
 
     def test_parse_episode_extracts_mirrors(self):
         page = f'''

@@ -48,8 +48,15 @@ def episode_id_at(episode_ids, index):
     return episode_ids[bounded_index]
 
 
-def episode_label(episode_id):
-    return f"Episode {episode_id}"
+def episode_label(episode_id, labels=None):
+    label = ""
+    if labels:
+        label = str(labels.get(str(episode_id)) or "").strip()
+    label = label or str(episode_id)
+    lowered = label.casefold()
+    if lowered.startswith(("episode ", "ep ", "part ", "ova", "movie", "special")):
+        return label
+    return f"Episode {label}"
 
 
 def episode_progress_number(episode_id, fallback=0):

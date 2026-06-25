@@ -2,8 +2,14 @@
 
 from __future__ import annotations
 
+import json
+import re
+import urllib.parse
+import urllib.request
+
 from .models import normalize_episode_catalog, normalize_episode_sources, normalize_titles
 from .wordpress import WordPressAnimeProvider, fetch_html
+from ..services.http import UA
 
 
 class AnimeXinProvider(WordPressAnimeProvider):
@@ -11,13 +17,15 @@ class AnimeXinProvider(WordPressAnimeProvider):
     name = "AnimeXin"
     base_url = "https://animexin.dev"
 
-    def __init__(self, request_json_fn=None, fetch=None):
+    def __init__(self, request_json_fn=None, fetch=None, ajax_fetch=None):
         del request_json_fn
         super().__init__(fetch=fetch or fetch_html)
+        self._ajax_fetch = ajax_fetch or self._fetch_ajax
 
     def search(self, query: str, ttype: str = "sub") -> list[dict]:
+        del ttype
         return normalize_titles(
-            super().search(query, ttype),
+            self._search_ajax(query) or super().search(query, "sub"),
             provider_id=self.id,
             provider_name=self.name,
         )
@@ -46,6 +54,70 @@ class AnimeXinProvider(WordPressAnimeProvider):
             provider_title_id=provider_id,
             episode=episode,
         )
+
+    def _fetch_ajax(self, query: str) -> dict:
+        data = urllib.parse.urlencode({
+            "action": "ts_ac_do_search",
+            "ts_ac_query": query,
+        }).encode("utf-8")
+        request = urllib.request.Request(
+            f"{self.base_url}/wp-admin/admin-ajax.php",
+            data=data,
+            headers={
+                "User-Agent": UA,
+                "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=25) as response:
+            charset = response.headers.get_content_charset() or "utf-8"
+            return json.loads(response.read().decode(charset, errors="replace"))
+
+    def _search_ajax(self, query: str) -> list[dict]:
+        try:
+            payload = self._ajax_fetch(query)
+        except Exception:
+            return []
+        rows = []
+        for group in payload.get("anime") or []:
+            for item in group.get("all") or []:
+                title = str(item.get("post_title") or "").strip()
+                link = str(item.get("post_link") or "").strip()
+                if not title or not link:
+                    continue
+                rows.append(self._title_from_ajax(item, title, link))
+        return rows
+
+    def _title_from_ajax(self, item: dict, title: str, link: str) -> dict:
+        sub_type = str(item.get("post_sub") or "sub").strip().casefold()
+        latest = str(item.get("post_latest") or "").strip()
+        available = _latest_episode_count(latest)
+        ttype = "dub" if sub_type == "dub" else "sub"
+        available_episodes = {"sub": 0, "dub": 0}
+        if available:
+            available_episodes[ttype] = available
+        return {
+            "_id": link,
+            "name": title,
+            "englishName": "",
+            "nativeName": "",
+            "altNames": [],
+            "thumbnail": str(item.get("post_image") or ""),
+            "type": str(item.get("post_type") or "ONA").strip() or "ONA",
+            "season": {},
+            "score": None,
+            "availableEpisodes": available_episodes,
+            "status": "",
+            "episodeCount": None,
+            "_provider_latest": latest,
+            "_provider_genres": str(item.get("post_genres") or "").strip(),
+            "_provider_wp_id": str(item.get("ID") or ""),
+        }
+
+
+def _latest_episode_count(value: str) -> int:
+    matches = re.findall(r"\d+", str(value or ""))
+    return int(matches[-1]) if matches else 0
 
 
 PROVIDER_CLASS = AnimeXinProvider

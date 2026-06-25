@@ -2780,7 +2780,7 @@ def fetch_episode_ids(show_id, ttype="sub"):
     """Compatibility wrapper; use fetch_episode_catalog() for state details."""
     return fetch_episode_catalog(show_id, ttype)["ids"]
 
-def update_available_count_from_episode_ids(show, ttype, episode_ids, detail=None):
+def update_available_count_from_episode_ids(show, ttype, episode_ids, detail=None, labels=None):
     from allmanga_cli.domain.episodes import highest_episode_number
     if not show or not ttype or episode_ids is None:
         return False
@@ -2810,6 +2810,13 @@ def update_available_count_from_episode_ids(show, ttype, episode_ids, detail=Non
     show["availableEpisodes"] = available
     show["_episode_ids"] = list(episode_ids)
     show["_episode_ids_ttype"] = ttype
+    if labels is not None:
+        show["_episode_labels"] = {
+            str(key): str(value)
+            for key, value in dict(labels or {}).items()
+            if str(key) and str(value)
+        }
+        show["_episode_labels_ttype"] = ttype
     return changed
 
 def ensure_episode_ids(show, ttype):
@@ -2853,7 +2860,13 @@ def ensure_episode_ids(show, ttype):
     if catalog["state"] == "loaded":
         show["_episode_catalog_state"] = "loaded"
         show.pop("_episode_catalog_error", None)
-        update_available_count_from_episode_ids(show, ttype, catalog["ids"], catalog.get("detail"))
+        update_available_count_from_episode_ids(
+            show,
+            ttype,
+            catalog["ids"],
+            catalog.get("detail"),
+            catalog.get("labels"),
+        )
         return catalog["ids"]
 
     show["_episode_ids_ttype"] = ttype

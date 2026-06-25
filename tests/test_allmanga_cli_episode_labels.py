@@ -5,6 +5,7 @@ import allmanga_cli.app_core as app_core
 from allmanga_cli.domain.episodes import (
     detect_next_episode_gap,
     episode_index_for_id,
+    episode_label,
     episode_progress_number,
     highest_episode_number,
     parse_episode_label,
@@ -50,6 +51,15 @@ def _next_episode(episode_ids, current):
 
 
 class EpisodeLabelTests(unittest.TestCase):
+    def test_episode_label_uses_provider_label_for_url_episode_ids(self):
+        labels = {"https://animexin.dev/show-part-3/": "Part 3"}
+
+        self.assertEqual(
+            episode_label("https://animexin.dev/show-part-3/", labels),
+            "Part 3",
+        )
+        self.assertEqual(episode_label("2", {"2": "2"}), "Episode 2")
+
     def test_parse_episode_label_handles_decimal_and_integer_labels(self):
         decimal_label = parse_episode_label("24.5")
         self.assertFalse(decimal_label["is_integer_like"])

@@ -141,11 +141,15 @@ def handle_episode_state(
         return ui.ep_prev_state
 
     ms.total_eps = len(episode_ids) or ms.total_eps
+    episode_labels = (
+        show.get("_episode_labels") or {}
+        if show.get("_episode_labels_ttype") == ttype else {}
+    )
     display_order = list(range(len(episode_ids)))
     if app_core.get_episode_order(ms.show_id, cfg.get("episode_order", "asc")) == "desc":
         display_order.reverse()
 
-    ep_opts = [episode_label(episode_ids[i]) for i in display_order]
+    ep_opts = [episode_label(episode_ids[i], episode_labels) for i in display_order]
 
     def _ep_hdr(si):
         try: w = os.get_terminal_size().columns
@@ -170,7 +174,7 @@ def handle_episode_state(
         nonlocal ep_opts, display_order
         app_core.toggle_episode_order(ms.show_id, cfg.get("episode_order", "asc"))
         display_order.reverse()
-        ep_opts = [episode_label(episode_ids[i]) for i in display_order]
+        ep_opts = [episode_label(episode_ids[i], episode_labels) for i in display_order]
         return (ep_opts, _ep_hdr(0))
 
     if ms.total_eps <= 1:
@@ -250,12 +254,17 @@ def handle_play_state(
         return "EPISODE"
 
     ms.current_ep = episode_id_at(episode_ids, ms.current_ep_index)
+    episode_labels = (
+        s_ctx.get("_episode_labels") or {}
+        if s_ctx.get("_episode_labels_ttype") == ttype else {}
+    )
 
     _player_ui_state = app_core._player_ui_state
     _player_ui_state.update({
         "active": True,
         "show": ui.ui_show_ctx,
         "current_ep": ms.current_ep,
+        "current_ep_label": episode_labels.get(str(ms.current_ep), str(ms.current_ep)),
         "total_eps": ms.total_eps,
         "status_lines": [],
         "stream_info": {},
@@ -633,6 +642,13 @@ def handle_action_menu_state(
 
     next_ep = episode_id_at(episode_ids, ms.current_ep_index + 1) if ms.current_ep_index + 1 < ms.total_eps else None
     prev_ep = episode_id_at(episode_ids, ms.current_ep_index - 1) if ms.current_ep_index > 0 else None
+    episode_labels = (
+        action_show.get("_episode_labels") or {}
+        if action_show.get("_episode_labels_ttype") == ttype else {}
+    )
+    current_ep_label = episode_labels.get(str(ms.current_ep), str(ms.current_ep))
+    next_ep_label = episode_labels.get(str(next_ep), str(next_ep)) if next_ep is not None else ""
+    prev_ep_label = episode_labels.get(str(prev_ep), str(prev_ep)) if prev_ep is not None else ""
 
     if not flags.incognito_mode:
         if next_ep is not None:
@@ -662,22 +678,22 @@ def handle_action_menu_state(
 
     if is_tracking and target_prog is not None:
         if target_prog <= current_al:
-            sync_txt = f"save EP {ms.current_ep} · AL already EP {current_al}"
+            sync_txt = f"save EP {current_ep_label} · AL already EP {current_al}"
         else:
-            sync_txt = f"save EP {ms.current_ep} · sync AL EP {target_prog}"
+            sync_txt = f"save EP {current_ep_label} · sync AL EP {target_prog}"
     elif is_tracking:
-        sync_txt = f"save EP {ms.current_ep} · sync AL EP {ms.current_ep}"
+        sync_txt = f"save EP {current_ep_label} · sync AL EP {current_ep_label}"
     else:
-        sync_txt = f"save EP {ms.current_ep}"
+        sync_txt = f"save EP {current_ep_label}"
 
     for opt, act in zip(opts, acts):
         if act == "TRACK_ONLY": action_hints[opt] = sync_txt
-        elif act == "TRACK_NEXT": action_hints[opt] = f"{sync_txt} · play EP {next_ep}"
-        elif act == "NEXT":     action_hints[opt] = f"EP {next_ep}"
-        elif act == "PREV":   action_hints[opt] = f"EP {prev_ep}"
+        elif act == "TRACK_NEXT": action_hints[opt] = f"{sync_txt} · play EP {next_ep_label}"
+        elif act == "NEXT":     action_hints[opt] = f"EP {next_ep_label}"
+        elif act == "PREV":   action_hints[opt] = f"EP {prev_ep_label}"
         elif act == "EPISODES": action_hints[opt] = "browse all"
         elif act == "VERIFY": action_hints[opt] = "verification"
-        elif act == "REPLAY": action_hints[opt] = f"EP {ms.current_ep} again"
+        elif act == "REPLAY": action_hints[opt] = f"EP {current_ep_label} again"
         elif act == "MIRRORS":action_hints[opt] = "switch source"
         elif act == "BACK":   action_hints[opt] = "Back"
         elif act == "QUIT":   action_hints[opt] = "Quit"

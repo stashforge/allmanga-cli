@@ -10,6 +10,8 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Callable
 
+from bs4 import BeautifulSoup
+
 from ..services.http import UA
 
 
@@ -49,6 +51,8 @@ def normalize_url(base_url: str, url: str) -> str:
 
 
 def clean_text(value: str) -> str:
+    if value is None:
+        return ""
     value = re.sub(r"<[^>]+>", " ", value)
     value = html.unescape(value)
     return re.sub(r"\s+", " ", value).strip()
@@ -71,25 +75,15 @@ def is_media_asset_url(url: str) -> bool:
 
 
 def parse_cards(base_url: str, page_html: str, *, only_main: bool = False) -> list[Entry]:
-    source = page_html
+    soup = BeautifulSoup(page_html, "html.parser")
+    source = soup
     if only_main:
-        start = page_html.find('<div class="listupd">')
-        if start != -1:
-            ends = [
-                idx for idx in (
-                    page_html.find('<div class="pagination"', start),
-                    page_html.find('<div id="sidebar"', start),
-                )
-                if idx != -1
-            ]
-            source = page_html[start : min(ends) if ends else len(page_html)]
+        source = soup.select_one("div.listupd") or soup
 
     entries: list[Entry] = []
     seen: set[str] = set()
-    pattern = re.compile(r"<a\s+(?P<attrs>[^>]*)>(?P<body>.*?)</a>", re.I | re.S)
-    for match in pattern.finditer(source):
-        attrs = match.group("attrs")
-        href_attr = attr_value(attrs, "href")
+    for link in source.select("a[href]"):
+        href_attr = link.get("href", "")
         if not href_attr:
             continue
         href = normalize_url(base_url, href_attr)
@@ -97,15 +91,10 @@ def parse_cards(base_url: str, page_html: str, *, only_main: bool = False) -> li
             continue
         if is_media_asset_url(href):
             continue
-        title = attr_value(attrs, "title")
+        title = clean_text(link.get("title", ""))
         if not title:
-            headline = re.search(
-                r"<h[234][^>]*>(.*?)</h[234]>",
-                match.group("body"),
-                re.I | re.S,
-            )
-            title = headline.group(1) if headline else match.group("body")
-        title = clean_text(title)
+            headline = link.select_one("h2, h3, h4")
+            title = clean_text(headline.get_text(" ", strip=True) if headline else link.get_text(" ", strip=True))
         if not title or title in {"View All", "Next"}:
             continue
         seen.add(href)
@@ -114,53 +103,45 @@ def parse_cards(base_url: str, page_html: str, *, only_main: bool = False) -> li
 
 
 def parse_series(base_url: str, page_html: str) -> list[Entry]:
-    section = page_html
-    match = re.search(
-        r'<div class="episodelist">(.*?)</div>\s*</div>\s*</div>',
-        page_html,
-        re.S,
-    )
-    if match:
-        section = match.group(1)
+    soup = BeautifulSoup(page_html, "html.parser")
+    section = soup.select_one("div.eplister, div.episodelist") or soup
     items: list[Entry] = []
     seen: set[str] = set()
-    item_pattern = re.compile(
-        r'<li[^>]*>\s*<a\s+href=["\'](?P<href>[^"\']+)["\'][^>]*>'
-        r"(?P<body>.*?)</a>\s*</li>",
-        re.I | re.S,
-    )
-    for item in item_pattern.finditer(section):
-        href = normalize_url(base_url, html.unescape(item.group("href")))
+    for item in section.select("li"):
+        link = item.select_one("a[href]")
+        if not link:
+            continue
+        href = normalize_url(base_url, link.get("href", ""))
         if href in seen:
             continue
-        title_match = re.search(r"<h3[^>]*>(.*?)</h3>", item.group("body"), re.I | re.S)
-        meta_match = re.search(r"<span[^>]*>(.*?)</span>", item.group("body"), re.I | re.S)
-        title = clean_text(title_match.group(1) if title_match else item.group("body"))
+        title_node = item.select_one("h3, .epl-title")
+        label_node = item.select_one(".epl-num, span")
+        title = clean_text(
+            title_node.get_text(" ", strip=True)
+            if title_node else link.get_text(" ", strip=True)
+        )
+        meta = clean_text(label_node.get_text(" ", strip=True) if label_node else "")
         if title:
             seen.add(href)
-            items.append(Entry(
-                title=title,
-                url=href,
-                meta=clean_text(meta_match.group(1)) if meta_match else "",
-            ))
+            items.append(Entry(title=title, url=href, meta=meta))
     return items
 
 
 def parse_episode(base_url: str, page_html: str) -> EpisodePage:
-    title_match = re.search(
-        r'<h1[^>]*class=["\'][^"\']*entry-title[^"\']*["\'][^>]*>(.*?)</h1>',
-        page_html,
-        re.I | re.S,
-    )
-    title = clean_text(title_match.group(1)) if title_match else "Unknown episode"
+    soup = BeautifulSoup(page_html, "html.parser")
+    title_node = soup.select_one("h1.entry-title, h1")
+    title = clean_text(title_node.get_text(" ", strip=True) if title_node else "Unknown episode")
 
-    series_match = re.search(
-        r'series\s+<a\s+href=["\'](?P<href>[^"\']+)["\'][^>]*>(?P<title>.*?)</a>',
-        page_html,
-        re.I | re.S,
-    )
-    series_title = clean_text(series_match.group("title")) if series_match else ""
-    series_url = normalize_url(base_url, series_match.group("href")) if series_match else ""
+    series_link = None
+    for link in soup.select("a[href]"):
+        href = normalize_url(base_url, link.get("href", ""))
+        if href.startswith(base_url) and not is_episode_url(href):
+            text = clean_text(link.get_text(" ", strip=True))
+            if text and text.lower() not in {"home", "anime", "donghua"}:
+                series_link = link
+                break
+    series_title = clean_text(series_link.get_text(" ", strip=True)) if series_link else ""
+    series_url = normalize_url(base_url, series_link.get("href", "")) if series_link else ""
 
     return EpisodePage(
         title=title,
@@ -171,15 +152,11 @@ def parse_episode(base_url: str, page_html: str) -> EpisodePage:
 
 
 def parse_mirrors(base_url: str, page_html: str) -> list[Mirror]:
+    soup = BeautifulSoup(page_html, "html.parser")
     mirrors: list[Mirror] = []
     seen: set[str] = set()
-    option_pattern = re.compile(
-        r'<option\s+[^>]*value=["\'](?P<value>[^"\']+)["\'][^>]*>'
-        r"(?P<label>.*?)</option>",
-        re.I | re.S,
-    )
-    for option in option_pattern.finditer(page_html):
-        value = html.unescape(option.group("value")).strip()
+    for option in soup.select("select.mirror option[value], option[value]"):
+        value = html.unescape(option.get("value", "")).strip()
         if not value:
             continue
         try:
@@ -189,14 +166,15 @@ def parse_mirrors(base_url: str, page_html: str) -> list[Mirror]:
             )
         except Exception:
             continue
-        src_match = re.search(r'\bsrc=["\'](?P<src>[^"\']+)["\']', embed, re.I)
-        if not src_match:
+        embed_soup = BeautifulSoup(embed, "html.parser")
+        frame = embed_soup.select_one("iframe[src], video[src], source[src]")
+        if not frame:
             continue
-        url = normalize_embed_url(normalize_url(base_url, html.unescape(src_match.group("src"))))
+        url = normalize_embed_url(normalize_url(base_url, html.unescape(frame.get("src", ""))))
         if url in seen:
             continue
         seen.add(url)
-        mirrors.append(Mirror(label=clean_text(option.group("label")), url=url, embed_html=embed.strip()))
+        mirrors.append(Mirror(label=clean_text(option.get_text(" ", strip=True)), url=url, embed_html=embed.strip()))
     return mirrors
 
 

@@ -61,6 +61,22 @@ class EpisodeCatalogTests(unittest.TestCase):
         self.assertEqual(show["_episode_catalog_state"], "loaded")
         self.assertEqual(show["_episode_ids"], [])
 
+    def test_episode_catalog_labels_are_preserved_for_provider_url_ids(self):
+        show = {"_id": "provider-1"}
+
+        self.ns["update_available_count_from_episode_ids"](
+            show,
+            "sub",
+            ["https://animexin.dev/show-episode-1/"],
+            labels={"https://animexin.dev/show-episode-1/": "1"},
+        )
+
+        self.assertEqual(
+            show["_episode_labels"],
+            {"https://animexin.dev/show-episode-1/": "1"},
+        )
+        self.assertEqual(show["_episode_labels_ttype"], "sub")
+
     def test_legacy_contiguous_cache_is_explicit_when_refresh_fails(self):
         def fail(*args, **kwargs):
             raise OSError("offline")

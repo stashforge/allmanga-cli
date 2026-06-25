@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 from ..domain.titles import extract_title_parts as _extract_title_parts
 from ..domain.titles import get_show_display_title
 from ..domain.titles import wrap_title as _wrap_title
+from ..domain.episodes import episode_label
 from ..core.terminal import fit_terminal_line as _fit_terminal_line
 from .poster import PosterManager
 from .covers import (
@@ -41,6 +42,7 @@ _player_ui_state: dict = {
     "active": False,
     "show": None,
     "current_ep": 0,
+    "current_ep_label": "",
     "total_eps": 0,
     "status_lines": [],
     "stream_info": {},
@@ -87,6 +89,7 @@ def activate(show: dict, current_ep: object, total_eps: int) -> None:
         "active": True,
         "show": show,
         "current_ep": current_ep,
+        "current_ep_label": "",
         "total_eps": total_eps,
         "status_lines": [],
         "stream_info": {},
@@ -175,7 +178,8 @@ def render(
     if sn:
         info_bits.append(f"Season {sn}")
     if s["current_ep"] and s["total_eps"]:
-        info_bits.append(f"Episode {s['current_ep']}/{s['total_eps']}")
+        label = s.get("current_ep_label") or str(s["current_ep"])
+        info_bits.append(f"{episode_label(s['current_ep'], {str(s['current_ep']): label})}/{s['total_eps']}")
     ep_str = " \u2022 ".join(info_bits)
 
     si = s.get("stream_info", {})
