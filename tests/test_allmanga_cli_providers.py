@@ -184,27 +184,24 @@ class AllAnimeProviderTests(unittest.TestCase):
             )
 
             self.assertEqual(provider.search("slime"), [])
-            self.assertEqual(
-                provider.get_title("show-id"),
-                {
-                    "_id": "show-id",
-                    "_provider": "allanime",
-                    "_provider_id": "show-id",
-                    "_provider_name": "AllAnime",
-                },
-            )
-            self.assertEqual(
-                provider.episode_catalog("show-id"),
-                {
-                    "state": "loaded",
-                    "ids": ["1"],
-                    "detail": {"sub": ["1"]},
-                    "error": "",
-                    "_provider": "allanime",
-                    "_provider_id": "show-id",
-                    "_provider_episode_ids": ["1"],
-                },
-            )
+            title = provider.get_title("show-id")
+            self.assertEqual(title["_id"], "show-id")
+            self.assertEqual(title["id"], "show-id")
+            self.assertEqual(title["_provider"], "allanime")
+            self.assertEqual(title["_provider_id"], "show-id")
+            self.assertEqual(title["_provider_name"], "AllAnime")
+            self.assertIn("availableEpisodes", title)
+            self.assertIn("availableEpisodesDetail", title)
+
+            catalog = provider.episode_catalog("show-id")
+            self.assertEqual(catalog["state"], "loaded")
+            self.assertEqual(catalog["ids"], ["1"])
+            self.assertEqual(catalog["detail"], {"sub": ["1"]})
+            self.assertEqual(catalog["labels"], {"1": "1"})
+            self.assertEqual(catalog["episodes"]["sub"][0]["id"], "1")
+            self.assertEqual(catalog["_provider"], "allanime")
+            self.assertEqual(catalog["_provider_id"], "show-id")
+            self.assertEqual(catalog["_provider_episode_ids"], ["1"])
             self.assertEqual(
                 provider.episode_sources("show-id", "1"),
                 {
