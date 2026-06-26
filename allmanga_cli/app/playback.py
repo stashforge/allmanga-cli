@@ -275,7 +275,8 @@ def handle_play_state(
         "total_eps": ms.total_eps,
         "status_lines": [],
         "stream_info": {},
-        "mpv_props": None
+        "mpv_props": None,
+        "_cleared_terminal_image": False,
     })
 
     # Try to trigger the render function from ui module directly if we can't use globals

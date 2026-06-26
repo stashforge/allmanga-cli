@@ -94,6 +94,7 @@ def activate(show: dict, current_ep: object, total_eps: int) -> None:
         "status_lines": [],
         "stream_info": {},
         "mpv_props": None,
+        "_cleared_terminal_image": False,
     })
 
 
@@ -266,9 +267,13 @@ def render(
         out.append(f"\033[2K{_fit_terminal_line(line, w)}")
 
     if out:
+        clear_images = ""
+        if not s.get("_cleared_terminal_image"):
+            clear_images = terminal_images.clear_if_active()
+            s["_cleared_terminal_image"] = True
         overlay = f"\033[1;1H{native_poster}" if native_poster else ""
         sys.stdout.write(
-            "\033[H" + "\r\n".join(out) + "\033[J"
+            clear_images + "\033[H" + "\r\n".join(out) + "\033[J"
             + overlay + "\033[1;1H\033[?25l"
         )
         sys.stdout.flush()
