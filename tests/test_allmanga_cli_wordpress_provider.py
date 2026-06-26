@@ -74,6 +74,23 @@ class WordPressProviderTests(unittest.TestCase):
             "https://nas2.d.tube/videos/f56ea345-c383-4ec3-b7cd-5f81ba94114b/master.m3u8",
         )
 
+    def test_parse_mirrors_prioritizes_english_then_neutral_then_other_languages(self):
+        page = f'''
+        <select class="mirror">
+          <option value="{encoded_iframe('https://ok.ru/videoembed/1')}">Indonesia Ok</option>
+          <option value="{encoded_iframe('https://www.dailymotion.com/embed/video/xabc')}">English Dailymotion</option>
+          <option value="{encoded_iframe('https://rumble.com/embed/vabc/')}">All Rumble</option>
+          <option value="{encoded_iframe('https://example.com/embed')}">Other</option>
+        </select>
+        '''
+
+        mirrors = parse_mirrors("https://animexin.dev", page)
+
+        self.assertEqual(
+            [mirror.label for mirror in mirrors],
+            ["English Dailymotion", "All Rumble", "Other", "Indonesia Ok"],
+        )
+
     def test_parse_series_reads_episode_urls(self):
         page = '''
         <div class="eplister">

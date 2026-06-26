@@ -177,7 +177,46 @@ def parse_mirrors(base_url: str, page_html: str) -> list[Mirror]:
             continue
         seen.add(url)
         mirrors.append(Mirror(label=clean_text(option.get_text(" ", strip=True)), url=url, embed_html=embed.strip()))
-    return mirrors
+    return sort_mirrors(mirrors)
+
+
+def sort_mirrors(mirrors: list[Mirror]) -> list[Mirror]:
+    return [
+        mirror
+        for _, mirror in sorted(
+            enumerate(mirrors),
+            key=lambda item: (
+                _mirror_language_rank(item[1]),
+                _mirror_host_rank(item[1]),
+                item[0],
+            ),
+        )
+    ]
+
+
+def _mirror_language_rank(mirror: Mirror) -> int:
+    label = mirror.label.casefold()
+    if re.search(r"\b(?:eng|english)\b", label):
+        return 0
+    if re.search(
+        r"\b(?:indo|indonesia|indonesian|raw|arabic|hindi|malay|spanish|portuguese)\b",
+        label,
+    ):
+        return 2
+    return 1
+
+
+def _mirror_host_rank(mirror: Mirror) -> int:
+    value = f"{mirror.label} {mirror.url}".casefold()
+    if "rumble.com" in value or "rumble" in value:
+        return 0
+    if "dailymotion.com" in value or "dailymotion" in value:
+        return 1
+    if ".m3u8" in value or "odysee.com" in value or "d.tube" in value:
+        return 2
+    if "ok.ru" in value:
+        return 5
+    return 4
 
 
 def normalize_embed_url(url: str) -> str:
