@@ -269,6 +269,7 @@ class WordPressAnimeProvider:
     id = ""
     name = ""
     base_url = ""
+    blocked_mirror_label_pattern = None
 
     def __init__(self, fetch: Callable[[str], str] = fetch_html):
         self._fetch = fetch
@@ -310,6 +311,8 @@ class WordPressAnimeProvider:
         page = parse_episode(self.base_url, self._fetch(episode))
         sources = []
         for mirror in page.mirrors:
+            if self._skip_mirror(mirror):
+                continue
             stream_type = "hls" if ".m3u8" in mirror.url else "external"
             if stream_type == "hls":
                 source = build_direct_source(
@@ -329,6 +332,12 @@ class WordPressAnimeProvider:
                 )
             sources.append(source)
         return {"episode": {"sourceUrls": sources}}
+
+    def _skip_mirror(self, mirror: Mirror) -> bool:
+        pattern = self.blocked_mirror_label_pattern
+        if not pattern:
+            return False
+        return bool(re.search(pattern, mirror.label, re.I))
 
     def browser_url(
         self,

@@ -187,6 +187,27 @@ class WordPressProviderTests(unittest.TestCase):
         self.assertEqual(source["type"], "embed")
         self.assertEqual(source["_source_kind"], "embed")
 
+    def test_animexin_provider_filters_indonesian_mirrors(self):
+        pages = {
+            "https://animexin.dev/renegade-immortal-episode-1/": f'''
+                <h1 class="entry-title">Renegade Immortal Episode 1</h1>
+                <option value="{encoded_iframe('https://rumble.com/embed/veng/')}">Hardsub English Rumble</option>
+                <option value="{encoded_iframe('https://rumble.com/embed/vido/')}">Hardsub Indonesia Rumble</option>
+                <option value="{encoded_iframe('https://ok.ru/videoembed/1')}">Indo Ok</option>
+            ''',
+        }
+        provider = AnimeXinProvider(fetch=lambda url: pages[url])
+
+        sources = provider.episode_sources(
+            "https://animexin.dev/renegade-immortal/",
+            "https://animexin.dev/renegade-immortal-episode-1/",
+        )["episode"]["sourceUrls"]
+
+        self.assertEqual(
+            [source["sourceName"] for source in sources],
+            ["Hardsub English Rumble"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

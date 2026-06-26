@@ -17,6 +17,7 @@ class AnimeXinProvider(WordPressAnimeProvider):
     id = "animexin"
     name = "AnimeXin"
     base_url = "https://animexin.dev"
+    blocked_mirror_label_pattern = r"\b(?:indo|indonesia|indonesian)\b"
 
     def __init__(self, request_json_fn=None, fetch=None, ajax_fetch=None):
         del request_json_fn
