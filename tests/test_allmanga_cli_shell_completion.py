@@ -18,7 +18,7 @@ class ShellCompletionTests(unittest.TestCase):
             script,
         )
         self.assertIn("animexin", script)
-        self.assertIn("luciferdonghua", script)
+        self.assertIn("lucifer", script)
         self.assertIn("--sync", script)
         self.assertIn("--no-sync", script)
         self.assertIn("-P", script)
@@ -30,8 +30,8 @@ class ShellCompletionTests(unittest.TestCase):
 
         self.assertIn('compgen -W "best 1080p 720p 480p"', script)
         self.assertIn('compgen -W "mpv mpvex vlc next"', script)
-        self.assertIn("luciferdonghua", script)
-        self.assertIn("allanime|animexin|luciferdonghua)", script)
+        self.assertIn("lucifer", script)
+        self.assertIn("allanime|animexin|lucifer)", script)
         self.assertIn('compgen -W "search"', script)
         self.assertIn('if [[ "$cmd" == "completion" ]]', script)
         self.assertIn('if [[ "$cmd" == "auth" ]]', script)
@@ -45,6 +45,8 @@ class ShellCompletionTests(unittest.TestCase):
                 self.assertIn("watching", script)
                 self.assertIn("rewatching", script)
                 self.assertIn("airing", script)
+                self.assertIn("animexin", script)
+                self.assertIn("lucifer", script)
                 self.assertIn("completion", script)
 
     def test_completion_install_paths_are_user_local(self):

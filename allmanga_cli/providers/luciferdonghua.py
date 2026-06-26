@@ -6,7 +6,7 @@ from .animexin import AnimeXinProvider
 
 
 class LuciferDonghuaProvider(AnimeXinProvider):
-    id = "luciferdonghua"
+    id = "lucifer"
     name = "LuciferDonghua"
     base_url = "https://luciferdonghua.in"
 

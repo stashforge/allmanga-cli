@@ -20,10 +20,10 @@ class WordPressProviderTests(unittest.TestCase):
         self.assertEqual(provider_key("animexin"), "animexin")
         self.assertIsInstance(get_provider("animexin"), AnimeXinProvider)
 
-    def test_luciferdonghua_is_auto_discovered(self):
-        self.assertEqual(provider_key("luciferdonghua"), "luciferdonghua")
+    def test_lucifer_is_auto_discovered(self):
+        self.assertEqual(provider_key("lucifer"), "lucifer")
         self.assertIsInstance(
-            get_provider("luciferdonghua"),
+            get_provider("lucifer"),
             LuciferDonghuaProvider,
         )
 
@@ -66,7 +66,7 @@ class WordPressProviderTests(unittest.TestCase):
         self.assertEqual(results[0]["availableEpisodes"]["sub"], 3)
         self.assertEqual(results[0]["_provider_genres"], "Action, Adventure")
 
-    def test_luciferdonghua_reuses_wordpress_ajax_shape(self):
+    def test_lucifer_reuses_wordpress_ajax_shape(self):
         provider = LuciferDonghuaProvider(
             ajax_fetch=lambda _query: {
                 "anime": [{
@@ -85,7 +85,7 @@ class WordPressProviderTests(unittest.TestCase):
 
         results = provider.search("renegade")
 
-        self.assertEqual(results[0]["_provider"], "luciferdonghua")
+        self.assertEqual(results[0]["_provider"], "lucifer")
         self.assertEqual(results[0]["_provider_name"], "LuciferDonghua")
         self.assertEqual(
             results[0]["_provider_id"],
