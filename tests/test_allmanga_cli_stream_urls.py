@@ -286,6 +286,49 @@ class StreamUrlTests(unittest.TestCase):
             ["800p", "534p", "268p"],
         )
 
+    def test_rumble_selected_best_url_is_kept_and_marked_hls(self):
+        streams = ytdlp_extractor.streams_from_ytdlp_data(
+            {
+                "url": (
+                    "https://hugh.cdn.rumble.cloud/video/file.tar?"
+                    "r_file=chunklist.m3u8&r_type=application%2Fvnd.apple.mpegurl"
+                ),
+                "protocol": "m3u8_native",
+                "width": 1280,
+                "height": 534,
+                "tbr": 2134,
+                "formats": [
+                    {
+                        "url": "https://cdn.example.test/low.tar?r_file=chunklist.m3u8",
+                        "protocol": "m3u8_native",
+                        "width": 640,
+                        "height": 268,
+                        "tbr": 222,
+                    },
+                    {
+                        "url": "https://cdn.example.test/high.tar?r_file=chunklist.m3u8",
+                        "protocol": "m3u8_native",
+                        "width": 1280,
+                        "height": 534,
+                        "tbr": 2134,
+                    },
+                ],
+            },
+            url="https://rumble.com/embed/vabc/",
+            name="Rumble",
+            priority=8,
+        )
+
+        self.assertEqual(streams[0]["source_name"], "Rumble Best (1280x534)")
+        self.assertEqual(streams[0]["type"], "hls")
+        self.assertEqual(streams[0]["resolution"], "1280x534")
+        self.assertEqual(
+            streams[0]["link"],
+            "https://hugh.cdn.rumble.cloud/video/file.tar?"
+            "r_file=chunklist.m3u8&r_type=application%2Fvnd.apple.mpegurl",
+        )
+        self.assertNotIn("640x268", [stream["resolution"] for stream in streams])
+
     def test_dailymotion_ytdlp_retries_before_giving_up(self):
         globals_dict = ytdlp_extractor.__dict__
         original_which = globals_dict["shutil"].which

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import urllib.parse
 
 from ..core.processes import read_bounded_process_stdout
 from .dailymotion import is_dailymotion_url, select_dailymotion_av_pair, stream_type_from_url
@@ -22,7 +23,7 @@ def resolve_ytdlp_embed(url: str, *, name: str, priority: int, ok, warn) -> list
     for attempt in range(1, attempts + 1):
         try:
             process = subprocess.Popen(
-                ["yt-dlp", "-j", "--no-warnings", url],
+                ["yt-dlp", "-j", "--no-warnings", "-f", "b", url],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
             )
@@ -49,10 +50,102 @@ def resolve_ytdlp_embed(url: str, *, name: str, priority: int, ok, warn) -> list
     return streams
 
 
-def _stream_height(stream: dict) -> int:
-    text = str(stream.get("resolution") or "")
-    digits = "".join(ch for ch in text if ch.isdigit())
-    return int(digits) if digits else 0
+def _stream_score(stream: dict) -> tuple[int, int]:
+    return int(stream.get("_quality_rank") or 0), int(stream.get("_bitrate") or 0)
+
+
+def _stream_type(item: dict, stream_url: str) -> str:
+    protocol = str(item.get("protocol") or "").casefold()
+    manifest_url = str(item.get("manifest_url") or "")
+    parsed = urllib.parse.urlparse(str(stream_url or ""))
+    query = urllib.parse.unquote(parsed.query).casefold()
+    path = urllib.parse.unquote(parsed.path).casefold()
+    if "m3u8" in protocol or ".m3u8" in path or ".m3u8" in query or manifest_url:
+        return "hls"
+    return stream_type_from_url(stream_url)
+
+
+def _resolution_label(item: dict) -> str:
+    width = int(item.get("width") or 0)
+    height = int(item.get("height") or 0)
+    if width and height and width >= 1000 and height and height < 720:
+        return f"{width}x{height}"
+    if height:
+        return f"{height}p"
+    return str(item.get("resolution") or "Adaptive")
+
+
+def _quality_rank(item: dict) -> int:
+    width = int(item.get("width") or 0)
+    height = int(item.get("height") or 0)
+    if width and height:
+        return width * height
+    return height
+
+
+def _bitrate(item: dict) -> int:
+    return int(float(item.get("tbr") or item.get("vbr") or item.get("abr") or 0))
+
+
+def _headers_and_referer(item: dict, data: dict) -> tuple[dict, str]:
+    headers = proxy_filtered_headers(
+        item.get("http_headers", data.get("http_headers", {}))
+    )
+    referer = headers.get("Referer", "")
+    try:
+        referer = validate_optional_referer(referer)
+    except ValueError:
+        referer = ""
+        headers = {
+            key: value
+            for key, value in headers.items()
+            if key.casefold() != "referer"
+        }
+    return headers, referer
+
+
+def _stream_from_format(
+        item: dict,
+        data: dict,
+        *,
+        name: str,
+        priority: int,
+        best: bool = False) -> dict | None:
+    stream_url = item.get("url")
+    if not stream_url:
+        return None
+    if item.get("acodec") == "none" and item.get("vcodec") == "none":
+        return None
+    try:
+        stream_url = validate_stream_url(stream_url)
+    except ValueError:
+        return None
+    stream_type = _stream_type(item, stream_url)
+    headers, referer = _headers_and_referer(item, data)
+    resolution = _resolution_label(item)
+    label = f"{name} Best ({resolution})" if best else f"{name} ({resolution})"
+    return {
+        "source_name": label,
+        "link": stream_url,
+        "type": stream_type,
+        "resolution": resolution,
+        "referer": referer,
+        "headers": headers,
+        "source_priority": priority,
+        "android_safe": stream_type == "mp4" or (
+            stream_type == "hls" and bool(referer or headers)
+        ),
+        "_quality_rank": _quality_rank(item),
+        "_bitrate": _bitrate(item),
+    }
+
+
+def _is_useful_variant(stream: dict) -> bool:
+    resolution = str(stream.get("resolution") or "")
+    if "x" in resolution:
+        width = int(resolution.split("x", 1)[0] or 0)
+        return width >= 1280
+    return int(stream.get("_quality_rank") or 0) >= 1280 * 720
 
 
 def streams_from_ytdlp_data(data: dict, *, url: str, name: str, priority: int) -> list[dict]:
@@ -84,64 +177,25 @@ def streams_from_ytdlp_data(data: dict, *, url: str, name: str, priority: int) -
                     "dailymotion_height": video.get("height") or 720,
                     "dailymotion_bandwidth": video.get("tbr") or video.get("vbr") or 2400,
                 })
-    if formats:
-        for item in ([] if streams else formats):
-            stream_url = item.get("url")
-            if (
-                not stream_url
-                or item.get("acodec") == "none"
-                or item.get("vcodec") == "none"
-            ):
-                continue
-            try:
-                stream_url = validate_stream_url(stream_url)
-            except ValueError:
-                continue
-            height = item.get("height")
-            stream_type = stream_type_from_url(stream_url)
-            headers = proxy_filtered_headers(
-                item.get("http_headers", data.get("http_headers", {}))
-            )
-            referer = headers.get("Referer", "")
-            try:
-                referer = validate_optional_referer(referer)
-            except ValueError:
-                referer = ""
-                headers = {
-                    key: value
-                    for key, value in headers.items()
-                    if key.casefold() != "referer"
-                }
-            streams.append({
-                "source_name": f"{name} ({height}p)" if height else name,
-                "link": stream_url,
-                "type": stream_type,
-                "resolution": f"{height}p" if height else "Adaptive",
-                "referer": referer,
-                "headers": headers,
-                "source_priority": priority,
-                "android_safe": stream_type == "mp4" or (
-                    stream_type == "hls" and bool(referer or headers)
-                ),
-            })
-    else:
-        stream_url = data.get("url")
-        if stream_url:
-            try:
-                stream_url = validate_stream_url(stream_url)
-            except ValueError:
-                stream_url = ""
-            if stream_url:
-                stream_type = stream_type_from_url(stream_url)
-                streams.append({
-                    "source_name": name,
-                    "link": stream_url,
-                    "type": stream_type,
-                    "resolution": "Adaptive",
-                    "referer": "",
-                    "headers": {},
-                    "source_priority": priority,
-                    "android_safe": stream_type == "mp4",
-                })
-    streams.sort(key=_stream_height, reverse=True)
+    if not is_dailymotion_url(url):
+        best_stream = _stream_from_format(
+            data,
+            data,
+            name=name,
+            priority=priority,
+            best=True,
+        )
+        if best_stream:
+            streams.append(best_stream)
+    if formats and not (streams and is_dailymotion_url(url)):
+        candidates = [
+            stream
+            for item in formats
+            if (stream := _stream_from_format(item, data, name=name, priority=priority))
+        ]
+        useful = [stream for stream in candidates if _is_useful_variant(stream)]
+        for stream in useful or candidates:
+            if not any(existing.get("link") == stream.get("link") for existing in streams):
+                streams.append(stream)
+    streams.sort(key=_stream_score, reverse=True)
     return streams
