@@ -18,12 +18,13 @@ def resolve_ytdlp_embed(url: str, *, name: str, priority: int, ok, warn) -> list
         warn(f"[{name}] yt-dlp not found, skipping embed")
         return []
     attempts = 3 if is_dailymotion_url(url) else 1
+    command = ["yt-dlp", "-j", "--no-warnings", url]
     data = None
     last_error = ""
     for attempt in range(1, attempts + 1):
         try:
             process = subprocess.Popen(
-                ["yt-dlp", "-j", "--no-warnings", "-f", "b", url],
+                command,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
             )
