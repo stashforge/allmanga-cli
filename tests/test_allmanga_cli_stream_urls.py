@@ -327,6 +327,40 @@ class StreamUrlTests(unittest.TestCase):
         )
         self.assertNotIn("640x268", [stream["resolution"] for stream in streams])
 
+    def test_manifest_url_is_added_as_adaptive_stream_after_qualities(self):
+        streams = ytdlp_extractor.streams_from_ytdlp_data(
+            {
+                "formats": [
+                    {
+                        "url": "https://cdn.example.test/720.m3u8",
+                        "manifest_url": "https://cdn.example.test/master.m3u8",
+                        "protocol": "m3u8_native",
+                        "width": 1280,
+                        "height": 720,
+                        "tbr": 2400,
+                    },
+                    {
+                        "url": "https://cdn.example.test/1080.m3u8",
+                        "manifest_url": "https://cdn.example.test/master.m3u8",
+                        "protocol": "m3u8_native",
+                        "width": 1920,
+                        "height": 1080,
+                        "tbr": 5000,
+                    },
+                ],
+            },
+            url="https://ok.ru/videoembed/1",
+            name="Ok",
+            priority=8,
+        )
+
+        self.assertEqual(
+            [stream["resolution"] for stream in streams],
+            ["1080p", "720p", "Adaptive"],
+        )
+        self.assertEqual(streams[-1]["link"], "https://cdn.example.test/master.m3u8")
+        self.assertEqual(streams[-1]["source_name"], "Ok [HLS] Adaptive")
+
     def test_ytdlp_headers_are_not_promoted_to_playback_headers(self):
         streams = ytdlp_extractor.streams_from_ytdlp_data(
             {

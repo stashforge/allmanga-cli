@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import sys
+import hashlib
 from typing import TYPE_CHECKING
 
 from ..domain.titles import extract_title_parts as _extract_title_parts
@@ -95,6 +96,7 @@ def activate(show: dict, current_ep: object, total_eps: int) -> None:
         "stream_info": {},
         "mpv_props": None,
         "_cleared_terminal_image": False,
+        "_last_poster_key": None,
     })
 
 
@@ -196,9 +198,8 @@ def render(
 
     content = []
 
-    # Incognito indicator
-    from ..app._app_helpers import is_incognito_fn  # lazy import to avoid circular
     try:
+        from ..app._app_helpers import is_incognito_fn  # lazy import to avoid circular
         if is_incognito_fn and is_incognito_fn():
             content.append("\033[1;33mINCOGNITO\033[0m")
             content.append("")
@@ -253,15 +254,25 @@ def render(
         poster_raw = poster_manager.get(show) or ""
 
     native_poster = poster_raw if _poster_uses_native_protocol(poster_raw) else ""
-    if native_poster:
+    poster_key = (
+        hashlib.sha256(poster_raw.encode("utf-8", errors="ignore")).hexdigest()
+        if poster_raw
+        else None
+    )
+    poster_changed = poster_key != s.get("_last_poster_key")
+    s["_last_poster_key"] = poster_key
+    if native_poster and poster_changed:
         terminal_images.mark_active()
     poster_lines = _poster_symbol_lines(poster_raw, POSTER_HEIGHT, w)
     out = []
 
     if poster_raw:
         for row in range(POSTER_HEIGHT):
-            line = poster_lines[row] if row < len(poster_lines) else ""
-            out.append(f"\033[2K{line}")
+            if poster_changed:
+                line = poster_lines[row] if row < len(poster_lines) else ""
+                out.append(f"\033[2K{line}")
+            else:
+                out.append("")
 
     for line in content:
         out.append(f"\033[2K{_fit_terminal_line(line, w)}")
@@ -271,7 +282,7 @@ def render(
         if not s.get("_cleared_terminal_image"):
             clear_images = terminal_images.clear_if_active()
             s["_cleared_terminal_image"] = True
-        overlay = f"\033[1;1H{native_poster}" if native_poster else ""
+        overlay = f"\033[1;1H{native_poster}" if native_poster and poster_changed else ""
         sys.stdout.write(
             clear_images + "\033[H" + "\r\n".join(out) + "\033[J"
             + overlay + "\033[1;1H\033[?25l"

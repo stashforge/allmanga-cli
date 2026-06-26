@@ -191,6 +191,34 @@ def _stream_from_format(
     return stream
 
 
+def _manifest_stream_from_format(
+        item: dict,
+        *,
+        name: str,
+        priority: int) -> dict | None:
+    manifest_url = item.get("manifest_url")
+    if not manifest_url:
+        return None
+    try:
+        manifest_url = validate_stream_url(manifest_url)
+    except ValueError:
+        return None
+    if ".m3u8" not in urllib.parse.urlparse(manifest_url).path.casefold():
+        return None
+    return {
+        "source_name": f"{name} [HLS] Adaptive",
+        "link": manifest_url,
+        "type": "hls",
+        "resolution": "Adaptive",
+        "referer": "",
+        "headers": {},
+        "source_priority": priority,
+        "android_safe": True,
+        "_quality_rank": 0,
+        "_bitrate": 0,
+    }
+
+
 def streams_from_ytdlp_data(data: dict, *, url: str, name: str, priority: int) -> list[dict]:
     formats = data.get("formats", [])
     _is_dm = is_dailymotion_url(url)
@@ -224,4 +252,19 @@ def streams_from_ytdlp_data(data: dict, *, url: str, name: str, priority: int) -
         streams.append(stream)
 
     streams.sort(key=_stream_score, reverse=True)
+    for item in formats:
+        if not _is_video_format(item):
+            continue
+        stream = _manifest_stream_from_format(
+            item,
+            name=name,
+            priority=priority,
+        )
+        if not stream:
+            continue
+        link = stream.get("link", "")
+        if link in seen_urls:
+            continue
+        seen_urls.add(link)
+        streams.append(stream)
     return streams
