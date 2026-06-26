@@ -36,6 +36,19 @@ def _compact_stream(stream: dict) -> dict:
     }
 
 
+def _compact_source(source: dict) -> dict:
+    return {
+        "sourceName": source.get("sourceName"),
+        "sourceUrl": source.get("sourceUrl"),
+        "link": source.get("link") or source.get("streamUrl"),
+        "type": source.get("type"),
+        "referer": source.get("referer"),
+        "headers": source.get("headers"),
+        "extractHeaders": source.get("extractHeaders"),
+        "_source_kind": source.get("_source_kind"),
+    }
+
+
 def _print_json(value: object) -> None:
     print(json.dumps(value, indent=2, ensure_ascii=False))
 
@@ -131,6 +144,13 @@ def main(argv: list[str] | None = None) -> int:
     print(f"\nSOURCES ({len(sources)})")
     for index, source in enumerate(sources, 1):
         print(f"{index:2}. prio={source_priority(source)} {source.get('sourceName')} -> {source.get('sourceUrl')}")
+        source_referer = source.get("referer") or ""
+        print(
+            "    source playback: "
+            f"referer={source_referer!r} "
+            f"headers={source.get('headers') or {}} "
+            f"extractHeaders={source.get('extractHeaders') or {}}"
+        )
 
     selected_sources = [sources[args.source_index - 1]] if args.source_index else sources
     final_streams = []
@@ -143,7 +163,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{index:2}. {compact['source_name']} [{compact['type']}] {compact['resolution']}")
             print(f"    link: {compact['link']}")
             print(f"    audio: {compact['audio_url']}")
-            print(f"    referer: {compact['referer']} headers: {compact['headers']}")
+            stream_referer = compact["referer"] or ""
+            print(f"    stream playback: referer={stream_referer!r} headers={compact['headers'] or {}}")
         final_streams.extend(streams)
 
     selected_stream = _select(final_streams, args.stream_index)
@@ -151,6 +172,7 @@ def main(argv: list[str] | None = None) -> int:
         _print_json({
             "title": title,
             "episode_id": episode_id,
+            "sources": [_compact_source(source) for source in selected_sources],
             "stream": _compact_stream(selected_stream),
         })
 

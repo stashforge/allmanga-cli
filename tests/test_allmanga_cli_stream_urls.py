@@ -327,6 +327,35 @@ class StreamUrlTests(unittest.TestCase):
         )
         self.assertNotIn("640x268", [stream["resolution"] for stream in streams])
 
+    def test_ytdlp_headers_are_not_promoted_to_playback_headers(self):
+        streams = ytdlp_extractor.streams_from_ytdlp_data(
+            {
+                "http_headers": {
+                    "User-Agent": "Browser UA",
+                    "Referer": "https://embed.example/watch",
+                },
+                "formats": [
+                    {
+                        "url": "https://cdn.example.test/video.m3u8",
+                        "protocol": "m3u8_native",
+                        "width": 1280,
+                        "height": 720,
+                        "tbr": 2134,
+                        "http_headers": {
+                            "Referer": "https://format.example/watch",
+                        },
+                    },
+                ],
+            },
+            url="https://rumble.com/embed/vabc/",
+            name="Rumble",
+            priority=8,
+        )
+
+        self.assertEqual(streams[0]["referer"], "")
+        self.assertEqual(streams[0]["headers"], {})
+        self.assertTrue(streams[0]["android_safe"])
+
     def test_video_only_format_gets_audio_url(self):
         streams = ytdlp_extractor.streams_from_ytdlp_data(
             {

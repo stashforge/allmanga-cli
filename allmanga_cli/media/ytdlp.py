@@ -9,8 +9,7 @@ import urllib.parse
 
 from ..core.processes import read_bounded_process_stdout
 from .dailymotion import is_dailymotion_url, stream_type_from_url
-from .proxy_rules import proxy_filtered_headers
-from .urls import validate_optional_referer, validate_stream_url
+from .urls import validate_stream_url
 
 
 def resolve_ytdlp_embed(url: str, *, name: str, priority: int, ok, warn) -> list[dict]:
@@ -99,18 +98,6 @@ def _bitrate(item: dict) -> int:
     return int(float(item.get("tbr") or item.get("vbr") or item.get("abr") or 0))
 
 
-def _headers_and_referer(item: dict, data: dict) -> tuple[dict, str]:
-    raw_headers = proxy_filtered_headers(
-        item.get("http_headers", data.get("http_headers", {}))
-    )
-    referer = raw_headers.get("Referer", "") or raw_headers.get("referer", "")
-    try:
-        referer = validate_optional_referer(referer)
-    except ValueError:
-        referer = ""
-    return {}, referer
-
-
 def _find_best_audio(formats: list[dict]) -> dict | None:
     """Find the best audio-only format."""
     audio_formats = [
@@ -162,7 +149,6 @@ def _stream_from_format(
         return None
 
     stream_type = _stream_type(item, stream_url)
-    headers, referer = _headers_and_referer(item, data)
     resolution = _resolution_label(item)
     label = f"{name} ({resolution})"
 
@@ -172,11 +158,11 @@ def _stream_from_format(
         "link": stream_url,
         "type": stream_type,
         "resolution": resolution,
-        "referer": referer,
-        "headers": headers,
+        "referer": "",
+        "headers": {},
         "source_priority": priority,
         "android_safe": not needs_audio and (
-            stream_type == "mp4" or (stream_type == "hls" and not (referer or headers))
+            stream_type in {"mp4", "hls"}
         ),
         "_quality_rank": _quality_rank(item),
         "_bitrate": _bitrate(item),
