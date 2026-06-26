@@ -252,6 +252,71 @@ class StreamUrlTests(unittest.TestCase):
         self.assertEqual(streams[0]["type"], "mp4")
         self.assertTrue(streams[0]["android_safe"])
 
+    def test_generic_embed_streams_are_best_quality_first(self):
+        streams = ytdlp_extractor.streams_from_ytdlp_data(
+            {
+                "formats": [
+                    {
+                        "url": "https://cdn.example.test/268.mp4",
+                        "vcodec": "avc1",
+                        "acodec": "aac",
+                        "height": 268,
+                    },
+                    {
+                        "url": "https://cdn.example.test/800.mp4",
+                        "vcodec": "avc1",
+                        "acodec": "aac",
+                        "height": 800,
+                    },
+                    {
+                        "url": "https://cdn.example.test/534.mp4",
+                        "vcodec": "avc1",
+                        "acodec": "aac",
+                        "height": 534,
+                    },
+                ],
+            },
+            url="https://rumble.com/embed/vabc/",
+            name="Rumble",
+            priority=8,
+        )
+
+        self.assertEqual(
+            [stream["resolution"] for stream in streams],
+            ["800p", "534p", "268p"],
+        )
+
+    def test_dailymotion_ytdlp_retries_before_giving_up(self):
+        globals_dict = ytdlp_extractor.__dict__
+        original_which = globals_dict["shutil"].which
+        original_popen = globals_dict["subprocess"].Popen
+        original_read = globals_dict["read_bounded_process_stdout"]
+        calls = []
+
+        class Process:
+            returncode = 1
+
+        try:
+            globals_dict["shutil"].which = lambda name: "/usr/bin/yt-dlp"
+            globals_dict["subprocess"].Popen = lambda *args, **kwargs: (
+                calls.append(args) or Process()
+            )
+            globals_dict["read_bounded_process_stdout"] = lambda *args, **kwargs: b""
+            streams = ytdlp_extractor.resolve_ytdlp_embed(
+                "https://www.dailymotion.com/video/xabc",
+                name="Dailymotion",
+                priority=8,
+                ok=lambda _message: None,
+                warn=lambda _message: None,
+            )
+        finally:
+            globals_dict["shutil"].which = original_which
+            globals_dict["subprocess"].Popen = original_popen
+            globals_dict["read_bounded_process_stdout"] = original_read
+
+        self.assertEqual(streams, [])
+        self.assertEqual(len(calls), 3)
+
     def test_pre_resolved_provider_stream_rejects_unsafe_url(self):
         streams = stream_resolver.resolve_source(
             {

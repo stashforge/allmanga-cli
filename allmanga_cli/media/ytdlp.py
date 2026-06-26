@@ -16,27 +16,43 @@ def resolve_ytdlp_embed(url: str, *, name: str, priority: int, ok, warn) -> list
     if not shutil.which("yt-dlp"):
         warn(f"[{name}] yt-dlp not found, skipping embed")
         return []
-    try:
-        process = subprocess.Popen(
-            ["yt-dlp", "-j", "--no-warnings", url],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-        )
-        output = read_bounded_process_stdout(process, timeout=20)
-        if process.returncode != 0:
-            return []
-        data = json.loads(output)
-    except subprocess.TimeoutExpired:
-        warn(f"[{name}] yt-dlp timed out")
-        return []
-    except Exception as exc:
-        warn(f"[{name}] yt-dlp failed: {exc}")
+    attempts = 3 if is_dailymotion_url(url) else 1
+    data = None
+    last_error = ""
+    for attempt in range(1, attempts + 1):
+        try:
+            process = subprocess.Popen(
+                ["yt-dlp", "-j", "--no-warnings", url],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+            )
+            output = read_bounded_process_stdout(process, timeout=20)
+            if process.returncode != 0:
+                last_error = f"yt-dlp exited with {process.returncode}"
+                continue
+            data = json.loads(output)
+            break
+        except subprocess.TimeoutExpired:
+            last_error = "yt-dlp timed out"
+        except Exception as exc:
+            last_error = f"yt-dlp failed: {exc}"
+        if attempt < attempts:
+            warn(f"[{name}] {last_error}; retrying")
+    if data is None:
+        if last_error:
+            warn(f"[{name}] {last_error}")
         return []
 
     streams = streams_from_ytdlp_data(data, url=url, name=name, priority=priority)
     if streams:
         ok(f"[{name}] yt-dlp found {len(streams)} stream(s)")
     return streams
+
+
+def _stream_height(stream: dict) -> int:
+    text = str(stream.get("resolution") or "")
+    digits = "".join(ch for ch in text if ch.isdigit())
+    return int(digits) if digits else 0
 
 
 def streams_from_ytdlp_data(data: dict, *, url: str, name: str, priority: int) -> list[dict]:
@@ -127,4 +143,5 @@ def streams_from_ytdlp_data(data: dict, *, url: str, name: str, priority: int) -
                     "source_priority": priority,
                     "android_safe": stream_type == "mp4",
                 })
+    streams.sort(key=_stream_height, reverse=True)
     return streams
