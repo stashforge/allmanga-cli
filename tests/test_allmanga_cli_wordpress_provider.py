@@ -3,6 +3,7 @@ import unittest
 
 from allmanga_cli.providers import get_provider, provider_key
 from allmanga_cli.providers.animexin import AnimeXinProvider
+from allmanga_cli.providers.luciferdonghua import LuciferDonghuaProvider
 from allmanga_cli.providers.wordpress import (
     parse_mirrors,
     parse_series,
@@ -18,6 +19,13 @@ class WordPressProviderTests(unittest.TestCase):
     def test_animexin_is_auto_discovered(self):
         self.assertEqual(provider_key("animexin"), "animexin")
         self.assertIsInstance(get_provider("animexin"), AnimeXinProvider)
+
+    def test_luciferdonghua_is_auto_discovered(self):
+        self.assertEqual(provider_key("luciferdonghua"), "luciferdonghua")
+        self.assertIsInstance(
+            get_provider("luciferdonghua"),
+            LuciferDonghuaProvider,
+        )
 
     def test_animexin_ignores_registry_request_json_argument(self):
         provider = AnimeXinProvider(
@@ -57,6 +65,33 @@ class WordPressProviderTests(unittest.TestCase):
         self.assertEqual(results[0]["thumbnail"], "https://animexin.dev/poster.jpg")
         self.assertEqual(results[0]["availableEpisodes"]["sub"], 3)
         self.assertEqual(results[0]["_provider_genres"], "Action, Adventure")
+
+    def test_luciferdonghua_reuses_wordpress_ajax_shape(self):
+        provider = LuciferDonghuaProvider(
+            ajax_fetch=lambda _query: {
+                "anime": [{
+                    "all": [{
+                        "ID": 10,
+                        "post_title": "Renegade Immortal",
+                        "post_link": "https://luciferdonghua.in/renegade-immortal/",
+                        "post_image": "https://luciferdonghua.in/poster.jpg",
+                        "post_type": "ONA",
+                        "post_latest": "142",
+                        "post_sub": "Sub",
+                    }],
+                }],
+            },
+        )
+
+        results = provider.search("renegade")
+
+        self.assertEqual(results[0]["_provider"], "luciferdonghua")
+        self.assertEqual(results[0]["_provider_name"], "LuciferDonghua")
+        self.assertEqual(
+            results[0]["_provider_id"],
+            "https://luciferdonghua.in/renegade-immortal/",
+        )
+        self.assertEqual(results[0]["availableEpisodes"]["sub"], 142)
 
     def test_parse_mirrors_decodes_and_normalizes_embeds(self):
         page = f'''
