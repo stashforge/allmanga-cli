@@ -147,6 +147,8 @@ class WordPressProviderTests(unittest.TestCase):
         source = sources["episode"]["sourceUrls"][0]
         self.assertEqual(source["link"], "https://nas2.d.tube/videos/f56ea345-c383-4ec3-b7cd-5f81ba94114b/master.m3u8")
         self.assertNotIn("sourceUrl", source)
+        self.assertEqual(source["_source_kind"], "direct")
+        self.assertTrue(source["android_safe"])
 
     def test_animexin_provider_returns_embed_mirrors_as_unresolved_sources(self):
         pages = {
@@ -165,7 +167,8 @@ class WordPressProviderTests(unittest.TestCase):
         source = sources["episode"]["sourceUrls"][0]
         self.assertEqual(source["sourceUrl"], "https://www.dailymotion.com/video/xabc")
         self.assertNotIn("link", source)
-        self.assertEqual(source["type"], "external")
+        self.assertEqual(source["type"], "embed")
+        self.assertEqual(source["_source_kind"], "embed")
 
 
 if __name__ == "__main__":

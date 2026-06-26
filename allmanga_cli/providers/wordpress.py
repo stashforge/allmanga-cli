@@ -12,6 +12,7 @@ from typing import Callable
 
 from bs4 import BeautifulSoup
 
+from ..media.source_entries import build_direct_source, build_embed_source
 from .schema import build_catalog, build_episode, build_title
 from ..services.http import UA
 
@@ -271,17 +272,22 @@ class WordPressAnimeProvider:
         sources = []
         for mirror in page.mirrors:
             stream_type = "hls" if ".m3u8" in mirror.url else "external"
-            source = {
-                "sourceName": mirror.label or self.name,
-                "type": stream_type,
-                "resolution": "Adaptive",
-                "referer": episode,
-                "android_safe": stream_type == "hls",
-            }
             if stream_type == "hls":
-                source["link"] = mirror.url
+                source = build_direct_source(
+                    name=mirror.label or self.name,
+                    stream_url=mirror.url,
+                    stream_type="hls",
+                    resolution="Adaptive",
+                    referer=episode,
+                    android_safe=True,
+                )
             else:
-                source["sourceUrl"] = mirror.url
+                source = build_embed_source(
+                    name=mirror.label or self.name,
+                    source_url=mirror.url,
+                    resolution="Adaptive",
+                    referer=episode,
+                )
             sources.append(source)
         return {"episode": {"sourceUrls": sources}}
 

@@ -37,6 +37,9 @@ def configure_reporters(info, ok, warn):
 
 
 def _pre_resolved_stream(source, name, priority, warn):
+    # Only direct source entries should reach this path.  Embed/page mirrors
+    # must use ``sourceUrl`` so extractor-specific logic can turn them into
+    # player-ready streams first.
     stream_url = source.get("link") or source.get("streamUrl") or ""
     if not stream_url:
         return None
