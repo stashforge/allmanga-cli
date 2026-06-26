@@ -288,17 +288,9 @@ class StreamUrlTests(unittest.TestCase):
             ["800p"],
         )
 
-    def test_rumble_selected_best_url_is_kept_and_marked_hls(self):
+    def test_rumble_best_format_url_is_kept_and_marked_hls(self):
         streams = ytdlp_extractor.streams_from_ytdlp_data(
             {
-                "url": (
-                    "https://hugh.cdn.rumble.cloud/video/file.tar?"
-                    "r_file=chunklist.m3u8&r_type=application%2Fvnd.apple.mpegurl"
-                ),
-                "protocol": "m3u8_native",
-                "width": 1280,
-                "height": 534,
-                "tbr": 2134,
                 "formats": [
                     {
                         "url": "https://cdn.example.test/low.tar?r_file=chunklist.m3u8",
@@ -308,7 +300,10 @@ class StreamUrlTests(unittest.TestCase):
                         "tbr": 222,
                     },
                     {
-                        "url": "https://cdn.example.test/high.tar?r_file=chunklist.m3u8",
+                        "url": (
+                            "https://hugh.cdn.rumble.cloud/video/file.tar?"
+                            "r_file=chunklist.m3u8&r_type=application%2Fvnd.apple.mpegurl"
+                        ),
                         "protocol": "m3u8_native",
                         "width": 1280,
                         "height": 534,
@@ -321,7 +316,7 @@ class StreamUrlTests(unittest.TestCase):
             priority=8,
         )
 
-        self.assertEqual(streams[0]["source_name"], "Rumble Best (1280x534)")
+        self.assertEqual(streams[0]["source_name"], "Rumble (1280x534)")
         self.assertEqual(streams[0]["type"], "hls")
         self.assertEqual(streams[0]["resolution"], "1280x534")
         self.assertEqual(
@@ -331,16 +326,18 @@ class StreamUrlTests(unittest.TestCase):
         )
         self.assertNotIn("640x268", [stream["resolution"] for stream in streams])
 
-    def test_selected_best_video_only_stream_gets_audio_url(self):
+    def test_video_only_format_gets_audio_url(self):
         streams = ytdlp_extractor.streams_from_ytdlp_data(
             {
-                "url": "https://cdn.example.test/best-video.m3u8",
-                "protocol": "m3u8_native",
-                "width": 1920,
-                "height": 800,
-                "acodec": "none",
-                "vcodec": "avc1",
                 "formats": [
+                    {
+                        "url": "https://cdn.example.test/best-video.m3u8",
+                        "protocol": "m3u8_native",
+                        "width": 1920,
+                        "height": 800,
+                        "acodec": "none",
+                        "vcodec": "avc1",
+                    },
                     {
                         "url": "https://cdn.example.test/audio-low.aac",
                         "vcodec": "none",
@@ -398,7 +395,7 @@ class StreamUrlTests(unittest.TestCase):
         self.assertEqual(len(calls), 3)
         self.assertNotIn("-f", calls[0][0])
 
-    def test_non_dailymotion_ytdlp_uses_plain_json_and_reads_selected_url(self):
+    def test_non_dailymotion_ytdlp_uses_plain_json_and_reads_format_url(self):
         globals_dict = ytdlp_extractor.__dict__
         original_which = globals_dict["shutil"].which
         original_popen = globals_dict["subprocess"].Popen
@@ -409,9 +406,11 @@ class StreamUrlTests(unittest.TestCase):
             returncode = 0
 
         payload = {
-            "url": "https://cdn.example.test/best.mp4",
-            "height": 720,
-            "formats": [],
+            "formats": [{
+                "url": "https://cdn.example.test/best.mp4",
+                "height": 720,
+                "vcodec": "avc1",
+            }],
         }
 
         try:

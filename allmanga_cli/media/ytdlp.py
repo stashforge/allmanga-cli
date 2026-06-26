@@ -134,7 +134,7 @@ def _is_video_format(item: dict) -> bool:
     # no codec info and no video_ext — skip (timeline thumbnails etc.)
     video_ext = item.get("video_ext")
     if vcodec is None and video_ext in (None, "none"):
-        return False
+        return bool(item.get("width") or item.get("height"))
     # has acodec but no vcodec/video_ext — pure audio
     if acodec not in (None, "none") and vcodec is None and not video_ext:
         return False
@@ -210,21 +210,6 @@ def streams_from_ytdlp_data(data: dict, *, url: str, name: str, priority: int) -
 
     streams = []
     seen_urls: set[str] = set()
-
-    if not _is_dm:
-        best_stream = _stream_from_format(
-            data,
-            data,
-            name=name,
-            priority=priority,
-            audio_format=best_audio if data.get("acodec") == "none" else None,
-        )
-        if best_stream:
-            best_stream["source_name"] = (
-                f"{name} Best ({best_stream['resolution']})"
-            )
-            streams.append(best_stream)
-            seen_urls.add(best_stream.get("link", ""))
 
     for item in formats:
         if not _is_video_format(item):
