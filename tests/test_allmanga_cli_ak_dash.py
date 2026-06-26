@@ -121,6 +121,41 @@ class AkDashPlaybackTests(unittest.TestCase):
             ),
         )
 
+    def test_mpv_ipc_does_not_force_headers_for_plain_streams(self):
+        ipc = self.ns["MpvIpc"]()
+        commands = []
+        ipc.start = lambda: setattr(ipc, "running", True)
+        ipc.send_cmd = lambda *args: commands.append(args)
+
+        ipc.load("https://cdn.example/video.m3u8", "Test", {}, "")
+
+        self.assertNotIn(
+            "http-header-fields",
+            [command[1] for command in commands if command[:1] == ("set_property",)],
+        )
+
+    def test_mpv_ipc_passes_explicit_headers_and_referer(self):
+        ipc = self.ns["MpvIpc"]()
+        commands = []
+        ipc.start = lambda: setattr(ipc, "running", True)
+        ipc.send_cmd = lambda *args: commands.append(args)
+
+        ipc.load(
+            "https://cdn.example/video.m3u8",
+            "Test",
+            {"X-Test": "1"},
+            "https://provider.example/watch",
+        )
+
+        self.assertIn(
+            (
+                "set_property",
+                "http-header-fields",
+                "X-Test: 1,Referer: https://provider.example/watch",
+            ),
+            commands,
+        )
+
     def test_android_dash_launch_uses_local_mpd(self):
         play_android = self.ns["play_android"]
         globals_dict = play_android.__globals__

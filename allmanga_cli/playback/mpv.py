@@ -11,7 +11,6 @@ import threading
 import time
 import tty
 
-from ..services.http import UA
 from .mpv_runtime import (
     TRANSITION_OSD_MS,
     cleanup_mpv_runtime,
@@ -91,10 +90,9 @@ class MpvIpc:
         self.props["paused-for-cache"] = False
         self.props["percent-pos"] = 0
         self.send_cmd("set_property", "force-media-title", title)
-        hf = [f"User-Agent: {UA}"]
-        hf += ([f"{k}: {v}" for k,v in headers.items() if k.lower()!="user-agent"]
-               if headers else
-               ([f"Referer: {referer}"] if referer and "wixstatic" not in url else []))
+        hf = [f"{k}: {v}" for k, v in headers.items()] if headers else []
+        if referer and "wixstatic" not in url:
+            hf.append(f"Referer: {referer}")
         if hf:
             self.send_cmd("set_property", "http-header-fields", ",".join(hf))
 
