@@ -324,6 +324,7 @@ def resolve_source(source, silent=False):
                 except ValueError:
                     continue
                 height = item.get("height")
+                stream_type = stream_type_from_url(stream_url)
                 headers = proxy_filtered_headers(
                     item.get("http_headers", data.get("http_headers", {}))
                 )
@@ -340,12 +341,14 @@ def resolve_source(source, silent=False):
                 streams.append({
                     "source_name": f"{name} ({height}p)" if height else name,
                     "link": stream_url,
-                    "type": stream_type_from_url(stream_url),
+                    "type": stream_type,
                     "resolution": f"{height}p" if height else "Adaptive",
                     "referer": referer,
                     "headers": headers,
                     "source_priority": priority,
-                    "android_safe": stream_type_from_url(stream_url) == "mp4",
+                    "android_safe": stream_type == "mp4" or (
+                        stream_type == "hls" and bool(referer or headers)
+                    ),
                 })
         else:
             stream_url = data.get("url")
@@ -355,15 +358,16 @@ def resolve_source(source, silent=False):
                 except ValueError:
                     stream_url = ""
                 if stream_url:
+                    stream_type = stream_type_from_url(stream_url)
                     streams.append({
                         "source_name": name,
                         "link": stream_url,
-                        "type": "external",
+                        "type": stream_type,
                         "resolution": "Adaptive",
                         "referer": "",
                         "headers": {},
                         "source_priority": priority,
-                        "android_safe": False,
+                        "android_safe": stream_type == "mp4",
                     })
         if streams:
             ok(f"[{name}] yt-dlp found {len(streams)} stream(s)")

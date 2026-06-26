@@ -211,6 +211,48 @@ class StreamUrlTests(unittest.TestCase):
         self.assertEqual(streams[0]["dailymotion_video"], "https://vod.dmcdn.test/video/manifest.m3u8")
         self.assertEqual(streams[0]["dailymotion_audio"], "https://vod.dmcdn.test/audio/manifest.m3u8")
 
+    def test_generic_embed_uses_ytdlp_output_not_embed_page(self):
+        resolve_source = stream_resolver.resolve_source
+        globals_dict = resolve_source.__globals__
+        original_which = globals_dict["shutil"].which
+        original_popen = globals_dict["subprocess"].Popen
+        original_read = globals_dict["read_bounded_process_stdout"]
+
+        class Process:
+            returncode = 0
+
+        payload = {
+            "formats": [{
+                "url": "https://cdn.example.test/video.mp4",
+                "vcodec": "avc1",
+                "acodec": "aac",
+                "height": 720,
+            }]
+        }
+
+        try:
+            globals_dict["shutil"].which = lambda name: "/usr/bin/yt-dlp"
+            globals_dict["subprocess"].Popen = lambda *args, **kwargs: Process()
+            globals_dict["read_bounded_process_stdout"] = (
+                lambda *args, **kwargs: __import__("json").dumps(payload).encode()
+            )
+            streams = resolve_source(
+                {
+                    "sourceName": "Rumble",
+                    "sourceUrl": "https://rumble.com/embed/vabc/",
+                },
+                silent=True,
+            )
+        finally:
+            globals_dict["shutil"].which = original_which
+            globals_dict["subprocess"].Popen = original_popen
+            globals_dict["read_bounded_process_stdout"] = original_read
+
+        self.assertEqual(len(streams), 1)
+        self.assertEqual(streams[0]["link"], "https://cdn.example.test/video.mp4")
+        self.assertEqual(streams[0]["type"], "mp4")
+        self.assertTrue(streams[0]["android_safe"])
+
     def test_pre_resolved_provider_stream_rejects_unsafe_url(self):
         streams = stream_resolver.resolve_source(
             {

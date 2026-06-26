@@ -144,10 +144,28 @@ class WordPressProviderTests(unittest.TestCase):
         self.assertEqual(results[0]["_provider"], "animexin")
         self.assertEqual(catalog["ids"][0], "https://animexin.dev/renegade-immortal-episode-1/")
         self.assertEqual(catalog["labels"][catalog["ids"][0]], "1")
-        self.assertEqual(
-            sources["episode"]["sourceUrls"][0]["link"],
-            "https://nas2.d.tube/videos/f56ea345-c383-4ec3-b7cd-5f81ba94114b/master.m3u8",
+        source = sources["episode"]["sourceUrls"][0]
+        self.assertEqual(source["link"], "https://nas2.d.tube/videos/f56ea345-c383-4ec3-b7cd-5f81ba94114b/master.m3u8")
+        self.assertNotIn("sourceUrl", source)
+
+    def test_animexin_provider_returns_embed_mirrors_as_unresolved_sources(self):
+        pages = {
+            "https://animexin.dev/renegade-immortal-episode-1/": f'''
+                <h1 class="entry-title">Renegade Immortal Episode 1</h1>
+                <option value="{encoded_iframe('https://www.dailymotion.com/embed/video/xabc')}">Dailymotion</option>
+            ''',
+        }
+        provider = AnimeXinProvider(fetch=lambda url: pages[url])
+
+        sources = provider.episode_sources(
+            "https://animexin.dev/renegade-immortal/",
+            "https://animexin.dev/renegade-immortal-episode-1/",
         )
+
+        source = sources["episode"]["sourceUrls"][0]
+        self.assertEqual(source["sourceUrl"], "https://www.dailymotion.com/video/xabc")
+        self.assertNotIn("link", source)
+        self.assertEqual(source["type"], "external")
 
 
 if __name__ == "__main__":

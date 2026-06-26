@@ -271,14 +271,18 @@ class WordPressAnimeProvider:
         sources = []
         for mirror in page.mirrors:
             stream_type = "hls" if ".m3u8" in mirror.url else "external"
-            sources.append({
+            source = {
                 "sourceName": mirror.label or self.name,
-                "link": mirror.url,
                 "type": stream_type,
                 "resolution": "Adaptive",
                 "referer": episode,
                 "android_safe": stream_type == "hls",
-            })
+            }
+            if stream_type == "hls":
+                source["link"] = mirror.url
+            else:
+                source["sourceUrl"] = mirror.url
+            sources.append(source)
         return {"episode": {"sourceUrls": sources}}
 
     def browser_url(
