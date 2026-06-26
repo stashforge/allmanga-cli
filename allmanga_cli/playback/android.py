@@ -4,6 +4,7 @@ import subprocess
 
 from ..media.dailymotion import build_dailymotion_hls_manifest
 from ..media.dash import generate_dash_mpd
+from ..media.hls import build_titled_hls_manifest
 from ..media.local_proxy import (
     cleanup_active_local_proxy,
     replace_active_local_proxy,
@@ -157,6 +158,20 @@ def play_android(
             replace_active_local_proxy(proxy_server)
         except Exception as exc:
             _error(f"Could not start local stream proxy: {exc}")
+            return False
+    elif stream.get("type") == "hls":
+        _info(f"{player}: preparing HLS title wrapper...")
+        try:
+            manifest = build_titled_hls_manifest(url, media_title)
+            url, proxy_server = start_local_content_server(
+                manifest,
+                "stream.m3u8",
+                "application/x-mpegURL",
+            )
+            replace_active_local_proxy(proxy_server)
+            intent_type = "application/x-mpegURL"
+        except Exception as exc:
+            _error(f"Could not prepare HLS stream: {exc}")
             return False
 
     _info(f"Opening {media_title} in {player}...")

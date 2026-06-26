@@ -169,6 +169,41 @@ class AndroidProxyLifecycleTests(unittest.TestCase):
         self.assertIn("https://cdn.example/audio.m3u8", calls[0][0])
         self.assertIs(self.proxy_globals["_active_server"], server)
 
+    def test_plain_hls_stream_uses_titled_local_m3u8_manifest(self):
+        server = FakeServer()
+        calls = []
+        launched = []
+
+        def start_content(content, filename, content_type):
+            calls.append((content, filename, content_type))
+            return "http://127.0.0.1:1234/stream.m3u8", server
+
+        def run(command, **kwargs):
+            launched.append(command)
+            return types.SimpleNamespace(returncode=0)
+
+        self.globals["start_local_content_server"] = start_content
+        self.globals["subprocess"].run = run
+        stream = {
+            "link": "https://cdn.example/video/master.m3u8",
+            "type": "hls",
+            "referer": "",
+            "headers": {},
+        }
+
+        self.assertTrue(
+            self.ns["play_android"](
+                "Against the Gods", "43", stream, None, player="mpvex"
+            )
+        )
+        self.assertEqual(calls[0][1], "stream.m3u8")
+        self.assertEqual(calls[0][2], "application/x-mpegURL")
+        self.assertIn("#EXTINF:-1,Against the Gods - Episode 43", calls[0][0])
+        self.assertIn("https://cdn.example/video/master.m3u8", calls[0][0])
+        self.assertIn("http://127.0.0.1:1234/stream.m3u8", launched[0])
+        self.assertIn("application/x-mpegURL", launched[0])
+        self.assertIs(self.proxy_globals["_active_server"], server)
+
     def test_failed_android_launch_closes_new_proxy(self):
         server = FakeServer()
         self.globals["start_local_proxy"] = (
