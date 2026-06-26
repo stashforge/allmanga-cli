@@ -179,8 +179,9 @@ class StreamUrlTests(unittest.TestCase):
                 {
                     "url": "https://vod.dmcdn.test/audio/manifest.m3u8",
                     "vcodec": "none",
-                    "acodec": "aac",
-                    "abr": 128,
+                    "acodec": None,
+                    "audio_ext": "mp4",
+                    "resolution": "audio only",
                 },
             ],
         }

@@ -112,11 +112,15 @@ def _headers_and_referer(item: dict, data: dict) -> tuple[dict, str]:
 
 
 def _find_best_audio(formats: list[dict]) -> dict | None:
-    """Find the best audio-only format (vcodec: none, has acodec)."""
+    """Find the best audio-only format."""
     audio_formats = [
         f for f in formats
         if f.get("vcodec") == "none"
-        and f.get("acodec") not in (None, "none")
+        and (
+            f.get("acodec") not in (None, "none")
+            or f.get("audio_ext") not in (None, "none")
+            or f.get("resolution") == "audio only"
+        )
         and f.get("url")
     ]
     if not audio_formats:
