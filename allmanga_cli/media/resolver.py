@@ -1,12 +1,8 @@
 """Resolve provider source entries into playable streams."""
 
-import json
 import re
-import shutil
-import subprocess
 import urllib.request
 
-from ..core.processes import read_bounded_process_stdout
 from ..core.terminal import sanitize_terminal_text
 from ..services.allanime import get_clock_links
 from ..services.http import (
@@ -18,10 +14,10 @@ from ..services.http import (
     request_json,
 )
 from .dash import resolve_dash_raw_urls
-from .dailymotion import is_dailymotion_url, select_dailymotion_av_pair, stream_type_from_url
 from .proxy_rules import proxy_filtered_headers
 from .sources import decrypt_url, expand_wixmp, source_priority
 from .urls import validate_optional_referer, validate_stream_url
+from .ytdlp import resolve_ytdlp_embed
 
 
 _info = lambda message: None
@@ -272,111 +268,5 @@ def resolve_source(source, silent=False):
             })
             return result
 
-    if not shutil.which("yt-dlp"):
-        warn(f"[{name}] yt-dlp not found, skipping embed")
-        return result
     info(f"[{name}] extracting via yt-dlp ...")
-    try:
-        process = subprocess.Popen(
-            ["yt-dlp", "-j", "--no-warnings", url],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-        )
-        output = read_bounded_process_stdout(process, timeout=20)
-        if process.returncode != 0:
-            return result
-        data = json.loads(output)
-        formats = data.get("formats", [])
-        streams = []
-        if formats and is_dailymotion_url(url):
-            video, audio = select_dailymotion_av_pair(formats)
-            if video and audio:
-                try:
-                    video_url = validate_stream_url(video.get("url"))
-                    audio_url = validate_stream_url(audio.get("url"))
-                except ValueError:
-                    video_url = audio_url = ""
-                if video_url and audio_url:
-                    height = video.get("height")
-                    streams.append({
-                        "source_name": f"{name} ({height}p)" if height else name,
-                        "link": video_url,
-                        "type": "hls",
-                        "resolution": f"{height}p" if height else "Adaptive",
-                        "referer": "",
-                        "headers": {},
-                        "source_priority": priority,
-                        "android_safe": True,
-                        "dailymotion_video": video_url,
-                        "dailymotion_audio": audio_url,
-                        "dailymotion_width": video.get("width") or 1280,
-                        "dailymotion_height": video.get("height") or 720,
-                        "dailymotion_bandwidth": video.get("tbr") or video.get("vbr") or 2400,
-                    })
-        if formats:
-            for item in ([] if streams else formats):
-                stream_url = item.get("url")
-                if (
-                    not stream_url
-                    or item.get("acodec") == "none"
-                    or item.get("vcodec") == "none"
-                ):
-                    continue
-                try:
-                    stream_url = validate_stream_url(stream_url)
-                except ValueError:
-                    continue
-                height = item.get("height")
-                stream_type = stream_type_from_url(stream_url)
-                headers = proxy_filtered_headers(
-                    item.get("http_headers", data.get("http_headers", {}))
-                )
-                referer = headers.get("Referer", "")
-                try:
-                    referer = validate_optional_referer(referer)
-                except ValueError:
-                    referer = ""
-                    headers = {
-                        key: value
-                        for key, value in headers.items()
-                        if key.casefold() != "referer"
-                    }
-                streams.append({
-                    "source_name": f"{name} ({height}p)" if height else name,
-                    "link": stream_url,
-                    "type": stream_type,
-                    "resolution": f"{height}p" if height else "Adaptive",
-                    "referer": referer,
-                    "headers": headers,
-                    "source_priority": priority,
-                    "android_safe": stream_type == "mp4" or (
-                        stream_type == "hls" and bool(referer or headers)
-                    ),
-                })
-        else:
-            stream_url = data.get("url")
-            if stream_url:
-                try:
-                    stream_url = validate_stream_url(stream_url)
-                except ValueError:
-                    stream_url = ""
-                if stream_url:
-                    stream_type = stream_type_from_url(stream_url)
-                    streams.append({
-                        "source_name": name,
-                        "link": stream_url,
-                        "type": stream_type,
-                        "resolution": "Adaptive",
-                        "referer": "",
-                        "headers": {},
-                        "source_priority": priority,
-                        "android_safe": stream_type == "mp4",
-                    })
-        if streams:
-            ok(f"[{name}] yt-dlp found {len(streams)} stream(s)")
-        result.extend(streams)
-    except subprocess.TimeoutExpired:
-        warn(f"[{name}] yt-dlp timed out")
-    except Exception as exc:
-        warn(f"[{name}] yt-dlp failed: {exc}")
-    return result
+    return resolve_ytdlp_embed(url, name=name, priority=priority, ok=ok, warn=warn)

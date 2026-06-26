@@ -1,6 +1,7 @@
 import unittest
 
 from allmanga_cli.media import resolver as stream_resolver
+from allmanga_cli.media import ytdlp as ytdlp_extractor
 from tests.app_namespace import load_app_namespace
 namespace = load_app_namespace()
 
@@ -35,26 +36,23 @@ class StreamUrlTests(unittest.TestCase):
 
     def test_invalid_embed_never_reaches_ytdlp(self):
         resolve_source = stream_resolver.resolve_source
-        original_which = resolve_source.__globals__["shutil"].which
-        original_popen = resolve_source.__globals__["subprocess"].Popen
+        original_resolve = resolve_source.__globals__["resolve_ytdlp_embed"]
         try:
-            resolve_source.__globals__["shutil"].which = lambda name: "/usr/bin/yt-dlp"
-            resolve_source.__globals__["subprocess"].Popen = (
-                lambda *args, **kwargs: self.fail("yt-dlp must not be called")
+            resolve_source.__globals__["resolve_ytdlp_embed"] = (
+                lambda *args, **kwargs: self.fail("yt-dlp extractor must not be called")
             )
             streams = resolve_source(
                 {"sourceName": "embed", "sourceUrl": "file:///etc/passwd"},
                 silent=True,
             )
         finally:
-            resolve_source.__globals__["shutil"].which = original_which
-            resolve_source.__globals__["subprocess"].Popen = original_popen
+            resolve_source.__globals__["resolve_ytdlp_embed"] = original_resolve
 
         self.assertEqual(streams, [])
 
     def test_unsafe_extractor_output_is_discarded(self):
         resolve_source = stream_resolver.resolve_source
-        globals_dict = resolve_source.__globals__
+        globals_dict = ytdlp_extractor.__dict__
         original_which = globals_dict["shutil"].which
         original_popen = globals_dict["subprocess"].Popen
         original_read = globals_dict["read_bounded_process_stdout"]
@@ -160,7 +158,7 @@ class StreamUrlTests(unittest.TestCase):
 
     def test_dailymotion_separate_audio_video_becomes_android_hls_manifest_stream(self):
         resolve_source = stream_resolver.resolve_source
-        globals_dict = resolve_source.__globals__
+        globals_dict = ytdlp_extractor.__dict__
         original_which = globals_dict["shutil"].which
         original_popen = globals_dict["subprocess"].Popen
         original_read = globals_dict["read_bounded_process_stdout"]
@@ -213,7 +211,7 @@ class StreamUrlTests(unittest.TestCase):
 
     def test_generic_embed_uses_ytdlp_output_not_embed_page(self):
         resolve_source = stream_resolver.resolve_source
-        globals_dict = resolve_source.__globals__
+        globals_dict = ytdlp_extractor.__dict__
         original_which = globals_dict["shutil"].which
         original_popen = globals_dict["subprocess"].Popen
         original_read = globals_dict["read_bounded_process_stdout"]
