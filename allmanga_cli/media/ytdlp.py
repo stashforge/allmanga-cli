@@ -8,7 +8,7 @@ import subprocess
 import urllib.parse
 
 from ..core.processes import read_bounded_process_stdout
-from .dailymotion import is_dailymotion_url, select_dailymotion_av_pair, stream_type_from_url
+from .dailymotion import is_dailymotion_url, stream_type_from_url
 from .proxy_rules import proxy_filtered_headers
 from .urls import validate_optional_referer, validate_stream_url
 
@@ -66,13 +66,24 @@ def _stream_type(item: dict, stream_url: str) -> str:
 
 
 def _resolution_label(item: dict) -> str:
+    resolution = str(item.get("resolution") or "")
+    if resolution and resolution != "audio only":
+        return resolution
     width = int(item.get("width") or 0)
     height = int(item.get("height") or 0)
-    if width and height and width >= 1000 and height and height < 720:
+    if width and height and width >= 1000 and height < 720:
         return f"{width}x{height}"
     if height:
         return f"{height}p"
-    return str(item.get("resolution") or "Adaptive")
+    return "Adaptive"
+
+
+def _is_useful_quality(item: dict) -> bool:
+    width = int(item.get("width") or 0)
+    height = int(item.get("height") or 0)
+    if width and height:
+        return width >= 1280
+    return height >= 720
 
 
 def _quality_rank(item: dict) -> int:
@@ -88,20 +99,45 @@ def _bitrate(item: dict) -> int:
 
 
 def _headers_and_referer(item: dict, data: dict) -> tuple[dict, str]:
-    headers = proxy_filtered_headers(
+    raw_headers = proxy_filtered_headers(
         item.get("http_headers", data.get("http_headers", {}))
     )
-    referer = headers.get("Referer", "")
+    referer = raw_headers.get("Referer", "") or raw_headers.get("referer", "")
     try:
         referer = validate_optional_referer(referer)
     except ValueError:
         referer = ""
-        headers = {
-            key: value
-            for key, value in headers.items()
-            if key.casefold() != "referer"
-        }
-    return headers, referer
+    return {}, referer
+
+
+def _find_best_audio(formats: list[dict]) -> dict | None:
+    """Find the best audio-only format (vcodec: none, has acodec)."""
+    audio_formats = [
+        f for f in formats
+        if f.get("vcodec") == "none"
+        and f.get("acodec") not in (None, "none")
+        and f.get("url")
+    ]
+    if not audio_formats:
+        return None
+    return max(audio_formats, key=lambda f: int(float(f.get("abr") or f.get("tbr") or 0)))
+
+
+def _is_video_format(item: dict) -> bool:
+    """True if this format entry is a video (not audio-only, has video stream)."""
+    vcodec = item.get("vcodec")
+    acodec = item.get("acodec")
+    # explicitly audio-only
+    if vcodec == "none":
+        return False
+    # no codec info and no video_ext — skip (timeline thumbnails etc.)
+    video_ext = item.get("video_ext")
+    if vcodec is None and video_ext in (None, "none"):
+        return False
+    # has acodec but no vcodec/video_ext — pure audio
+    if acodec not in (None, "none") and vcodec is None and not video_ext:
+        return False
+    return True
 
 
 def _stream_from_format(
@@ -110,21 +146,23 @@ def _stream_from_format(
         *,
         name: str,
         priority: int,
-        best: bool = False) -> dict | None:
+        audio_format: dict | None = None,
+        is_dailymotion: bool = False) -> dict | None:
     stream_url = item.get("url")
     if not stream_url:
-        return None
-    if item.get("acodec") == "none" and item.get("vcodec") == "none":
         return None
     try:
         stream_url = validate_stream_url(stream_url)
     except ValueError:
         return None
+
     stream_type = _stream_type(item, stream_url)
     headers, referer = _headers_and_referer(item, data)
     resolution = _resolution_label(item)
-    label = f"{name} Best ({resolution})" if best else f"{name} ({resolution})"
-    return {
+    label = f"{name} ({resolution})"
+
+    needs_audio = item.get("acodec") == "none"
+    stream: dict = {
         "source_name": label,
         "link": stream_url,
         "type": stream_type,
@@ -132,70 +170,76 @@ def _stream_from_format(
         "referer": referer,
         "headers": headers,
         "source_priority": priority,
-        "android_safe": stream_type == "mp4" or (
-            stream_type == "hls" and bool(referer or headers)
+        "android_safe": not needs_audio and (
+            stream_type == "mp4" or (stream_type == "hls" and not (referer or headers))
         ),
         "_quality_rank": _quality_rank(item),
         "_bitrate": _bitrate(item),
     }
 
+    if needs_audio and audio_format:
+        try:
+            audio_url = validate_stream_url(audio_format.get("url"))
+        except ValueError:
+            audio_url = None
+        if audio_url:
+            stream["audio_url"] = audio_url
+            stream["android_safe"] = True
+            if is_dailymotion:
+                stream["dailymotion_video"] = stream_url
+                stream["dailymotion_audio"] = audio_url
+                stream["dailymotion_width"] = item.get("width") or 1280
+                stream["dailymotion_height"] = item.get("height") or 720
+                stream["dailymotion_bandwidth"] = item.get("tbr") or item.get("vbr") or 2400
 
-def _is_useful_variant(stream: dict) -> bool:
-    resolution = str(stream.get("resolution") or "")
-    if "x" in resolution:
-        width = int(resolution.split("x", 1)[0] or 0)
-        return width >= 1280
-    return int(stream.get("_quality_rank") or 0) >= 1280 * 720
+    return stream
 
 
 def streams_from_ytdlp_data(data: dict, *, url: str, name: str, priority: int) -> list[dict]:
     formats = data.get("formats", [])
+    _is_dm = is_dailymotion_url(url)
+
+    # find best audio-only format once, reuse for any split video format
+    best_audio = _find_best_audio(formats) if formats else None
+
     streams = []
-    if formats and is_dailymotion_url(url):
-        video, audio = select_dailymotion_av_pair(formats)
-        if video and audio:
-            try:
-                video_url = validate_stream_url(video.get("url"))
-                audio_url = validate_stream_url(audio.get("url"))
-            except ValueError:
-                video_url = audio_url = ""
-            if video_url and audio_url:
-                height = video.get("height")
-                streams.append({
-                    "source_name": f"{name} ({height}p)" if height else name,
-                    "link": video_url,
-                    "type": "hls",
-                    "resolution": f"{height}p" if height else "Adaptive",
-                    "referer": "",
-                    "headers": {},
-                    "source_priority": priority,
-                    "android_safe": True,
-                    "audio_url": audio_url,
-                    "dailymotion_video": video_url,
-                    "dailymotion_audio": audio_url,
-                    "dailymotion_width": video.get("width") or 1280,
-                    "dailymotion_height": video.get("height") or 720,
-                    "dailymotion_bandwidth": video.get("tbr") or video.get("vbr") or 2400,
-                })
-    if not is_dailymotion_url(url):
+    seen_urls: set[str] = set()
+
+    if not _is_dm:
         best_stream = _stream_from_format(
             data,
             data,
             name=name,
             priority=priority,
-            best=True,
         )
         if best_stream:
+            best_stream["source_name"] = (
+                f"{name} Best ({best_stream['resolution']})"
+            )
             streams.append(best_stream)
-    if formats and not (streams and is_dailymotion_url(url)):
-        candidates = [
-            stream
-            for item in formats
-            if (stream := _stream_from_format(item, data, name=name, priority=priority))
-        ]
-        useful = [stream for stream in candidates if _is_useful_variant(stream)]
-        for stream in useful or candidates:
-            if not any(existing.get("link") == stream.get("link") for existing in streams):
-                streams.append(stream)
+            seen_urls.add(best_stream.get("link", ""))
+
+    for item in formats:
+        if not _is_video_format(item):
+            continue
+        if not _is_useful_quality(item):
+            continue
+
+        stream = _stream_from_format(
+            item,
+            data,
+            name=name,
+            priority=priority,
+            audio_format=best_audio if item.get("acodec") == "none" else None,
+            is_dailymotion=_is_dm,
+        )
+        if not stream:
+            continue
+        link = stream.get("link", "")
+        if link in seen_urls:
+            continue
+        seen_urls.add(link)
+        streams.append(stream)
+
     streams.sort(key=_stream_score, reverse=True)
     return streams

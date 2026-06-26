@@ -283,7 +283,7 @@ class StreamUrlTests(unittest.TestCase):
 
         self.assertEqual(
             [stream["resolution"] for stream in streams],
-            ["800p", "534p", "268p"],
+            ["800p"],
         )
 
     def test_rumble_selected_best_url_is_kept_and_marked_hls(self):
