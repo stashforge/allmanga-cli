@@ -158,6 +158,59 @@ class StreamUrlTests(unittest.TestCase):
         self.assertEqual(len(streams), 1)
         self.assertFalse(streams[0]["android_safe"])
 
+    def test_dailymotion_separate_audio_video_becomes_android_hls_manifest_stream(self):
+        resolve_source = stream_resolver.resolve_source
+        globals_dict = resolve_source.__globals__
+        original_which = globals_dict["shutil"].which
+        original_popen = globals_dict["subprocess"].Popen
+        original_read = globals_dict["read_bounded_process_stdout"]
+
+        class Process:
+            returncode = 0
+
+        payload = {
+            "formats": [
+                {
+                    "url": "https://vod.dmcdn.test/video/manifest.m3u8",
+                    "vcodec": "avc1",
+                    "acodec": "none",
+                    "height": 720,
+                    "width": 1280,
+                    "tbr": 2400,
+                },
+                {
+                    "url": "https://vod.dmcdn.test/audio/manifest.m3u8",
+                    "vcodec": "none",
+                    "acodec": "aac",
+                    "abr": 128,
+                },
+            ],
+        }
+
+        try:
+            globals_dict["shutil"].which = lambda name: "/usr/bin/yt-dlp"
+            globals_dict["subprocess"].Popen = lambda *args, **kwargs: Process()
+            globals_dict["read_bounded_process_stdout"] = (
+                lambda *args, **kwargs: __import__("json").dumps(payload).encode()
+            )
+            streams = resolve_source(
+                {
+                    "sourceName": "Dailymotion",
+                    "sourceUrl": "https://www.dailymotion.com/video/xabc",
+                },
+                silent=True,
+            )
+        finally:
+            globals_dict["shutil"].which = original_which
+            globals_dict["subprocess"].Popen = original_popen
+            globals_dict["read_bounded_process_stdout"] = original_read
+
+        self.assertEqual(len(streams), 1)
+        self.assertEqual(streams[0]["type"], "hls")
+        self.assertTrue(streams[0]["android_safe"])
+        self.assertEqual(streams[0]["dailymotion_video"], "https://vod.dmcdn.test/video/manifest.m3u8")
+        self.assertEqual(streams[0]["dailymotion_audio"], "https://vod.dmcdn.test/audio/manifest.m3u8")
+
     def test_pre_resolved_provider_stream_rejects_unsafe_url(self):
         streams = stream_resolver.resolve_source(
             {

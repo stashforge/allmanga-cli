@@ -2,6 +2,7 @@
 
 import subprocess
 
+from ..media.dailymotion import build_dailymotion_hls_manifest
 from ..media.dash import generate_dash_mpd
 from ..media.local_proxy import (
     cleanup_active_local_proxy,
@@ -100,6 +101,26 @@ def play_android(
             intent_type = "application/dash+xml"
         except Exception as exc:
             _error(f"Could not prepare DASH stream: {exc}")
+            return False
+    elif stream.get("dailymotion_video") and stream.get("dailymotion_audio"):
+        _info(f"{player}: preparing Dailymotion video and audio...")
+        try:
+            manifest = build_dailymotion_hls_manifest(
+                stream["dailymotion_video"],
+                stream["dailymotion_audio"],
+                width=stream.get("dailymotion_width") or 1280,
+                height=stream.get("dailymotion_height") or 720,
+                bandwidth=int(float(stream.get("dailymotion_bandwidth") or 2400) * 1000),
+            )
+            url, proxy_server = start_local_content_server(
+                manifest,
+                "stream.m3u8",
+                "application/vnd.apple.mpegurl",
+            )
+            replace_active_local_proxy(proxy_server)
+            intent_type = "application/vnd.apple.mpegurl"
+        except Exception as exc:
+            _error(f"Could not prepare Dailymotion stream: {exc}")
             return False
     elif referer or headers:
         _warn(f"{player}: starting local HTTP proxy for stream headers...")

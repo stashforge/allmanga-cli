@@ -100,6 +100,40 @@ class AndroidProxyLifecycleTests(unittest.TestCase):
         )
         self.assertEqual(calls[0][1]["stream_type"], "hls")
 
+    def test_dailymotion_av_stream_uses_local_m3u8_manifest(self):
+        server = FakeServer()
+        calls = []
+
+        def start_content(content, filename, content_type):
+            calls.append((content, filename, content_type))
+            return "http://127.0.0.1:1234/stream.m3u8", server
+
+        self.globals["start_local_content_server"] = start_content
+        self.globals["subprocess"].run = lambda *args, **kwargs: types.SimpleNamespace(
+            returncode=0
+        )
+        stream = {
+            "link": "https://vod.dmcdn.test/video/manifest.m3u8",
+            "type": "hls",
+            "referer": "",
+            "headers": {},
+            "dailymotion_video": "https://vod.dmcdn.test/video/manifest.m3u8",
+            "dailymotion_audio": "https://vod.dmcdn.test/audio/manifest.m3u8",
+            "dailymotion_width": 1280,
+            "dailymotion_height": 720,
+            "dailymotion_bandwidth": 2400,
+        }
+
+        self.assertTrue(
+            self.ns["play_android"](
+                "Test", "1", stream, None, player="mpv"
+            )
+        )
+        self.assertEqual(calls[0][1], "stream.m3u8")
+        self.assertEqual(calls[0][2], "application/vnd.apple.mpegurl")
+        self.assertIn("EXT-X-MEDIA", calls[0][0])
+        self.assertIn("https://vod.dmcdn.test/audio/manifest.m3u8", calls[0][0])
+
     def test_failed_android_launch_closes_new_proxy(self):
         server = FakeServer()
         self.globals["start_local_proxy"] = (

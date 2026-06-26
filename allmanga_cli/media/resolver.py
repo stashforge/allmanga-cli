@@ -18,6 +18,7 @@ from ..services.http import (
     request_json,
 )
 from .dash import resolve_dash_raw_urls
+from .dailymotion import is_dailymotion_url, select_dailymotion_av_pair, stream_type_from_url
 from .proxy_rules import proxy_filtered_headers
 from .sources import decrypt_url, expand_wixmp, source_priority
 from .urls import validate_optional_referer, validate_stream_url
@@ -284,8 +285,33 @@ def resolve_source(source, silent=False):
         data = json.loads(output)
         formats = data.get("formats", [])
         streams = []
+        if formats and is_dailymotion_url(url):
+            video, audio = select_dailymotion_av_pair(formats)
+            if video and audio:
+                try:
+                    video_url = validate_stream_url(video.get("url"))
+                    audio_url = validate_stream_url(audio.get("url"))
+                except ValueError:
+                    video_url = audio_url = ""
+                if video_url and audio_url:
+                    height = video.get("height")
+                    streams.append({
+                        "source_name": f"{name} ({height}p)" if height else name,
+                        "link": video_url,
+                        "type": "hls",
+                        "resolution": f"{height}p" if height else "Adaptive",
+                        "referer": "",
+                        "headers": {},
+                        "source_priority": priority,
+                        "android_safe": True,
+                        "dailymotion_video": video_url,
+                        "dailymotion_audio": audio_url,
+                        "dailymotion_width": video.get("width") or 1280,
+                        "dailymotion_height": video.get("height") or 720,
+                        "dailymotion_bandwidth": video.get("tbr") or video.get("vbr") or 2400,
+                    })
         if formats:
-            for item in formats:
+            for item in ([] if streams else formats):
                 stream_url = item.get("url")
                 if (
                     not stream_url
@@ -314,12 +340,12 @@ def resolve_source(source, silent=False):
                 streams.append({
                     "source_name": f"{name} ({height}p)" if height else name,
                     "link": stream_url,
-                    "type": "external",
+                    "type": stream_type_from_url(stream_url),
                     "resolution": f"{height}p" if height else "Adaptive",
                     "referer": referer,
                     "headers": headers,
                     "source_priority": priority,
-                    "android_safe": False,
+                    "android_safe": stream_type_from_url(stream_url) == "mp4",
                 })
         else:
             stream_url = data.get("url")
