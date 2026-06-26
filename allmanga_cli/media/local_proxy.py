@@ -33,9 +33,10 @@ class _ThreadedHTTPServer(http.server.ThreadingHTTPServer):
     block_on_close = False
 
 
-def start_local_proxy(target_url, referer, headers=None, timeout=15):
+def start_local_proxy(target_url, referer, headers=None, timeout=15, stream_type="mp4"):
     validate_http_url(target_url)
-    secret_path = new_proxy_secret_path()
+    extension = "m3u8" if str(stream_type).lower() == "hls" else "mp4"
+    secret_path = new_proxy_secret_path(extension)
     forwarded_headers = proxy_filtered_headers(headers)
 
     class ProxyHandler(http.server.BaseHTTPRequestHandler):

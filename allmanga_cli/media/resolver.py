@@ -68,7 +68,9 @@ def _pre_resolved_stream(source, name, priority, warn):
     resolution = str(source.get("resolution") or "Adaptive")
     android_safe = source.get("android_safe")
     if android_safe is None:
-        android_safe = stream_type == "mp4"
+        android_safe = stream_type == "mp4" or (
+            stream_type == "hls" and bool(referer or headers)
+        )
 
     return [{
         "source_name": name,

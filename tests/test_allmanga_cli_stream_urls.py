@@ -143,6 +143,19 @@ class StreamUrlTests(unittest.TestCase):
         self.assertEqual(streams[0]["resolution"], "720p")
         self.assertEqual(streams[0]["referer"], "https://provider.example/watch")
         self.assertNotIn("Cookie", streams[0]["headers"])
+        self.assertTrue(streams[0]["android_safe"])
+
+    def test_pre_resolved_hls_without_headers_is_not_android_safe_by_default(self):
+        streams = stream_resolver.resolve_source(
+            {
+                "sourceName": "Provider CDN",
+                "streamUrl": "https://cdn.example/video.m3u8",
+                "type": "hls",
+            },
+            silent=True,
+        )
+
+        self.assertEqual(len(streams), 1)
         self.assertFalse(streams[0]["android_safe"])
 
     def test_pre_resolved_provider_stream_rejects_unsafe_url(self):

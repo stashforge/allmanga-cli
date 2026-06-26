@@ -104,7 +104,12 @@ def play_android(
     elif referer or headers:
         _warn(f"{player}: starting local HTTP proxy for stream headers...")
         try:
-            url, proxy_server = start_local_proxy(url, referer, headers)
+            url, proxy_server = start_local_proxy(
+                url,
+                referer,
+                headers,
+                stream_type=stream.get("type", "mp4"),
+            )
             replace_active_local_proxy(proxy_server)
         except Exception as exc:
             _error(f"Could not start local stream proxy: {exc}")

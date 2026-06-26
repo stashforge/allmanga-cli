@@ -65,5 +65,8 @@ def proxy_response_headers(headers):
     ]
 
 
-def new_proxy_secret_path():
-    return f"/{uuid.uuid4().hex}/stream.mp4"
+def new_proxy_secret_path(extension="mp4"):
+    extension = str(extension or "mp4").strip().lower().lstrip(".")
+    if not re.fullmatch(r"[a-z0-9]{1,8}", extension):
+        extension = "mp4"
+    return f"/{uuid.uuid4().hex}/stream.{extension}"

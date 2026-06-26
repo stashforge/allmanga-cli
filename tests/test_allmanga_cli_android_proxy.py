@@ -74,6 +74,32 @@ class AndroidProxyLifecycleTests(unittest.TestCase):
         self.assertIs(self.proxy_globals["_active_server"], server)
         self.assertEqual(server.shutdown_calls, 0)
 
+    def test_hls_with_headers_uses_hls_proxy_path(self):
+        server = FakeServer()
+        calls = []
+
+        def start_proxy(*args, **kwargs):
+            calls.append((args, kwargs))
+            return "http://127.0.0.1:1234/stream.m3u8", server
+
+        self.globals["start_local_proxy"] = start_proxy
+        self.globals["subprocess"].run = lambda *args, **kwargs: types.SimpleNamespace(
+            returncode=0
+        )
+        stream = {
+            "link": "https://example.test/video.m3u8",
+            "type": "hls",
+            "referer": "https://example.test/",
+            "headers": {},
+        }
+
+        self.assertTrue(
+            self.ns["play_android"](
+                "Test", "1", stream, None, player="mpv"
+            )
+        )
+        self.assertEqual(calls[0][1]["stream_type"], "hls")
+
     def test_failed_android_launch_closes_new_proxy(self):
         server = FakeServer()
         self.globals["start_local_proxy"] = (
@@ -124,6 +150,14 @@ class AndroidProxySecurityTests(unittest.TestCase):
 
     def test_proxy_url_uses_random_secret_path(self):
         path = self.ns["_new_proxy_secret_path"]()
+        self.assertRegex(path, r"^/[0-9a-f]{32}/stream\.mp4$")
+
+    def test_proxy_url_can_use_hls_extension(self):
+        path = self.ns["_new_proxy_secret_path"]("m3u8")
+        self.assertRegex(path, r"^/[0-9a-f]{32}/stream\.m3u8$")
+
+    def test_proxy_url_rejects_unsafe_extension(self):
+        path = self.ns["_new_proxy_secret_path"]("../bad")
         self.assertRegex(path, r"^/[0-9a-f]{32}/stream\.mp4$")
 
     def test_wrong_path_never_reaches_upstream(self):
