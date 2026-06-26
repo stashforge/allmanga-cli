@@ -186,6 +186,11 @@ def _stream_from_format(
         if audio_url:
             stream["audio_url"] = audio_url
             stream["android_safe"] = True
+            stream["split_video_url"] = stream_url
+            stream["split_audio_url"] = audio_url
+            stream["split_width"] = item.get("width") or 1280
+            stream["split_height"] = item.get("height") or 720
+            stream["split_bandwidth"] = item.get("tbr") or item.get("vbr") or 2400
             if is_dailymotion:
                 stream["dailymotion_video"] = stream_url
                 stream["dailymotion_audio"] = audio_url
@@ -212,6 +217,7 @@ def streams_from_ytdlp_data(data: dict, *, url: str, name: str, priority: int) -
             data,
             name=name,
             priority=priority,
+            audio_format=best_audio if data.get("acodec") == "none" else None,
         )
         if best_stream:
             best_stream["source_name"] = (

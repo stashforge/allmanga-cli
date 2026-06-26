@@ -207,6 +207,8 @@ class StreamUrlTests(unittest.TestCase):
         self.assertEqual(streams[0]["type"], "hls")
         self.assertTrue(streams[0]["android_safe"])
         self.assertEqual(streams[0]["audio_url"], "https://vod.dmcdn.test/audio/manifest.m3u8")
+        self.assertEqual(streams[0]["split_video_url"], "https://vod.dmcdn.test/video/manifest.m3u8")
+        self.assertEqual(streams[0]["split_audio_url"], "https://vod.dmcdn.test/audio/manifest.m3u8")
         self.assertEqual(streams[0]["dailymotion_video"], "https://vod.dmcdn.test/video/manifest.m3u8")
         self.assertEqual(streams[0]["dailymotion_audio"], "https://vod.dmcdn.test/audio/manifest.m3u8")
 
@@ -328,6 +330,41 @@ class StreamUrlTests(unittest.TestCase):
             "r_file=chunklist.m3u8&r_type=application%2Fvnd.apple.mpegurl",
         )
         self.assertNotIn("640x268", [stream["resolution"] for stream in streams])
+
+    def test_selected_best_video_only_stream_gets_audio_url(self):
+        streams = ytdlp_extractor.streams_from_ytdlp_data(
+            {
+                "url": "https://cdn.example.test/best-video.m3u8",
+                "protocol": "m3u8_native",
+                "width": 1920,
+                "height": 800,
+                "acodec": "none",
+                "vcodec": "avc1",
+                "formats": [
+                    {
+                        "url": "https://cdn.example.test/audio-low.aac",
+                        "vcodec": "none",
+                        "acodec": "aac",
+                        "abr": 96,
+                    },
+                    {
+                        "url": "https://cdn.example.test/audio-best.aac",
+                        "vcodec": "none",
+                        "acodec": "aac",
+                        "abr": 192,
+                    },
+                ],
+            },
+            url="https://rumble.com/embed/vabc/",
+            name="Rumble",
+            priority=8,
+        )
+
+        self.assertEqual(streams[0]["link"], "https://cdn.example.test/best-video.m3u8")
+        self.assertEqual(streams[0]["audio_url"], "https://cdn.example.test/audio-best.aac")
+        self.assertEqual(streams[0]["split_video_url"], "https://cdn.example.test/best-video.m3u8")
+        self.assertEqual(streams[0]["split_audio_url"], "https://cdn.example.test/audio-best.aac")
+        self.assertTrue(streams[0]["android_safe"])
 
     def test_dailymotion_ytdlp_retries_before_giving_up(self):
         globals_dict = ytdlp_extractor.__dict__

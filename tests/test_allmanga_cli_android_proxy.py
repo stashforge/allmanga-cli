@@ -134,6 +134,41 @@ class AndroidProxyLifecycleTests(unittest.TestCase):
         self.assertIn("EXT-X-MEDIA", calls[0][0])
         self.assertIn("https://vod.dmcdn.test/audio/manifest.m3u8", calls[0][0])
 
+    def test_generic_hls_split_audio_uses_local_m3u8_manifest(self):
+        server = FakeServer()
+        calls = []
+
+        def start_content(content, filename, content_type):
+            calls.append((content, filename, content_type))
+            return "http://127.0.0.1:1234/stream.m3u8", server
+
+        self.globals["start_local_content_server"] = start_content
+        self.globals["subprocess"].run = lambda *args, **kwargs: types.SimpleNamespace(
+            returncode=0
+        )
+        stream = {
+            "link": "https://cdn.example/video.m3u8",
+            "type": "hls",
+            "referer": "",
+            "headers": {},
+            "split_video_url": "https://cdn.example/video.m3u8",
+            "split_audio_url": "https://cdn.example/audio.m3u8",
+            "split_width": 1280,
+            "split_height": 534,
+            "split_bandwidth": 2134,
+        }
+
+        self.assertTrue(
+            self.ns["play_android"](
+                "Test", "43", stream, None, player="mpv"
+            )
+        )
+        self.assertEqual(calls[0][1], "stream.m3u8")
+        self.assertEqual(calls[0][2], "application/vnd.apple.mpegurl")
+        self.assertIn("https://cdn.example/video.m3u8", calls[0][0])
+        self.assertIn("https://cdn.example/audio.m3u8", calls[0][0])
+        self.assertIs(self.proxy_globals["_active_server"], server)
+
     def test_failed_android_launch_closes_new_proxy(self):
         server = FakeServer()
         self.globals["start_local_proxy"] = (

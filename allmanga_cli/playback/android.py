@@ -102,6 +102,29 @@ def play_android(
         except Exception as exc:
             _error(f"Could not prepare DASH stream: {exc}")
             return False
+    elif (
+            stream.get("split_video_url")
+            and stream.get("split_audio_url")
+            and stream.get("type") == "hls"):
+        _info(f"{player}: preparing video and audio...")
+        try:
+            manifest = build_dailymotion_hls_manifest(
+                stream["split_video_url"],
+                stream["split_audio_url"],
+                width=stream.get("split_width") or 1280,
+                height=stream.get("split_height") or 720,
+                bandwidth=int(float(stream.get("split_bandwidth") or 2400) * 1000),
+            )
+            url, proxy_server = start_local_content_server(
+                manifest,
+                "stream.m3u8",
+                "application/vnd.apple.mpegurl",
+            )
+            replace_active_local_proxy(proxy_server)
+            intent_type = "application/vnd.apple.mpegurl"
+        except Exception as exc:
+            _error(f"Could not prepare split audio stream: {exc}")
+            return False
     elif stream.get("dailymotion_video") and stream.get("dailymotion_audio"):
         _info(f"{player}: preparing Dailymotion video and audio...")
         try:
