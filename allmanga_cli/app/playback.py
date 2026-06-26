@@ -60,6 +60,20 @@ def _clear_episode_source_state(ms: "MachineState") -> None:
     app_core._clear_streams()
 
 
+def format_mirror_label(stream: dict, *, prefix: str = "", safe_tag: str = "") -> str:
+    name = str(stream.get("source_name") or "Unknown")
+    stream_type = str(stream.get("type") or "?").upper()
+    resolution = str(stream.get("resolution") or "?")
+    parts = [f"{prefix}{name}"]
+    if f"[{stream_type}" not in name.upper():
+        parts.append(f"[{stream_type}{safe_tag}]")
+    elif safe_tag and "✓" not in name:
+        parts.append(safe_tag.strip())
+    if resolution != "?" and resolution.casefold() not in name.casefold():
+        parts.append(resolution)
+    return re.sub(r"\s+", " ", " ".join(parts)).strip()
+
+
 def _handle_verification_page(
     flags: "CliFlags",
     ui: "UiState",
@@ -865,10 +879,7 @@ def handle_mirrors_state(
         else:
             prefix = ""
 
-        raw = (f"{prefix}{s['source_name']} "
-               f"[{s.get('type','?').upper()}{tag}] "
-               f"{s.get('resolution','?')}")
-        return re.sub(r'\s+', ' ', raw).strip()
+        return format_mirror_label(s, prefix=prefix, safe_tag=tag)
 
     def _dedup():
         seen, out = set(), []
