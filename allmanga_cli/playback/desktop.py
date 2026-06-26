@@ -6,12 +6,18 @@ from ..media.proxy_rules import proxy_filtered_headers
 from ..media.urls import validate_optional_referer, validate_stream_url
 
 
-def _prepare_dailymotion_manifest(stream):
-    if not (stream.get("dailymotion_video") and stream.get("dailymotion_audio")):
+def _prepare_split_hls_manifest(stream):
+    video_url = stream.get("dailymotion_video") or (
+        stream.get("link")
+        if stream.get("audio_url") and stream.get("type") == "hls"
+        else ""
+    )
+    audio_url = stream.get("dailymotion_audio") or stream.get("audio_url")
+    if not (video_url and audio_url):
         return "", None
     manifest = build_dailymotion_hls_manifest(
-        validate_stream_url(stream["dailymotion_video"]),
-        validate_stream_url(stream["dailymotion_audio"]),
+        validate_stream_url(video_url),
+        validate_stream_url(audio_url),
         width=stream.get("dailymotion_width") or 1280,
         height=stream.get("dailymotion_height") or 720,
         bandwidth=int(float(stream.get("dailymotion_bandwidth") or 2400) * 1000),
@@ -41,12 +47,12 @@ def play_desktop(
         next_episode=None):
     url = validate_stream_url(stream["link"])
     proxy_server = None
-    dailymotion_url, proxy_server = _prepare_dailymotion_manifest(stream)
-    if dailymotion_url:
-        url = dailymotion_url
+    split_hls_url, proxy_server = _prepare_split_hls_manifest(stream)
+    if split_hls_url:
+        url = split_hls_url
     audio_url = (
         validate_stream_url(stream["audio_url"])
-        if stream.get("audio_url") and not dailymotion_url
+        if stream.get("audio_url") and not split_hls_url
         else ""
     )
     subtitle_url = (

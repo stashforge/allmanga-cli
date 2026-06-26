@@ -415,7 +415,16 @@ def handle_play_state(
                     and app_core.pkg_installed("app.marlboroadvance.mpvex")):
                 player = "mpvex"
 
-        result = app_core.play_android(ms.show_title, ms.current_ep, ms.selected_stream, fetch_cb, player, ms.total_eps, ms.show_id, is_binge)
+        result = app_core.play_android(
+            ms.show_title,
+            current_ep_label,
+            ms.selected_stream,
+            fetch_cb,
+            player,
+            ms.total_eps,
+            ms.show_id,
+            is_binge,
+        )
 
         if first_source_name is not None:
             exclude = {first_source_name}
@@ -452,7 +461,7 @@ def handle_play_state(
         next_episode = episode_id_at(episode_ids, ms.current_ep_index + 1) if ms.current_ep_index + 1 < ms.total_eps else None
 
         result, percent, time_pos, duration, played_seconds = app_core.play_desktop(
-            ms.show_title, ms.current_ep, ms.selected_stream, fetch_cb,
+            ms.show_title, current_ep_label, ms.selected_stream, fetch_cb,
             ms.total_eps, is_binge, ms.show_id, ms.pending_osd_msg,
             ms.current_ep_index, next_episode
         )

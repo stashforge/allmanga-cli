@@ -107,6 +107,52 @@ class DesktopPlaybackTests(unittest.TestCase):
         self.assertEqual(ipc.loads[0]["url"], "https://cdn.example/video.m4s")
         self.assertEqual(ipc.loads[0]["audio_url"], "https://cdn.example/audio.m4s")
 
+    def test_generic_hls_split_audio_uses_local_manifest(self):
+        calls = []
+        stopped = []
+        original_start = desktop.start_local_content_server
+        original_stop = desktop.stop_local_proxy
+        try:
+            desktop.start_local_content_server = (
+                lambda content, filename, content_type: (
+                    calls.append((content, filename, content_type))
+                    or ("http://127.0.0.1:4321/stream.m3u8", types.SimpleNamespace())
+                )
+            )
+            desktop.stop_local_proxy = lambda server: stopped.append(server)
+            ipc = FakeIpc()
+            stream = {
+                "link": "https://cdn.example/video.m3u8",
+                "type": "hls",
+                "resolution": "1280x534",
+                "source_name": "Rumble",
+                "referer": "",
+                "headers": {},
+                "audio_url": "https://cdn.example/audio.m3u8",
+            }
+
+            desktop.play_desktop(
+                ipc,
+                "Test",
+                "43",
+                stream,
+                get_resume_time=lambda *_args: 0,
+                get_preferred_mirror=lambda *_args: {},
+                update_stream_info=lambda _info: None,
+            )
+        finally:
+            desktop.start_local_content_server = original_start
+            desktop.stop_local_proxy = original_stop
+
+        self.assertEqual(ipc.loads[0]["url"], "http://127.0.0.1:4321/stream.m3u8")
+        self.assertEqual(ipc.loads[0]["audio_url"], "")
+        self.assertEqual(ipc.loads[0]["title"], "Test - Episode 43 (1280x534)")
+        self.assertIn("https://cdn.example/video.m3u8", calls[0][0])
+        self.assertIn("https://cdn.example/audio.m3u8", calls[0][0])
+        self.assertEqual(calls[0][1], "stream.m3u8")
+        self.assertEqual(calls[0][2], "application/vnd.apple.mpegurl")
+        self.assertEqual(len(stopped), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
