@@ -206,6 +206,7 @@ class StreamUrlTests(unittest.TestCase):
         self.assertEqual(len(streams), 1)
         self.assertEqual(streams[0]["type"], "hls")
         self.assertTrue(streams[0]["android_safe"])
+        self.assertEqual(streams[0]["audio_url"], "https://vod.dmcdn.test/audio/manifest.m3u8")
         self.assertEqual(streams[0]["dailymotion_video"], "https://vod.dmcdn.test/video/manifest.m3u8")
         self.assertEqual(streams[0]["dailymotion_audio"], "https://vod.dmcdn.test/audio/manifest.m3u8")
 

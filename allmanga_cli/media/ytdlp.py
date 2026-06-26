@@ -61,6 +61,7 @@ def streams_from_ytdlp_data(data: dict, *, url: str, name: str, priority: int) -
                     "headers": {},
                     "source_priority": priority,
                     "android_safe": True,
+                    "audio_url": audio_url,
                     "dailymotion_video": video_url,
                     "dailymotion_audio": audio_url,
                     "dailymotion_width": video.get("width") or 1280,
