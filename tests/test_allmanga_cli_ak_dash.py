@@ -93,7 +93,7 @@ class AkDashPlaybackTests(unittest.TestCase):
     def setUp(self):
         self.ns = load_app_namespace(reload=True)
 
-    def test_mpv_ipc_adds_external_audio_after_video(self):
+    def test_mpv_ipc_adds_external_audio_after_file_loaded(self):
         ipc = self.ns["MpvIpc"]()
         commands = []
         ipc.start = lambda: setattr(ipc, "running", True)
@@ -110,15 +110,16 @@ class AkDashPlaybackTests(unittest.TestCase):
         self.assertIn(
             ("loadfile", "https://cdn.example/video.m4s"), commands
         )
-        self.assertIn(
+        self.assertNotIn(
             ("audio-add", "https://cdn.example/audio.m4s", "select"),
             commands,
         )
-        self.assertLess(
-            commands.index(("loadfile", "https://cdn.example/video.m4s")),
-            commands.index(
-                ("audio-add", "https://cdn.example/audio.m4s", "select")
-            ),
+
+        ipc._attach_pending_external_tracks()
+
+        self.assertIn(
+            ("audio-add", "https://cdn.example/audio.m4s", "select"),
+            commands,
         )
 
     def test_mpv_ipc_does_not_force_headers_for_plain_streams(self):

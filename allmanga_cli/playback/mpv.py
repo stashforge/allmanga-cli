@@ -43,6 +43,8 @@ class MpvIpc:
         self.prefetched_stream = None
         self.prefetched_res = None
         self.is_fetching = False
+        self._pending_audio_url = ""
+        self._pending_subtitle_url = ""
 
     def start(self):
         if self.process and self.process.poll() is None: return
@@ -100,16 +102,22 @@ class MpvIpc:
         self.send_cmd("set_property", "resume-playback", False)
         self.resume_time = start_time
 
+        self._pending_audio_url = audio_url or ""
+        self._pending_subtitle_url = subtitle_url or ""
         self.send_cmd("loadfile", url)
-        if audio_url:
-            self.send_cmd("audio-add", audio_url, "select")
-        if subtitle_url:
-            self.send_cmd("sub-add", subtitle_url, "select")
 
         msg = f"Now playing\n{title}\n\nShift+Right: Next  •  Shift+Left: Previous  •  Q: Quit"
         if osd_msg:
             msg += f"\n\n{osd_msg}"
         self.initial_osd_msg = msg
+
+    def _attach_pending_external_tracks(self):
+        if self._pending_audio_url:
+            self.send_cmd("audio-add", self._pending_audio_url, "select")
+            self._pending_audio_url = ""
+        if self._pending_subtitle_url:
+            self.send_cmd("sub-add", self._pending_subtitle_url, "select")
+            self._pending_subtitle_url = ""
 
     def quit(self):
         self.send_cmd("quit")
@@ -305,7 +313,9 @@ class MpvIpc:
                             try:
                                 msg = json.loads(line)
                                 ev = msg.get("event")
-                                if ev == "end-file":
+                                if ev == "file-loaded":
+                                    self._attach_pending_external_tracks()
+                                elif ev == "end-file":
                                     if getattr(self, "expect_ghost_eof", False):
                                         self.expect_ghost_eof = False
                                         continue
