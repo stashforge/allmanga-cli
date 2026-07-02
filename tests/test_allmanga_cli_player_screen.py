@@ -76,7 +76,7 @@ class PlayerScreenTests(unittest.TestCase):
         self.assertNotIn("████", output)
         self.assertIn("Currently playing", output)
         self.assertIn("Episode 44", output)
-        self.assertIn("Avail 44/?", output)
+        self.assertIn("Episodes 44/?", output)
         self.assertIn("06:11 / 18:51", output)
         self.assertIn("-12:40", output)
         self.assertIn("Genres", output)

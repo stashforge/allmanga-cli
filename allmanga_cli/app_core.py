@@ -716,7 +716,7 @@ def _playback_episode_summary(show, player_state, ttype="sub"):
 
     total = _positive_int(show.get("episodeCount"))
     if available is not None:
-        return f"Avail {available}/{total if total else '?'}"
+        return f"Episodes {available}/{total if total else '?'}"
     if total:
         return f"Total {total}"
     return ""
