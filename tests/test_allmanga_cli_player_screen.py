@@ -48,6 +48,7 @@ class PlayerScreenTests(unittest.TestCase):
     def test_playback_uses_tight_progress_and_current_stream_block(self):
         player_screen.activate({
             "name": "Against the Gods",
+            "availableEpisodes": {"sub": 44},
             "genres": ["Action", "Fantasy"],
             "description": "A compact description for the playback screen.",
         }, "44", 44)
@@ -75,6 +76,7 @@ class PlayerScreenTests(unittest.TestCase):
         self.assertNotIn("████", output)
         self.assertIn("Currently playing", output)
         self.assertIn("Episode 44", output)
+        self.assertIn("Avail 44/?", output)
         self.assertIn("06:11 / 18:51", output)
         self.assertIn("-12:40", output)
         self.assertIn("Genres", output)

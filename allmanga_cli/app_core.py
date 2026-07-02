@@ -699,6 +699,28 @@ def _get_player_poster(show):
     globals()["_hovered_show_id"] = show.get("_id") or show.get("id")
     return _get_poster(show) or ""
 
+def _playback_episode_summary(show, player_state, ttype="sub"):
+    if not isinstance(show, dict):
+        return ""
+    available = None
+    try:
+        available = int((show.get("availableEpisodes") or {}).get(ttype))
+    except (TypeError, ValueError):
+        available = None
+    if available is None:
+        next_ep = _positive_int(show.get("_next_airing_ep"))
+        if next_ep:
+            available = max(0, next_ep - 1)
+    if available is None:
+        available = _positive_int(player_state.get("total_eps"))
+
+    total = _positive_int(show.get("episodeCount"))
+    if available is not None:
+        return f"Avail {available}/{total if total else '?'}"
+    if total:
+        return f"Total {total}"
+    return ""
+
 def render_player_screen():
     s = _player_ui_state
     if not s["active"]: return
@@ -716,14 +738,9 @@ def render_player_screen():
 
     info_bits = []
     if sn: info_bits.append(f"Season {sn}")
-    total = _positive_int(show.get("episodeCount")) if isinstance(show, dict) else None
-    if not total:
-        total = _positive_int(s.get("total_eps"))
-    if total:
-        info_bits.append(f"EP {total}")
-    available = format_available_episodes(show, "sub") if isinstance(show, dict) else ""
-    if available and available not in info_bits:
-        info_bits.append(available)
+    summary = _playback_episode_summary(show, s)
+    if summary:
+        info_bits.append(summary)
     ep_str = " \u2022 ".join(info_bits)
 
     si = s.get("stream_info", {})
@@ -810,7 +827,6 @@ def render_player_screen():
         content.append("")
         content.append("\033[38;5;244mQ Quit   Shift+Left Previous   Shift+Right Next\033[0m")
     else:
-        content.append("\033[1;36mLoading stream...\033[0m")
         content.append("")
         for tl in _wrap_title(clean, w - 4, 2).splitlines():
             content.append(f"\033[1;97m{tl}\033[0m")
@@ -818,6 +834,7 @@ def render_player_screen():
         content.append(f"\033[38;5;248m{ep_str}\033[0m")
         content.append("")
         content.append("\033[38;5;246mStatus\033[0m")
+        content.append("\033[1;36mLoading stream...\033[0m")
         content.append("")
         for sl in s["status_lines"]:
             content.append(sl)

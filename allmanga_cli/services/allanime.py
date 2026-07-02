@@ -18,7 +18,7 @@ SEARCH_QUERY = (
     "$countryOrigin:VaildCountryOriginEnumType){"
     "shows(search:$search limit:$limit page:$page "
     "translationType:$translationType countryOrigin:$countryOrigin)"
-    "{edges{_id name englishName nativeName altNames thumbnail type "
+    "{edges{_id name englishName nativeName altNames thumbnail description type "
     "season score genres availableEpisodes status episodeCount airedStart "
     "aniListId malId}}}"
 )
@@ -50,7 +50,7 @@ def search_anime(request_json, query, ttype="sub"):
 def get_show(request_json, show_id):
     query = (
         "query($showId:String!){show(_id:$showId)"
-        "{_id name englishName nativeName altNames thumbnail type season "
+        "{_id name englishName nativeName altNames thumbnail description type season "
         "score genres availableEpisodes status episodeCount airedStart "
         "aniListId malId}}"
     )
