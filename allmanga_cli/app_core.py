@@ -759,8 +759,12 @@ def render_player_screen():
         rem = fmt_time(rem_sec)
 
         bar_width = max(10, min(40, w - 4))
-        filled = int((pt_sec / dur_sec) * bar_width) if dur_sec > 0 else 0
-        bar = ("█" * filled) + ("░" * (bar_width - filled))
+        ratio = max(0, min(1, pt_sec / dur_sec)) if dur_sec > 0 else 0
+        filled = int(ratio * bar_width)
+        bar = (
+            f"\033[38;5;115m{'━' * filled}\033[0m"
+            f"\033[38;5;240m{'─' * (bar_width - filled)}\033[0m"
+        )
 
         content.append(f"\033[1;36m{state_str}\033[0m")
         content.append("")
@@ -768,14 +772,12 @@ def render_player_screen():
             content.append(f"\033[1;97m{tl}\033[0m")
         content.append("")
         content.append(f"\033[38;5;248m{ep_str}\033[0m")
+        content.append("")
+        content.append(bar)
+        content.append("")
+        content.append(f"\033[38;5;250m{t} / {d}  \u2022  -{rem}\033[0m")
         if stream_str:
-            content.append("")
             content.append(f"\033[38;5;248m{stream_str}\033[0m")
-        content.append("")
-        content.append(f"\033[38;5;250m{bar}\033[0m")
-        content.append("")
-        content.append(f"\033[38;5;250m{t} / {d}\033[0m")
-        content.append(f"\033[38;5;246mRemaining \u2022 {rem}\033[0m")
         content.append("")
         content.append("\033[38;5;244mQ Quit   Shift+Left Previous   Shift+Right Next\033[0m")
     else:
