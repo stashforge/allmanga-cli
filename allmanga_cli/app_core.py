@@ -716,12 +716,14 @@ def render_player_screen():
 
     info_bits = []
     if sn: info_bits.append(f"Season {sn}")
-    if s["current_ep"] and s["total_eps"]:
-        label = s.get("current_ep_label") or str(s["current_ep"])
-        if str(label).casefold().startswith(("episode ", "ep ", "part ", "ova", "movie", "special")):
-            info_bits.append(f"{label}/{s['total_eps']}")
-        else:
-            info_bits.append(f"Episode {label}/{s['total_eps']}")
+    total = _positive_int(show.get("episodeCount")) if isinstance(show, dict) else None
+    if not total:
+        total = _positive_int(s.get("total_eps"))
+    if total:
+        info_bits.append(f"EP {total}")
+    available = format_available_episodes(show, "sub") if isinstance(show, dict) else ""
+    if available and available not in info_bits:
+        info_bits.append(available)
     ep_str = " \u2022 ".join(info_bits)
 
     si = s.get("stream_info", {})
@@ -771,7 +773,7 @@ def render_player_screen():
         content.append("")
         content.append(f"\033[38;5;248m{ep_str}\033[0m")
         content.append("")
-        content.append("\033[38;5;246mCurrently playing:\033[0m")
+        content.append("\033[38;5;246mCurrently playing\033[0m")
         label = s.get("current_ep_label") or str(s["current_ep"])
         content.append(f"\033[38;5;250mEpisode {label}\033[0m")
         if stream_str:
@@ -789,16 +791,22 @@ def render_player_screen():
         else:
             genre_text = str(genres or "").strip()
         if genre_text:
-            detail_lines.append(genre_text)
+            detail_lines.append("\033[38;5;246mGenres\033[0m")
+            detail_lines.append("\033[38;5;245m" + genre_text.replace(", ", " \u00b7 ") + "\033[0m")
         description = str(show.get("description") or "").strip() if isinstance(show, dict) else ""
         if description:
             description = re.sub(r"<[^>]+>", " ", description)
             description = re.sub(r"\s+", " ", description).strip()
-            detail_lines.extend(_wrap_title(description, w - 4, 2).splitlines())
+            if detail_lines:
+                detail_lines.append("")
+            detail_lines.append("\033[38;5;246mDescription\033[0m")
+            detail_lines.extend(
+                f"\033[38;5;245m{line}\033[0m"
+                for line in _wrap_title(description, w - 4, 99).splitlines()
+            )
         if detail_lines:
             content.append("")
-            for line in detail_lines[:3]:
-                content.append(f"\033[38;5;245m{line}\033[0m")
+            content.extend(detail_lines)
         content.append("")
         content.append("\033[38;5;244mQ Quit   Shift+Left Previous   Shift+Right Next\033[0m")
     else:

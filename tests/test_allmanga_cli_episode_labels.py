@@ -80,7 +80,7 @@ class EpisodeLabelTests(unittest.TestCase):
             app_core.render_player_screen()
 
         output = stdout.getvalue()
-        self.assertIn("Episode 43/43", output)
+        self.assertIn("EP 43", output)
         self.assertNotIn("https://animexin.dev/against-the-gods-episode-43/", output)
         app_core._player_ui_state["active"] = False
 

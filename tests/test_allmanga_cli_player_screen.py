@@ -73,11 +73,13 @@ class PlayerScreenTests(unittest.TestCase):
         self.assertIn("━━━━", output)
         self.assertIn("────", output)
         self.assertNotIn("████", output)
-        self.assertIn("Currently playing:", output)
+        self.assertIn("Currently playing", output)
         self.assertIn("Episode 44", output)
         self.assertIn("06:11 / 18:51", output)
         self.assertIn("-12:40", output)
-        self.assertIn("Action, Fantasy", output)
+        self.assertIn("Genres", output)
+        self.assertIn("Action \u00b7 Fantasy", output)
+        self.assertIn("Description", output)
         self.assertIn("compact description", output)
         self.assertGreater(
             output.find("Paused"),
