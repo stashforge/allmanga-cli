@@ -45,6 +45,37 @@ class PlayerScreenTests(unittest.TestCase):
         self.assertNotIn("POSTER-LINE-1", second)
         self.assertIn("Playing", second)
 
+    def test_playback_uses_thin_progress_and_stream_below_time(self):
+        player_screen.activate({"name": "Against the Gods"}, "44", 44)
+        player_screen.update_stream_info({
+            "mirror": "Hardsub English Dailymotion",
+            "quality": "1920x800",
+        })
+        player_screen._player_ui_state["mpv_props"] = {
+            "pause": True,
+            "playback-time": 371,
+            "duration": 1131,
+        }
+
+        with patch.object(
+                player_screen.os,
+                "get_terminal_size",
+                return_value=os.terminal_size((100, 30)),
+        ), patch.object(player_screen.sys, "stdout", StringIO()) as stdout:
+            player_screen.render(FakePosterManager(), enter_alt_screen_fn=lambda: None)
+            output = stdout.getvalue()
+
+        self.assertIn("Paused", output)
+        self.assertIn("━━━━", output)
+        self.assertIn("────", output)
+        self.assertNotIn("████", output)
+        self.assertIn("06:11 / 18:51", output)
+        self.assertIn("-12:40", output)
+        self.assertGreater(
+            output.find("Hardsub English Dailymotion"),
+            output.find("06:11 / 18:51"),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

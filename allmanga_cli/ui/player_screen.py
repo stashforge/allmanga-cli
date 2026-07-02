@@ -72,6 +72,19 @@ def _fmt_time(sec: float | None) -> str:
     return f"{m:02d}:{s:02d}"
 
 
+def _thin_progress_bar(position: float, duration: float, width: int) -> str:
+    """Return a low-height colored progress bar."""
+    bar_width = max(10, min(40, width))
+    ratio = 0
+    if duration > 0:
+        ratio = max(0, min(1, position / duration))
+    filled = int(ratio * bar_width)
+    return (
+        f"\033[38;5;115m{'\u2501' * filled}\033[0m"
+        f"\033[38;5;240m{'\u2500' * (bar_width - filled)}\033[0m"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -212,9 +225,10 @@ def render(
         dur_sec = props.get("duration", 0) or 0
         rem_sec = dur_sec - pt_sec if dur_sec > 0 else 0
 
-        bar_width = max(10, min(40, w - 4))
-        filled = int((pt_sec / dur_sec) * bar_width) if dur_sec > 0 else 0
-        bar = ("\u2588" * filled) + ("\u2591" * (bar_width - filled))
+        bar = _thin_progress_bar(pt_sec, dur_sec, w - 4)
+        time_line = f"{_fmt_time(pt_sec)} / {_fmt_time(dur_sec)}"
+        if dur_sec > 0:
+            time_line += f"  \u2022  -{_fmt_time(rem_sec)}"
 
         content.append(f"\033[1;36m{state_str}\033[0m")
         content.append("")
@@ -222,14 +236,11 @@ def render(
             content.append(f"\033[1;97m{tl}\033[0m")
         content.append("")
         content.append(f"\033[38;5;248m{ep_str}\033[0m")
+        content.append("")
+        content.append(bar)
+        content.append(f"\033[38;5;250m{time_line}\033[0m")
         if stream_str:
-            content.append("")
-            content.append(f"\033[38;5;248m{stream_str}\033[0m")
-        content.append("")
-        content.append(f"\033[38;5;250m{bar}\033[0m")
-        content.append("")
-        content.append(f"\033[38;5;250m{_fmt_time(pt_sec)} / {_fmt_time(dur_sec)}\033[0m")
-        content.append(f"\033[38;5;246mRemaining \u2022 {_fmt_time(rem_sec)}\033[0m")
+            content.append(f"\033[38;5;246m{stream_str}\033[0m")
         content.append("")
         content.append("\033[38;5;244mQ Quit   Shift+Left Previous   Shift+Right Next\033[0m")
     else:
