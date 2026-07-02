@@ -7,7 +7,7 @@ import pkgutil
 from typing import Iterable
 
 
-_SKIPPED_MODULES = {"base", "models"}
+_SKIPPED_MODULES = {"base", "models", "schema", "wordpress"}
 _DEFAULT_PROVIDER_ID = "allanime"
 
 

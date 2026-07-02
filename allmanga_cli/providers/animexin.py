@@ -100,7 +100,7 @@ class AnimeXinProvider(WordPressAnimeProvider):
             provider_name=self.name,
             provider_id=link,
             name=title,
-            thumbnail=item.get("post_image") or "",
+            thumbnail=(item.get("post_image") or "").split("?resize=")[0],
             media_type=str(item.get("post_type") or "ONA").strip() or "ONA",
             available_sub=available if ttype == "sub" else 0,
             available_dub=available if ttype == "dub" else 0,

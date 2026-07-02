@@ -18,6 +18,7 @@ class ShellCompletionTests(unittest.TestCase):
             script,
         )
         self.assertIn("animexin", script)
+        self.assertIn("animekhor", script)
         self.assertIn("lucifer", script)
         self.assertIn("--sync", script)
         self.assertIn("--no-sync", script)
@@ -30,8 +31,9 @@ class ShellCompletionTests(unittest.TestCase):
 
         self.assertIn('compgen -W "best 1080p 720p 480p"', script)
         self.assertIn('compgen -W "mpv mpvex vlc next"', script)
+        self.assertIn("animekhor", script)
         self.assertIn("lucifer", script)
-        self.assertIn("allanime|animexin|lucifer)", script)
+        self.assertIn("allanime|animekhor|animexin|lucifer)", script)
         self.assertIn('compgen -W "search"', script)
         self.assertIn('if [[ "$cmd" == "completion" ]]', script)
         self.assertIn('if [[ "$cmd" == "auth" ]]', script)
@@ -45,6 +47,7 @@ class ShellCompletionTests(unittest.TestCase):
                 self.assertIn("watching", script)
                 self.assertIn("rewatching", script)
                 self.assertIn("airing", script)
+                self.assertIn("animekhor", script)
                 self.assertIn("animexin", script)
                 self.assertIn("lucifer", script)
                 self.assertIn("completion", script)

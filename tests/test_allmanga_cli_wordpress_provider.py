@@ -2,6 +2,7 @@ import base64
 import unittest
 
 from allmanga_cli.providers import get_provider, provider_key
+from allmanga_cli.providers.animekhor import AnimeKhorProvider
 from allmanga_cli.providers.animexin import AnimeXinProvider
 from allmanga_cli.providers.luciferdonghua import LuciferDonghuaProvider
 from allmanga_cli.providers.wordpress import (
@@ -27,6 +28,10 @@ class WordPressProviderTests(unittest.TestCase):
             LuciferDonghuaProvider,
         )
 
+    def test_animekhor_is_auto_discovered(self):
+        self.assertEqual(provider_key("animekhor"), "animekhor")
+        self.assertIsInstance(get_provider("animekhor"), AnimeKhorProvider)
+
     def test_animexin_ignores_registry_request_json_argument(self):
         provider = AnimeXinProvider(
             request_json_fn=lambda *_args, **_kwargs: self.fail("request_json should not be used"),
@@ -44,7 +49,7 @@ class WordPressProviderTests(unittest.TestCase):
                         "ID": 19375,
                         "post_title": "Perfect World Movie: Ashes of Perfect Fire",
                         "post_link": "https://animexin.dev/perfect-world-movie-ashes-of-perfect-fire/",
-                        "post_image": "https://animexin.dev/poster.jpg",
+                        "post_image": "https://animexin.dev/poster.jpg?resize=214,300",
                         "post_genres": "Action, Adventure",
                         "post_type": "ONA",
                         "post_latest": "Part 3",
@@ -92,6 +97,29 @@ class WordPressProviderTests(unittest.TestCase):
             "https://luciferdonghua.in/renegade-immortal/",
         )
         self.assertEqual(results[0]["availableEpisodes"]["sub"], 142)
+
+    def test_animekhor_reuses_wordpress_ajax_shape(self):
+        provider = AnimeKhorProvider(
+            ajax_fetch=lambda _query: {
+                "anime": [{
+                    "all": [{
+                        "ID": 11,
+                        "post_title": "Soul Land",
+                        "post_link": "https://animekhor.org/soul-land/",
+                        "post_image": "https://animekhor.org/poster.jpg",
+                        "post_type": "ONA",
+                        "post_latest": "265",
+                        "post_sub": "Sub",
+                    }],
+                }],
+            },
+        )
+
+        results = provider.search("soul land")
+
+        self.assertEqual(results[0]["_provider"], "animekhor")
+        self.assertEqual(results[0]["_provider_name"], "AnimeKhor")
+        self.assertEqual(results[0]["availableEpisodes"]["sub"], 265)
 
     def test_parse_mirrors_decodes_and_normalizes_embeds(self):
         page = f'''
