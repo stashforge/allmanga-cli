@@ -45,8 +45,12 @@ class PlayerScreenTests(unittest.TestCase):
         self.assertNotIn("POSTER-LINE-1", second)
         self.assertIn("Playing", second)
 
-    def test_playback_uses_thin_progress_and_stream_below_time(self):
-        player_screen.activate({"name": "Against the Gods"}, "44", 44)
+    def test_playback_uses_tight_progress_and_current_stream_block(self):
+        player_screen.activate({
+            "name": "Against the Gods",
+            "genres": ["Action", "Fantasy"],
+            "description": "A compact description for the playback screen.",
+        }, "44", 44)
         player_screen.update_stream_info({
             "mirror": "Hardsub English Dailymotion",
             "quality": "1920x800",
@@ -69,12 +73,17 @@ class PlayerScreenTests(unittest.TestCase):
         self.assertIn("━━━━", output)
         self.assertIn("────", output)
         self.assertNotIn("████", output)
+        self.assertIn("Currently playing:", output)
+        self.assertIn("Episode 44", output)
         self.assertIn("06:11 / 18:51", output)
         self.assertIn("-12:40", output)
+        self.assertIn("Action, Fantasy", output)
+        self.assertIn("compact description", output)
         self.assertGreater(
+            output.find("Paused"),
             output.find("Hardsub English Dailymotion"),
-            output.find("06:11 / 18:51"),
         )
+        self.assertGreater(output.find("06:11 / 18:51"), output.find("━━━━"))
 
 
 if __name__ == "__main__":

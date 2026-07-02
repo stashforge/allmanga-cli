@@ -725,12 +725,11 @@ def render_player_screen():
     ep_str = " \u2022 ".join(info_bits)
 
     si = s.get("stream_info", {})
-    qual = si.get('quality')
     mirror = si.get('mirror')
     stream_str = ""
-    if mirror and qual:
+    if mirror:
         pref_star = " \u2022 \033[33mPreferred \u2605" if si.get('is_pref') else ""
-        stream_str = f"{mirror} \u2022 {qual}{pref_star}\033[0m"
+        stream_str = f"{mirror}{pref_star}\033[0m"
 
     props = s.get("mpv_props")
     is_playing = (props is not None)
@@ -749,6 +748,7 @@ def render_player_screen():
         content.append("")
 
     if is_playing:
+        state_str = "\u258c\u258c Paused" if props.get("pause") else "\u25b6 Playing"
         pt_sec = props.get("playback-time", 0) or 0
         dur_sec = props.get("duration", 0) or 0
 
@@ -765,14 +765,40 @@ def render_player_screen():
             f"\033[38;5;240m{'─' * (bar_width - filled)}\033[0m"
         )
 
+        content.append("")
         for tl in _wrap_title(clean, w - 4, 2).splitlines():
             content.append(f"\033[1;97m{tl}\033[0m")
         content.append("")
         content.append(f"\033[38;5;248m{ep_str}\033[0m")
-        content.append(bar)
-        content.append(f"\033[38;5;250m{t} / {d}  \u2022  -{rem}\033[0m")
+        content.append("")
+        content.append("\033[38;5;246mCurrently playing:\033[0m")
+        label = s.get("current_ep_label") or str(s["current_ep"])
+        content.append(f"\033[38;5;250mEpisode {label}\033[0m")
         if stream_str:
             content.append(f"\033[38;5;248m{stream_str}\033[0m")
+        content.append("")
+        content.append(f"\033[1;36m{state_str}\033[0m")
+        content.append(bar)
+        content.append(f"\033[38;5;250m{t} / {d}  \u2022  -{rem}\033[0m")
+        detail_lines = []
+        genres = show.get("genres") if isinstance(show, dict) else None
+        if not genres and isinstance(show, dict):
+            genres = show.get("_provider_genres")
+        if isinstance(genres, list):
+            genre_text = ", ".join(str(item) for item in genres[:5] if item)
+        else:
+            genre_text = str(genres or "").strip()
+        if genre_text:
+            detail_lines.append(genre_text)
+        description = str(show.get("description") or "").strip() if isinstance(show, dict) else ""
+        if description:
+            description = re.sub(r"<[^>]+>", " ", description)
+            description = re.sub(r"\s+", " ", description).strip()
+            detail_lines.extend(_wrap_title(description, w - 4, 2).splitlines())
+        if detail_lines:
+            content.append("")
+            for line in detail_lines[:3]:
+                content.append(f"\033[38;5;245m{line}\033[0m")
         content.append("")
         content.append("\033[38;5;244mQ Quit   Shift+Left Previous   Shift+Right Next\033[0m")
     else:
