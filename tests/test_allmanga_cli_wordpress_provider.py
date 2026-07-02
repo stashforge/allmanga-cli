@@ -268,6 +268,7 @@ class WordPressProviderTests(unittest.TestCase):
             "https://animexin.dev/renegade-immortal-episode-1/": f'''
                 <h1 class="entry-title">Renegade Immortal Episode 1</h1>
                 <option value="{encoded_iframe('https://rumble.com/embed/veng/')}">Hardsub English Rumble</option>
+                <option value="{encoded_iframe('https://www.dailymotion.com/embed/video/xmix')}">Indo + Eng Dailymotion</option>
                 <option value="{encoded_iframe('https://rumble.com/embed/vido/')}">Hardsub Indonesia Rumble</option>
                 <option value="{encoded_iframe('https://ok.ru/videoembed/1')}">Indo Ok</option>
             ''',
@@ -281,7 +282,7 @@ class WordPressProviderTests(unittest.TestCase):
 
         self.assertEqual(
             [source["sourceName"] for source in sources],
-            ["Hardsub English Rumble"],
+            ["Hardsub English Rumble", "Indo + Eng Dailymotion"],
         )
 
     def test_lucifer_provider_resolves_internal_mirror_pages(self):

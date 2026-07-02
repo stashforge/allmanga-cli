@@ -35,6 +35,9 @@ from . import terminal_images
 if TYPE_CHECKING:
     from ..context import UiState, CliFlags
 
+SECTION_LABEL = "\033[1;38;5;183m"
+RESET = "\033[0m"
+
 
 # ---------------------------------------------------------------------------
 # Shared mutable state (kept as a plain dict to allow _setitem_ callbacks)
@@ -259,7 +262,7 @@ def render(
         content.append("")
         content.append(f"\033[38;5;248m{ep_str}\033[0m")
         content.append("")
-        content.append("\033[38;5;246mCurrently playing\033[0m")
+        content.append(f"{SECTION_LABEL}CURRENTLY PLAYING{RESET}")
         label = s.get("current_ep_label") or str(s["current_ep"])
         content.append(f"\033[38;5;250mEpisode {label}\033[0m")
         if stream_str:
@@ -277,7 +280,7 @@ def render(
         else:
             genre_text = str(genres or "").strip()
         if genre_text:
-            detail_lines.append("\033[38;5;246mGenres\033[0m")
+            detail_lines.append(f"{SECTION_LABEL}GENRES{RESET}")
             detail_lines.append("\033[38;5;245m" + genre_text.replace(", ", " \u00b7 ") + "\033[0m")
         description = str(show.get("description") or "").strip() if isinstance(show, dict) else ""
         if description:
@@ -285,7 +288,7 @@ def render(
             description = re.sub(r"\s+", " ", description).strip()
             if detail_lines:
                 detail_lines.append("")
-            detail_lines.append("\033[38;5;246mDescription\033[0m")
+            detail_lines.append(f"{SECTION_LABEL}DESCRIPTION{RESET}")
             detail_lines.extend(
                 f"\033[38;5;245m{line}\033[0m"
                 for line in _wrap_title(description, w - 4, 99).splitlines()
@@ -302,7 +305,7 @@ def render(
         content.append("")
         content.append(f"\033[38;5;248m{ep_str}\033[0m")
         content.append("")
-        content.append("\033[38;5;246mStatus\033[0m")
+        content.append(f"{SECTION_LABEL}STATUS{RESET}")
         content.append("\033[1;36mLoading stream...\033[0m")
         content.append("")
         for sl in s["status_lines"]:

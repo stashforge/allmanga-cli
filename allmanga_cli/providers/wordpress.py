@@ -376,7 +376,10 @@ class WordPressAnimeProvider:
         pattern = self.blocked_mirror_label_pattern
         if not pattern:
             return False
-        return bool(re.search(pattern, mirror.label, re.I))
+        label = mirror.label or ""
+        if re.search(r"\b(?:eng|english)\b", label, re.I):
+            return False
+        return bool(re.search(pattern, label, re.I))
 
     def browser_url(
         self,
