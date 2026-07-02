@@ -294,6 +294,34 @@ class TuiLayoutTests(unittest.TestCase):
         self.assertNotIn("_render_item", disabled_block)
         self.assertNotIn("ptr", disabled_block)
 
+    def test_picker_ignores_enter_while_live_results_are_still_loading(self):
+        source = (
+            Path(__file__).resolve().parents[1]
+            / "allmanga_cli"
+            / "ui"
+            / "picker.py"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("live_done = live_fn is None", source)
+        self.assertIn("live_done = bool(_done)", source)
+        self.assertIn("live_fn is not None and not live_done and not filt", source)
+
+    def test_picker_does_not_select_disabled_rows(self):
+        source = (
+            Path(__file__).resolve().parents[1]
+            / "allmanga_cli"
+            / "ui"
+            / "picker.py"
+        ).read_text(encoding="utf-8")
+        enter_block = source.split('elif key in ("ENTER", "RIGHT"):', 1)[1].split(
+            'elif key == "?"',
+            1,
+        )[0]
+
+        self.assertIn("if filt[sel] in disabled_indices:", enter_block)
+        self.assertIn("continue", enter_block)
+        self.assertIn("result = filt[sel]", enter_block)
+
 
 if __name__ == "__main__":
     unittest.main()

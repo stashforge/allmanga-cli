@@ -463,6 +463,7 @@ def tui_pick(
             return result
 
         _needs_redraw = True
+        live_done = live_fn is None
 
         while True:
             clock_minute = int(time.time() // 60)
@@ -480,6 +481,7 @@ def tui_pick(
 
             if live_fn is not None:
                 new_opts, new_hdr, _done = live_fn(query)
+                live_done = bool(_done)
                 if new_opts != options:
                     options.clear()
                     options.extend(new_opts)
@@ -577,11 +579,16 @@ def tui_pick(
                     if cursor_pos < len(query): cursor_pos += 1
                     _needs_redraw = True
                     continue
+                if live_fn is not None and not live_done and not filt:
+                    continue
                 if return_query_on_enter:
                     result = query
                     break
-                if filt and filt[sel] not in disabled_indices:
-                    result = filt[sel]
+                if not filt:
+                    continue
+                if filt[sel] in disabled_indices:
+                    continue
+                result = filt[sel]
                 break
             elif key == "?" and help_dict:
                 show_help = not show_help
