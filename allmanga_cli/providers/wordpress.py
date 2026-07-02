@@ -161,6 +161,13 @@ def parse_mirrors(base_url: str, page_html: str) -> list[Mirror]:
         value = html.unescape(option.get("value", "")).strip()
         if not value:
             continue
+        if value.startswith(("http://", "https://", "//", "/")):
+            url = normalize_embed_url(normalize_url(base_url, value))
+            if url in seen:
+                continue
+            seen.add(url)
+            mirrors.append(Mirror(label=clean_text(option.get_text(" ", strip=True)), url=url))
+            continue
         try:
             embed = base64.b64decode(value + "=" * (-len(value) % 4)).decode(
                 "utf-8",
@@ -178,6 +185,25 @@ def parse_mirrors(base_url: str, page_html: str) -> list[Mirror]:
         seen.add(url)
         mirrors.append(Mirror(label=clean_text(option.get_text(" ", strip=True)), url=url, embed_html=embed.strip()))
     return sort_mirrors(mirrors)
+
+
+def extract_embed_url(base_url: str, page_html: str) -> str:
+    soup = BeautifulSoup(page_html, "html.parser")
+    meta = soup.select_one('meta[itemprop="embedUrl"][content]')
+    if meta:
+        return normalize_embed_url(normalize_url(base_url, html.unescape(meta.get("content", ""))))
+
+    frame = soup.select_one("div.player-embed iframe[src], div.megavid iframe[src], iframe[src]")
+    if frame:
+        return normalize_embed_url(normalize_url(base_url, html.unescape(frame.get("src", ""))))
+
+    script = soup.select_one("div.player-embed script[src], div.megavid script[src]")
+    if script and "dailymotion.com" in script.get("src", ""):
+        video_id = script.get("data-video", "")
+        if video_id:
+            return f"https://www.dailymotion.com/video/{video_id}"
+
+    return ""
 
 
 def sort_mirrors(mirrors: list[Mirror]) -> list[Mirror]:
@@ -270,6 +296,7 @@ class WordPressAnimeProvider:
     name = ""
     base_url = ""
     blocked_mirror_label_pattern = None
+    resolve_mirror_pages = False
 
     def __init__(self, fetch: Callable[[str], str] = fetch_html):
         self._fetch = fetch
@@ -313,25 +340,37 @@ class WordPressAnimeProvider:
         for mirror in page.mirrors:
             if self._skip_mirror(mirror):
                 continue
-            stream_type = "hls" if ".m3u8" in mirror.url else "external"
+            stream_url, referer = self._stream_url_for_mirror(mirror, episode)
+            if not stream_url:
+                continue
+            stream_type = "hls" if ".m3u8" in stream_url else "external"
             if stream_type == "hls":
                 source = build_direct_source(
                     name=mirror.label or self.name,
-                    stream_url=mirror.url,
+                    stream_url=stream_url,
                     stream_type="hls",
                     resolution="Adaptive",
-                    referer=episode,
+                    referer=referer,
                     android_safe=True,
                 )
             else:
                 source = build_embed_source(
                     name=mirror.label or self.name,
-                    source_url=mirror.url,
+                    source_url=stream_url,
                     resolution="Adaptive",
-                    referer=episode,
+                    referer=referer,
                 )
             sources.append(source)
         return {"episode": {"sourceUrls": sources}}
+
+    def _stream_url_for_mirror(self, mirror: Mirror, episode_url: str) -> tuple[str, str]:
+        if self.resolve_mirror_pages and mirror.url.startswith(self.base_url):
+            try:
+                stream_url = extract_embed_url(self.base_url, self._fetch(mirror.url))
+            except Exception:
+                stream_url = ""
+            return stream_url, mirror.url
+        return mirror.url, episode_url
 
     def _skip_mirror(self, mirror: Mirror) -> bool:
         pattern = self.blocked_mirror_label_pattern

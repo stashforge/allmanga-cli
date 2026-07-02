@@ -137,6 +137,19 @@ class WordPressProviderTests(unittest.TestCase):
             "https://nas2.d.tube/videos/f56ea345-c383-4ec3-b7cd-5f81ba94114b/master.m3u8",
         )
 
+    def test_parse_mirrors_accepts_direct_option_urls(self):
+        page = '''
+        <select class="mirror">
+          <option value="https://luciferdonghua.in/player/abc/">Hardsub English Dailymotion</option>
+        </select>
+        '''
+
+        mirrors = parse_mirrors("https://luciferdonghua.in", page)
+
+        self.assertEqual(len(mirrors), 1)
+        self.assertEqual(mirrors[0].label, "Hardsub English Dailymotion")
+        self.assertEqual(mirrors[0].url, "https://luciferdonghua.in/player/abc/")
+
     def test_parse_mirrors_prioritizes_english_then_neutral_then_other_languages(self):
         page = f'''
         <select class="mirror">
@@ -270,6 +283,48 @@ class WordPressProviderTests(unittest.TestCase):
             [source["sourceName"] for source in sources],
             ["Hardsub English Rumble"],
         )
+
+    def test_lucifer_provider_resolves_internal_mirror_pages(self):
+        pages = {
+            "https://luciferdonghua.in/renegade-immortal-episode-1/": '''
+                <h1 class="entry-title">Renegade Immortal Episode 1</h1>
+                <option value="https://luciferdonghua.in/player/abc/">Hardsub English Dailymotion</option>
+            ''',
+            "https://luciferdonghua.in/player/abc/": '''
+                <meta itemprop="embedUrl" content="https://geo.dailymotion.com/player/x.html?video=abc">
+            ''',
+        }
+        provider = LuciferDonghuaProvider(fetch=lambda url: pages[url])
+
+        sources = provider.episode_sources(
+            "https://luciferdonghua.in/renegade-immortal/",
+            "https://luciferdonghua.in/renegade-immortal-episode-1/",
+        )["episode"]["sourceUrls"]
+
+        self.assertEqual(len(sources), 1)
+        self.assertEqual(sources[0]["sourceUrl"], "https://www.dailymotion.com/video/abc")
+        self.assertEqual(sources[0]["referer"], "https://luciferdonghua.in/player/abc/")
+
+    def test_lucifer_provider_resolves_dailymotion_script_pages(self):
+        pages = {
+            "https://luciferdonghua.in/renegade-immortal-episode-1/": '''
+                <h1 class="entry-title">Renegade Immortal Episode 1</h1>
+                <option value="https://luciferdonghua.in/player/abc/">Hardsub English Dailymotion</option>
+            ''',
+            "https://luciferdonghua.in/player/abc/": '''
+                <div class="player-embed">
+                  <script src="https://geo.dailymotion.com/player/x.js" data-video="abc"></script>
+                </div>
+            ''',
+        }
+        provider = LuciferDonghuaProvider(fetch=lambda url: pages[url])
+
+        sources = provider.episode_sources(
+            "https://luciferdonghua.in/renegade-immortal/",
+            "https://luciferdonghua.in/renegade-immortal-episode-1/",
+        )["episode"]["sourceUrls"]
+
+        self.assertEqual(sources[0]["sourceUrl"], "https://www.dailymotion.com/video/abc")
 
 
 if __name__ == "__main__":
