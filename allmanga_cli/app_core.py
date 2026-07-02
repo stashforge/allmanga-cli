@@ -749,7 +749,6 @@ def render_player_screen():
         content.append("")
 
     if is_playing:
-        state_str = "▌▌ Paused" if props.get("pause") else "▶ Playing"
         pt_sec = props.get("playback-time", 0) or 0
         dur_sec = props.get("duration", 0) or 0
 
@@ -766,15 +765,11 @@ def render_player_screen():
             f"\033[38;5;240m{'─' * (bar_width - filled)}\033[0m"
         )
 
-        content.append(f"\033[1;36m{state_str}\033[0m")
-        content.append("")
         for tl in _wrap_title(clean, w - 4, 2).splitlines():
             content.append(f"\033[1;97m{tl}\033[0m")
         content.append("")
         content.append(f"\033[38;5;248m{ep_str}\033[0m")
-        content.append("")
         content.append(bar)
-        content.append("")
         content.append(f"\033[38;5;250m{t} / {d}  \u2022  -{rem}\033[0m")
         if stream_str:
             content.append(f"\033[38;5;248m{stream_str}\033[0m")
@@ -795,7 +790,14 @@ def render_player_screen():
 
     poster_raw = _get_player_poster(show)
     native_poster = poster_raw if _poster_uses_native_protocol(poster_raw) else ""
-    if native_poster:
+    poster_key = (
+        hashlib.sha256(poster_raw.encode("utf-8", errors="ignore")).hexdigest()
+        if poster_raw
+        else None
+    )
+    poster_changed = poster_key != s.get("_last_poster_key")
+    s["_last_poster_key"] = poster_key
+    if native_poster and poster_changed:
         terminal_images.mark_active()
     poster_lines = _poster_symbol_lines(poster_raw, POSTER_HEIGHT, w)
     out = []
@@ -803,8 +805,11 @@ def render_player_screen():
     # 1. Reserve a fixed poster container.
     if poster_raw:
         for row in range(POSTER_HEIGHT):
-            line = poster_lines[row] if row < len(poster_lines) else ""
-            out.append(f"\033[2K{line}")
+            if poster_changed:
+                line = poster_lines[row] if row < len(poster_lines) else ""
+                out.append(f"\033[2K{line}")
+            else:
+                out.append("")
 
     # 2. Add content
     for line in content:
@@ -814,7 +819,7 @@ def render_player_screen():
         if not s.get("_cleared_terminal_image"):
             clear_images = terminal_images.clear_if_active()
             s["_cleared_terminal_image"] = True
-        overlay = f"\033[1;1H{native_poster}" if native_poster else ""
+        overlay = f"\033[1;1H{native_poster}" if native_poster and poster_changed else ""
         sys.stdout.write(
             clear_images + "\033[H" + "\r\n".join(out) + "\033[J"
             + overlay + "\033[1;1H\033[?25l"
