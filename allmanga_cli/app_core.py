@@ -206,6 +206,7 @@ from allmanga_cli.providers.models import title_provider_id, title_provider_key
 from allmanga_cli.services import allanime as allanime_service
 from allmanga_cli.services import anilist as anilist_service
 from allmanga_cli.context import FLAGS as runtime_flags
+from allmanga_cli.core import reporting
 
 _incognito_cache_dir = None
 
@@ -268,21 +269,14 @@ def _add_status(m, color="\033[94m"):
         return True
     return False
 
-def info(m):
-    m = sanitize_terminal_text(m)
-    if not _add_status(f"[INFO] {m}", "\033[94m"): print(f"\033[94m[INFO]\033[0m {m}")
-def ok(m):
-    m = sanitize_terminal_text(m)
-    if not _add_status(f"[OK] {m}", "\033[92m"): print(f"\033[92m[OK]\033[0m {m}")
-def warn(m):
-    m = sanitize_terminal_text(m)
-    if not _add_status(f"[WARN] {m}", "\033[93m"): print(f"\033[93m[WARN]\033[0m {m}")
-def err(m):
-    m = sanitize_terminal_text(m)
-    if not _add_status(f"[ERR] {m}", "\033[91m"): print(f"\033[91m[ERR]\033[0m {m}", file=sys.stderr)
-def debug_warn(context, exc):
-    if runtime_flags.debug_mode:
-        warn(f"{context}: {exc}")
+# Reporting lives in core.reporting; the player-screen status buffer is wired
+# in as its sink so reporters route there while the player UI is active.
+reporting.set_status_sink(_add_status)
+info = reporting.info
+ok = reporting.ok
+warn = reporting.warn
+err = reporting.err
+debug_warn = reporting.debug_warn
 
 stream_resolver.configure_reporters(info, ok, warn)
 resolve_source = stream_resolver.resolve_source

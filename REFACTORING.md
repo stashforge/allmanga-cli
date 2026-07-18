@@ -81,40 +81,38 @@ now be extracted to `core/` modules without silently losing flag state.
 
 ---
 
-### Phase 0: Pure helpers ⬜ NOT STARTED
-**Target:** `allmanga_cli/core/textutils.py`
-
-- [ ] Locate + confirm `sanitize_terminal_text` has no app_core deps
-- [ ] Locate + confirm `_atomic_write_json` has no app_core deps
-- [ ] Move both to `core/textutils.py`
-- [ ] Re-export from app_core for back-compat
-- [ ] Verify imports + tests
-- [ ] Commit: "refactor: extract pure text/file helpers to core/textutils.py"
+### Phase 0: Pure helpers ✅ ALREADY SATISFIED (verified 2026-07-18)
+No work needed — the pure bottom layer already exists from earlier refactors:
+- `sanitize_terminal_text` → `core/terminal.py`
+- `atomic_write_json` / `write_private_text` → `state/io.py`
+- `spinner_from_config` / `loading_line` → `ui/spinner.py`, `ui/picker_render.py`
+`core/textutils.py` is NOT being created; the plan's Layer 0 maps onto these
+existing modules instead.
 
 ---
 
-### Phase 1: Reporting ⬜ NOT STARTED
-**Target:** `allmanga_cli/core/reporting.py`  *(renamed from logging.py — avoid shadowing stdlib `logging`)*
+### Phase 1: Reporting ✅ DONE (2026-07-18)
+**Created:** `allmanga_cli/core/reporting.py`
 
-**Functions:**
-- [ ] `info(m)` / `ok(m)` / `warn(m)` / `err(m)`
-- [ ] `debug_warn(context, exc)`
-- [ ] `_add_status(m, color)` → becomes the default status sink
-- [ ] `set_status_sink(fn)` / sink registry  **(NEW — the DI hook)**
-- [ ] `_configured_loading_frame()`, `_configure_spinner_from_config(cfg)`, `_spinner_style` state
-- [ ] `with_loading(msg, fn, *args, **kwargs)`
+**What moved:** `info` / `ok` / `warn` / `err` / `debug_warn`, plus the new
+`set_status_sink(fn)` DI hook (sink contract: `sink(message, color) -> bool`,
+True = consumed by UI, False = fall back to print).
 
-**Coupling to resolve:**
-- [ ] Remove `_player_ui_state` / `render_player_screen()` reach-up; replace with injected sink
-- [ ] app_core wires the player-screen sink at startup via `set_status_sink(...)`
+**What stayed in app_core (deliberately):**
+- `_add_status` + `_player_ui_state` — that's player-screen state, not reporting.
+  app_core registers `_add_status` as the sink at import time, so behavior is
+  byte-for-byte identical.
+- `app_core.info/ok/warn/err/debug_warn` remain as aliases (back-compat for
+  `configure_reporters(...)` wiring in resolver/android/local_proxy and any
+  `app_core.info` callers).
+- Spinner/loading helpers (`with_loading`, `_configured_loading_frame`,
+  `_spinner_style`) — deferred: they are terminal-render logic entangled with
+  alt-screen + PosterManager; they belong with the Phase 4 display work, not
+  with reporting. Roadmap updated accordingly.
 
-**Steps:**
-1. [ ] Create `core/reporting.py` with sink registry (default = print)
-2. [ ] Move reporters + spinner/loading helpers
-3. [ ] Wire `set_status_sink` from app_core startup
-4. [ ] Re-export from app_core for back-compat
-5. [ ] Verify imports + tests
-6. [ ] Commit: "refactor: extract reporting to core/reporting.py with injected status sink"
+**Verified:** full suite 296 passed (same 3 pre-existing failures); sink routing
+smoke-tested both paths (player inactive → print, active → status buffer +
+render trigger).
 
 ---
 
