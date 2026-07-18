@@ -5,14 +5,20 @@ import unittest
 from pathlib import Path
 
 from tests.app_namespace import load_app_namespace
+from allmanga_cli.context import FLAGS
 namespace = load_app_namespace()
 write_private_log = namespace["write_private_log"]
 
 
 class PrivateLogTests(unittest.TestCase):
     def setUp(self):
-        write_private_log.__globals__["INCOGNITO_MODE"] = False
-        write_private_log.__globals__["DEBUG_MODE"] = True
+        self._orig_flags = (FLAGS.incognito_mode, FLAGS.debug_mode)
+        FLAGS.incognito_mode = False
+        FLAGS.debug_mode = True
+        self.addCleanup(self._restore_flags)
+
+    def _restore_flags(self):
+        FLAGS.incognito_mode, FLAGS.debug_mode = self._orig_flags
 
     def test_log_uses_private_directory_and_file_permissions(self):
         with tempfile.TemporaryDirectory() as temp_dir:

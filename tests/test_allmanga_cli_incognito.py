@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from tests.app_namespace import load_app_namespace
+from allmanga_cli.context import FLAGS
 
 class IncognitoModeTests(unittest.TestCase):
     def setUp(self):
@@ -11,8 +12,10 @@ class IncognitoModeTests(unittest.TestCase):
         self.addCleanup(self.temp_dir.cleanup)
         self.ns = load_app_namespace(reload=True)
         self.globals = self.ns["is_incognito"].__globals__
-        self.globals["INCOGNITO_MODE"] = True
-        self.globals["DEBUG_MODE"] = False
+        self._orig_flags = (FLAGS.incognito_mode, FLAGS.debug_mode)
+        FLAGS.incognito_mode = True
+        FLAGS.debug_mode = False
+        self.addCleanup(self._restore_flags)
         root = Path(self.temp_dir.name)
         self.paths = {
             "PLAYBACK_PATH": root / "playback.json",
@@ -27,6 +30,9 @@ class IncognitoModeTests(unittest.TestCase):
         self.globals["_history_cache"] = None
         self.globals["_search_history_cache"] = None
         self.globals["_anilist_queue_cache"] = None
+
+    def _restore_flags(self):
+        FLAGS.incognito_mode, FLAGS.debug_mode = self._orig_flags
 
     def tearDown(self):
         self.ns["_cleanup_incognito_cache"]()
@@ -83,7 +89,7 @@ class IncognitoModeTests(unittest.TestCase):
         self.assertIsNone(self.ns["write_private_log"]("crash.log", "secret"))
         self.assertFalse(self.paths["LOG_DIR"].exists())
 
-        self.globals["DEBUG_MODE"] = True
+        FLAGS.debug_mode = True
         path = self.ns["write_private_log"]("crash.log", "debug trace")
         self.assertEqual(Path(path).read_text(), "debug trace\n")
 

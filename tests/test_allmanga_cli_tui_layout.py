@@ -41,9 +41,13 @@ class TuiLayoutTests(unittest.TestCase):
     def test_poster_loading_tick_is_registered(self):
         self.assertIsNotNone(picker._poster_tick_fn)
         show = {"_poster_status": "loading"}
-        namespace["_poster_needs_tick"].__globals__["SHOW_IMAGE"] = True
-
-        self.assertTrue(picker._poster_needs_tick(show))
+        from allmanga_cli.context import FLAGS
+        original_show_image = FLAGS.show_image
+        FLAGS.show_image = True
+        try:
+            self.assertTrue(picker._poster_needs_tick(show))
+        finally:
+            FLAGS.show_image = original_show_image
 
     def test_configured_loading_frame_uses_configured_spinner(self):
         original_style = namespace["_spinner_style"]

@@ -205,12 +205,12 @@ from allmanga_cli.providers import ALLANIME, get_provider, provider_key
 from allmanga_cli.providers.models import title_provider_id, title_provider_key
 from allmanga_cli.services import allanime as allanime_service
 from allmanga_cli.services import anilist as anilist_service
+from allmanga_cli.context import FLAGS as runtime_flags
 
-INCOGNITO_MODE = "--incognito" in sys.argv[1:]
 _incognito_cache_dir = None
 
 def is_incognito():
-    return "--incognito" in sys.argv or globals().get("INCOGNITO_MODE", False)
+    return runtime_flags.incognito_mode
 
 def _cleanup_incognito_cache():
     global _incognito_cache_dir
@@ -281,7 +281,7 @@ def err(m):
     m = sanitize_terminal_text(m)
     if not _add_status(f"[ERR] {m}", "\033[91m"): print(f"\033[91m[ERR]\033[0m {m}", file=sys.stderr)
 def debug_warn(context, exc):
-    if "--debug" in sys.argv or globals().get("DEBUG_MODE", False):
+    if runtime_flags.debug_mode:
         warn(f"{context}: {exc}")
 
 stream_resolver.configure_reporters(info, ok, warn)
@@ -513,7 +513,7 @@ def _configure_spinner_from_config(cfg):
 
 
 _poster_manager = PosterManager(
-    enabled=lambda: bool(globals().get("SHOW_IMAGE", False)),
+    enabled=lambda: bool(runtime_flags.show_image),
     cache_dir=cover_cache_dir,
     hovered_show_id=lambda: globals().get("_hovered_show_id"),
     request_redraw=_request_poster_redraw,
@@ -886,7 +886,7 @@ def _atomic_write_json(path, data, indent=None):
     )
 
 def write_private_log(filename, content):
-    if is_incognito() and not globals().get("DEBUG_MODE", False):
+    if is_incognito() and not runtime_flags.debug_mode:
         return None
     return write_private_text(LOG_DIR, filename, redact_sensitive_text(content))
 
@@ -1138,11 +1138,11 @@ def prepare_show_display_state(show, ttype="sub", sync_enabled=None):
     )
     if raw_anilist_show:
         show["aniListId"] = str(show.get("_id"))
-    if globals().get("SYNC_FORCE_OFF", False):
+    if runtime_flags.sync_force_off:
         sync_enabled = False
     elif sync_enabled is None and raw_anilist_show:
         sync_enabled = True
-    elif sync_enabled is None and globals().get("SYNC_FORCE_ON", False) and show.get("aniListId"):
+    elif sync_enabled is None and runtime_flags.sync_force_on and show.get("aniListId"):
         sync_enabled = True
     elif sync_enabled is None:
         sync_enabled = get_title_sync(show)
@@ -3263,15 +3263,15 @@ def main():
     cfg = load_config()
     _configure_spinner_from_config(cfg)
 
-    globals()["DEBUG_MODE"] = args.debug
-    globals()["INCOGNITO_MODE"] = bool(args.incognito)
+    runtime_flags.debug_mode = args.debug
+    runtime_flags.incognito_mode = bool(args.incognito)
     if args.incognito and (args.download or args.downloads or args.login or args.logout):
         pa.error("--incognito cannot be combined with downloads, login, or logout")
     if args.incognito:
         args.no_sync = True
-    globals()["SYNC_FORCE_ON"] = bool(args.sync and not args.no_sync)
-    globals()["SYNC_FORCE_OFF"] = bool(args.no_sync)
-    globals()["SHOW_IMAGE"] = args.cover or cfg.get("cover", False)
+    runtime_flags.sync_force_on = bool(args.sync and not args.no_sync)
+    runtime_flags.sync_force_off = bool(args.no_sync)
+    runtime_flags.show_image = args.cover or cfg.get("cover", False)
 
     if args.json:
         q = " ".join(args.query)
@@ -3330,17 +3330,14 @@ def main():
             print(f"{RED}No token provided.{RESET}")
         sys.exit(0)
 
-    from allmanga_cli.context import CliFlags, UiState, MachineState
+    from allmanga_cli.context import UiState, MachineState
     import allmanga_cli.app as handlers
 
-    flags = CliFlags(
-        debug_mode=globals().get("DEBUG_MODE", False),
-        incognito_mode=globals().get("INCOGNITO_MODE", False),
-        sync_force_on=globals().get("SYNC_FORCE_ON", False),
-        sync_force_off=globals().get("SYNC_FORCE_OFF", False),
-        show_image=globals().get("SHOW_IMAGE", False),
-        spinner_style=_spinner_style,
-    )
+    # ``runtime_flags`` (context.FLAGS) is the single shared CliFlags instance.
+    # It was populated from argparse above; hand the same object to handlers so
+    # mid-run mutations (e.g. disabling sync) stay visible process-wide.
+    runtime_flags.spinner_style = _spinner_style
+    flags = runtime_flags
     ui = UiState()
 
     def warn_before_tui(message):
@@ -3356,7 +3353,6 @@ def main():
                 "--sync only applies to searched titles. History and continue stay local."
             )
             args.sync = False
-            globals()["SYNC_FORCE_ON"] = False
             flags.sync_force_on = False
         elif not cfg.get("anilist_token") and not args.anilist:
             warn_before_tui(
@@ -3364,8 +3360,6 @@ def main():
             )
             args.sync = False
             args.no_sync = True
-            globals()["SYNC_FORCE_ON"] = False
-            globals()["SYNC_FORCE_OFF"] = True
             flags.sync_force_on = False
             flags.sync_force_off = True
 
@@ -3401,8 +3395,6 @@ def main():
         else:
             print(f"{RED}No token provided. Tracking is disabled for this session.{RESET}")
             args.no_sync = True
-            globals()["SYNC_FORCE_ON"] = False
-            globals()["SYNC_FORCE_OFF"] = True
             flags.sync_force_on = False
             flags.sync_force_off = True
     if cfg.get("anilist_token") and not args.no_sync:

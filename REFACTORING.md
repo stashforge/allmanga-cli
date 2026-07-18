@@ -1,0 +1,222 @@
+# app_core.py Refactoring Progress
+
+**Goal:** Split `app_core.py` (3512 lines, 191 functions) into cohesive domain modules.
+
+**Strategy:** Each extracted module is a *domain leader* that owns all related logic. `app_core.py` becomes the orchestrator that wires leaders together — it does not do domain work itself.
+
+---
+
+## Design Philosophy (must hold after every phase)
+
+- **Single responsibility.** Every module owns one domain and does only that. It never
+  reaches into another module's internals or globals.
+- **No responsibility-passing / no hidden chaining.** A module fulfills what it can with
+  what it owns, asks a dependency directly for what it needs, and returns the result. It
+  does not hand its job off to some third module behind the caller's back.
+- **Dependencies point one direction (down the layers).** Higher layers depend on lower
+  layers, never the reverse. When a lower layer needs to reach up (e.g. reporting needs to
+  draw on the player screen), that is done via an injected hook the top layer wires in — not
+  a back-import.
+- **Adding a provider / new logic stays independent.** No edit to an unrelated file should
+  be required to add a feature. This is the property we must not destroy.
+
+---
+
+## Layered Architecture (extraction goes bottom-up)
+
+```
+Layer 0  core/textutils.py   pure helpers: sanitize_terminal_text, _atomic_write_json
+              │               (no deps on anything in app_core)
+              ▼
+Layer 1  core/reporting.py   info/ok/warn/err/debug_warn, spinner + loading helpers
+              │               status-sink is INJECTED by app_core (set_status_sink), so
+              │               reporting never imports the player screen.
+              ▼
+Layer 2  core/storage.py     prefs, history, checkpoints, resume/completion, all file I/O
+              │               (uses textutils + reporting)
+              ▼
+Layer 3  core/anilist.py     token/auth, API calls, sync, progress tracking, match/reconcile
+         core/streams.py     fetch_episode_stream, source selection, mirror preference
+              │               (use storage + reporting)
+              ▼
+Layer 4  ui/display.py       posters/covers, banners/headers, alt-screen, terminal images
+              │
+              ▼
+         app_core.py         orchestrator: command routing, main(), wiring/DI setup
+```
+
+**Why the injection hook:** `info/ok/warn/err` currently write into `_player_ui_state` and
+call `render_player_screen()`. That is reporting reaching *up* into the player UI. Instead,
+`core/reporting.py` exposes `set_status_sink(fn)`; when no sink is set it just prints. At
+startup app_core (or the player screen) registers a sink that appends to the status buffer
+and triggers a redraw. Reporting stays a clean bottom layer with zero UI imports.
+
+---
+
+## Progress Tracker
+
+### Pre-Phase: Runtime flags → context.FLAGS ✅ DONE (2026-07-18)
+**Decision:** instead of a new `core/runtime.py`, finished the migration the codebase had
+already started — `context.CliFlags` (docstring: "all downstream code should read these
+instead of `globals().get(...)`").
+
+**What changed:**
+- [x] `context.py`: added module-level singleton `FLAGS = CliFlags(...)`, seeded from
+      `sys.argv` so pre-argparse calls see correct values
+- [x] `app_core.main()`: writes argparse results into `FLAGS`; `flags = runtime_flags`
+      (same shared object passed to handlers — mid-run mutations stay visible everywhere)
+- [x] `is_incognito()`, `debug_warn()`, `write_private_log()` read `runtime_flags`
+- [x] `SYNC_FORCE_ON/OFF`, `SHOW_IMAGE` reads/writes migrated; `_poster_manager` enabled-fn
+      reads `runtime_flags.show_image`
+- [x] deleted globals: `INCOGNITO_MODE`, `DEBUG_MODE`, `SYNC_FORCE_*`, `SHOW_IMAGE`
+- [x] `cli/main.py` crash handler reads `FLAGS.debug_mode`
+- [x] tests updated: `test_allmanga_cli_incognito.py`, `test_allmanga_cli_logs.py`,
+      `test_allmanga_cli_tui_layout.py` now set `FLAGS.*` (with restore via addCleanup)
+
+**Verified:** full suite 296 passed; only the 3 pre-existing unrelated failures
+(stale completion test, token-storage isolation, animexin live-network) remain.
+
+**Why this matters:** bottom-layer functions no longer read `app_core` globals, so they can
+now be extracted to `core/` modules without silently losing flag state.
+
+---
+
+### Phase 0: Pure helpers ⬜ NOT STARTED
+**Target:** `allmanga_cli/core/textutils.py`
+
+- [ ] Locate + confirm `sanitize_terminal_text` has no app_core deps
+- [ ] Locate + confirm `_atomic_write_json` has no app_core deps
+- [ ] Move both to `core/textutils.py`
+- [ ] Re-export from app_core for back-compat
+- [ ] Verify imports + tests
+- [ ] Commit: "refactor: extract pure text/file helpers to core/textutils.py"
+
+---
+
+### Phase 1: Reporting ⬜ NOT STARTED
+**Target:** `allmanga_cli/core/reporting.py`  *(renamed from logging.py — avoid shadowing stdlib `logging`)*
+
+**Functions:**
+- [ ] `info(m)` / `ok(m)` / `warn(m)` / `err(m)`
+- [ ] `debug_warn(context, exc)`
+- [ ] `_add_status(m, color)` → becomes the default status sink
+- [ ] `set_status_sink(fn)` / sink registry  **(NEW — the DI hook)**
+- [ ] `_configured_loading_frame()`, `_configure_spinner_from_config(cfg)`, `_spinner_style` state
+- [ ] `with_loading(msg, fn, *args, **kwargs)`
+
+**Coupling to resolve:**
+- [ ] Remove `_player_ui_state` / `render_player_screen()` reach-up; replace with injected sink
+- [ ] app_core wires the player-screen sink at startup via `set_status_sink(...)`
+
+**Steps:**
+1. [ ] Create `core/reporting.py` with sink registry (default = print)
+2. [ ] Move reporters + spinner/loading helpers
+3. [ ] Wire `set_status_sink` from app_core startup
+4. [ ] Re-export from app_core for back-compat
+5. [ ] Verify imports + tests
+6. [ ] Commit: "refactor: extract reporting to core/reporting.py with injected status sink"
+
+---
+
+### Phase 2: Storage ⬜ NOT STARTED
+**Target:** `allmanga_cli/core/storage.py`
+
+- [ ] `load_prefs()` / `save_prefs()` + `_prefs_cache`
+- [ ] `get_preferred_mirror()` / `toggle_preferred_mirror()`
+- [ ] `get_episode_order()` / `toggle_episode_order()`
+- [ ] `get_title_sync*` / `set_title_sync`
+- [ ] history: `get_history_entry`, `write_history_progress`, `sanitize_*_history`
+- [ ] resume/completion: `save_resume_time`, `save_pending_completion`, `get_pending_completion`, `clear_pending_completion`
+- [ ] search history load/save
+- [ ] `is_incognito()` + incognito cache handling (owns persistence policy)
+
+**Steps:** create → move → re-export → verify → commit
+Commit: "refactor: extract storage/persistence to core/storage.py"
+
+---
+
+### Phase 3a: AniList ⬜ NOT STARTED
+**Target:** `allmanga_cli/core/anilist.py`
+
+- [ ] token/auth: `stored_anilist_token`, `save_anilist_token`, `clear_anilist_token`, `anilist_token_storage_status`, `anilist_auth_*`, `prompt_anilist_token`
+- [ ] API: `fetch_anilist_media`, `fetch_anilist_list`, `load_anilist_browse`
+- [ ] sync: `sync_watched_to_anilist`, `sync_progress_and_checkpoint`, `save_and_sync_watched`, `should_update_anilist_progress`
+- [ ] progress/match: `get_show_anilist_id`, `get_anilist_media_id`, match/reconcile helpers
+
+**Steps:** create → move → re-export → verify → commit
+Commit: "refactor: extract AniList operations to core/anilist.py"
+
+### Phase 3b: Streams ⬜ NOT STARTED
+**Target:** `allmanga_cli/core/streams.py`
+
+- [ ] `fetch_episode_stream()`
+- [ ] source selection / quality filtering
+- [ ] mirror-preference glue (reads storage)
+
+**Steps:** create → move → re-export → verify → commit
+Commit: "refactor: extract stream resolution to core/streams.py"
+
+---
+
+### Phase 4: UI Display ⬜ NOT STARTED
+**Target:** `allmanga_cli/ui/display.py`
+
+- [ ] poster: `_get_poster`, `_request_poster_redraw`, `_clear_poster_downloads`, `_poster_footer_line`, `_poster_needs_tick`, `_poster_manager`
+- [ ] terminal images: `clear_terminal_images`
+- [ ] alt screen: `enter_alt_screen`, `exit_alt_screen`
+- [ ] banners/headers: `print_app_banner`, `print_episode_header`
+
+**Steps:** create → move → re-export → verify → commit
+Commit: "refactor: extract UI display helpers to ui/display.py"
+
+---
+
+### Phase 5: Final Cleanup ⬜ NOT STARTED
+- [ ] Replace back-compat shims with direct imports in callers (only where safe)
+- [ ] Confirm no circular imports (`python3 -c "from allmanga_cli.cli.main import run"`)
+- [ ] Run full test suite
+- [ ] Update this doc's final status
+- [ ] Commit: "refactor: finalize app_core.py split"
+
+---
+
+## Verification Checklist (run after EACH phase)
+
+```bash
+# imports
+python3 -c "from allmanga_cli import app_core; print('OK app_core')"
+python3 -c "from allmanga_cli.cli.main import run; print('OK CLI loads')"
+# per-phase module (add as they exist)
+python3 -c "from allmanga_cli.core import textutils; print('OK textutils')"   # P0+
+python3 -c "from allmanga_cli.core import reporting; print('OK reporting')"   # P1+
+python3 -c "from allmanga_cli.core import storage;   print('OK storage')"     # P2+
+python3 -c "from allmanga_cli.core import anilist;   print('OK anilist')"     # P3a+
+python3 -c "from allmanga_cli.core import streams;   print('OK streams')"     # P3b+
+python3 -c "from allmanga_cli.ui   import display;   print('OK display')"     # P4+
+# tests + size
+python3 -m pytest -q
+wc -l allmanga_cli/app_core.py
+```
+
+**Rule:** never end a phase with app_core in a non-importable state. If a phase can't
+finish cleanly, revert the partial move rather than leaving broken files.
+
+---
+
+## Ground rules
+- Bottom-up only. Never extract a layer before the layer it depends on.
+- One phase = one working, committed state.
+- Back-compat shim (`from .core.x import ...` in app_core) keeps every existing caller working
+  until Phase 5 tidies imports.
+- Dependencies point down; lower layers reach up only through injected hooks.
+
+---
+
+## Current Status
+- **Started:** 2026-07-18
+- **Last updated:** 2026-07-18
+- **Lines remaining in app_core.py:** 3512
+- **Decision log:**
+  - `core/logging.py` → **`core/reporting.py`** (avoid shadowing stdlib `logging`)
+  - reporting↔player-screen coupling → **dependency injection** via `set_status_sink()`
+  - Added **Layer 0** (`core/textutils.py`) for pure helpers everything depends on

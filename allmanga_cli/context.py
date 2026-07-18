@@ -14,6 +14,7 @@ focused, typed objects, each with a clear responsibility boundary:
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass, field
 
 
@@ -47,6 +48,18 @@ class CliFlags:
 
     spinner_style: object = "braille"
     """Resolved configured spinner style name or custom frame list."""
+
+
+# Module-level singleton: the one shared CliFlags instance for this process.
+#
+# ``main()`` fills these fields in from argparse right after parsing.  Bottom-
+# layer helpers (``is_incognito``, ``debug_warn``, crash handling) read from
+# here instead of reaching into ``app_core``'s ``globals()``.  Seeded from
+# ``sys.argv`` so calls that happen before argparse still see the right flags.
+FLAGS = CliFlags(
+    debug_mode="--debug" in sys.argv[1:],
+    incognito_mode="--incognito" in sys.argv[1:],
+)
 
 
 # ---------------------------------------------------------------------------

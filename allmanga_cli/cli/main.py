@@ -3,6 +3,7 @@
 import sys
 
 from .. import app_core as app
+from ..context import FLAGS as runtime_flags
 
 
 def run():
@@ -13,7 +14,7 @@ def run():
         return 130
     except Exception as exc:
         app.exit_alt_screen()
-        if getattr(app, "DEBUG_MODE", False):
+        if runtime_flags.debug_mode:
             try:
                 log_path = app.write_exception_log("crash.log")
             except Exception as log_error:
