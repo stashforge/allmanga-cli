@@ -152,12 +152,35 @@ def main(argv: list[str] | None = None) -> int:
             f"extractHeaders={source.get('extractHeaders') or {}}"
         )
 
+    from allmanga_cli.media.resolver import generate_source_passes
+    import time
+
     selected_sources = [sources[args.source_index - 1]] if args.source_index else sources
     final_streams = []
-    for source in selected_sources:
-        print(f"\nRESOLVE SOURCE: {source.get('sourceName')}")
+    stats = {"resolved": 0, "failed": 0, "total": len(selected_sources)}
+    seen_sources = set()
+
+    for source, failed in generate_source_passes(selected_sources, max_passes=3):
+        source_name = source.get('sourceName')
+        is_retry = source_name in seen_sources
+        seen_sources.add(source_name)
+
+        retry_marker = " [RETRY]" if is_retry else ""
+        print(f"\nRESOLVE SOURCE: {source_name}{retry_marker}")
+
+        start_time = time.time()
         streams = resolve_source(source, silent=True)
-        print(f"STREAMS: {len(streams)}")
+        elapsed = time.time() - start_time
+
+        print(f"STREAMS: {len(streams)} (took {elapsed:.2f}s)")
+        if not streams:
+            failed.append(source)
+            if not is_retry:
+                stats["failed"] += 1
+        else:
+            if not is_retry:
+                stats["resolved"] += 1
+
         for index, stream in enumerate(streams, 1):
             compact = _compact_stream(stream)
             print(f"{index:2}. {compact['source_name']} [{compact['type']}] {compact['resolution']}")
@@ -166,6 +189,11 @@ def main(argv: list[str] | None = None) -> int:
             stream_referer = compact["referer"] or ""
             print(f"    stream playback: referer={stream_referer!r} headers={compact['headers'] or {}}")
         final_streams.extend(streams)
+
+    print(f"\n--- STATS ---")
+    print(f"Total sources: {stats['total']}")
+    print(f"Resolved: {stats['resolved']}")
+    print(f"Failed: {stats['failed']}")
 
     selected_stream = _select(final_streams, args.stream_index)
     if args.json:

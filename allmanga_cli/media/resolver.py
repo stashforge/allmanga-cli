@@ -32,6 +32,17 @@ def configure_reporters(info, ok, warn):
     _warn = warn
 
 
+def generate_source_passes(sources, max_passes=3):
+    pending = list(sources)
+    for pass_idx in range(max_passes):
+        failed = []
+        for src in pending:
+            yield src, failed
+        pending = failed
+        if not pending:
+            break
+
+
 def _pre_resolved_stream(source, name, priority, warn):
     # Only direct source entries should reach this path.  Embed/page mirrors
     # must use ``sourceUrl`` so extractor-specific logic can turn them into
@@ -172,7 +183,11 @@ def resolve_source(source, silent=False):
     if url.startswith("--"):
         decrypted_path = decrypt_url(url[2:])
         info(f"[{name}] decrypting -> clock ...")
-        items = get_clock_links(request_json, decrypted_path)
+        try:
+            items = get_clock_links(request_json, decrypted_path)
+        except Exception as e:
+            warn(f"[{name}] clock API error: {e}")
+            items = []
         if not items:
             warn(f"[{name}] clock returned no links")
             return result

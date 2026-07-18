@@ -9,6 +9,7 @@ description = "Terminal anime browser and player for AllManga and AniList."
 requires-python = ">=3.10"
 dependencies = [
     "beautifulsoup4>=4.12",
+    "cryptography>=41.0.0",
 ]
 
 [project.scripts]

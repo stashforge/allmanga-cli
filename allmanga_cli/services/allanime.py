@@ -8,7 +8,7 @@ _logger = logging.getLogger(__name__)
 
 from ..core.api import ProviderVerificationRequired, SearchFailure
 from ..domain.episodes import normalize_episode_ids
-from ..media.decryption import decrypt_tobeparsed
+from ..media.decryption import decrypt_tobeparsed, generate_aa_req
 from .http import API_BASE, CLOCK_BASE
 
 
@@ -130,7 +130,8 @@ def get_episode_data(request_json, show_id, episode, ttype="sub"):
         "episodeString": str(episode),
     }
     extensions = {
-        "persistedQuery": {"version": 1, "sha256Hash": query_hash}
+        "persistedQuery": {"version": 1, "sha256Hash": query_hash},
+        "aaReq": generate_aa_req(),
     }
     variables_json = json.dumps(variables, separators=(",", ":"))
     extensions_json = json.dumps(extensions, separators=(",", ":"))

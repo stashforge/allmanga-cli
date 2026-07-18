@@ -193,7 +193,9 @@ def start_bg_resolve(ep_data: dict, exclude_names: set) -> None:
         }
 
     def worker() -> None:
-        for src in sources:
+        from .resolver import generate_source_passes
+        counted_sources = set()
+        for src, failed_queue in generate_source_passes(sources, max_passes=3):
             if not _generation_is_current(generation):
                 return
             sname = src.get("sourceName", "")
@@ -210,15 +212,23 @@ def start_bg_resolve(ep_data: dict, exclude_names: set) -> None:
                     if link not in seen_links and publish_stream(stream, generation):
                         seen_links.add(link)
                         found = True
-                if not _update_bg_stats(
-                    generation,
-                    resolved=1 if found else 0,
-                    failed=0 if found else 1,
-                ):
-                    return
+                if not found:
+                    failed_queue.append(src)
+                # Only count stats once per unique source
+                if sname not in counted_sources:
+                    counted_sources.add(sname)
+                    if not _update_bg_stats(
+                        generation,
+                        resolved=1 if found else 0,
+                        failed=0 if found else 1,
+                    ):
+                        return
             except Exception:
-                if not _update_bg_stats(generation, failed=1):
-                    return
+                failed_queue.append(src)
+                if sname not in counted_sources:
+                    counted_sources.add(sname)
+                    if not _update_bg_stats(generation, failed=1):
+                        return
         _update_bg_stats(generation, current="")
 
     with _bg_lock:

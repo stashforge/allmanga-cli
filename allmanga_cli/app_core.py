@@ -3218,7 +3218,8 @@ def fetch_episode_stream(show_id, ep_number, ttype="sub", quality="best", provid
         if pref_name.startswith(api_name) and api_name: return 0
         return source_priority(src)
 
-    for src in sorted(sources, key=dynamic_prio):
+    from .media.resolver import generate_source_passes
+    for src, failed in generate_source_passes(sorted(sources, key=dynamic_prio), max_passes=3):
         streams = resolve_source(src)
         if streams:
             selected_stream = streams[0]
@@ -3234,6 +3235,8 @@ def fetch_episode_stream(show_id, ep_number, ttype="sub", quality="best", provid
                     if quality in s.get("resolution","") or quality=="best":
                         selected_stream = s; break
             return selected_stream, src.get("sourceName",""), ep_data, streams
+        else:
+            failed.append(src)
     return None
 
 def main():
