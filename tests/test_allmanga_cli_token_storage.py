@@ -1,8 +1,10 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from tests.app_namespace import load_app_namespace
+from allmanga_cli.state import paths as state_paths
 
 
 class TokenStorageTests(unittest.TestCase):
@@ -10,9 +12,11 @@ class TokenStorageTests(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp_dir.cleanup)
         self.ns = load_app_namespace(reload=True)
-        self.globals = self.ns["load_config"].__globals__
+        self.globals = self.ns["save_anilist_token"].__globals__
         self.config_path = Path(self.temp_dir.name) / "config.json"
-        self.globals["CFG_PATH"] = str(self.config_path)
+        patcher = patch.object(state_paths, "CONFIG_PATH", str(self.config_path))
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def test_load_config_prefers_secret_backend_token(self):
         original_get = self.globals["secret_state"].get_secret
@@ -124,14 +128,19 @@ class TokenStorageTests(unittest.TestCase):
 
     def test_token_command_output_is_masked_or_raw(self):
         cfg = {"anilist_token": "abcdefghijklmnopqrstuvwxyz"}
+        secret_state = self.globals["secret_state"]
+        original_get = secret_state.get_secret
+        try:
+            secret_state.get_secret = lambda key: None
+            masked = self.ns["anilist_auth_token_lines"](cfg)
+            raw = self.ns["anilist_auth_token_lines"](cfg, raw=True)
 
-        masked = self.ns["anilist_auth_token_lines"](cfg)
-        raw = self.ns["anilist_auth_token_lines"](cfg, raw=True)
-
-        self.assertEqual(masked[0], "AniList token: abcd************wxyz")
-        self.assertIn("--raw", masked[1])
-        self.assertEqual(raw, ["abcdefghijklmnopqrstuvwxyz"])
-        self.assertIsNone(self.ns["anilist_auth_token_lines"]({}))
+            self.assertEqual(masked[0], "AniList token: abcd************wxyz")
+            self.assertIn("--raw", masked[1])
+            self.assertEqual(raw, ["abcdefghijklmnopqrstuvwxyz"])
+            self.assertIsNone(self.ns["anilist_auth_token_lines"]({}))
+        finally:
+            secret_state.get_secret = original_get
 
     def test_sensitive_text_redaction(self):
         jwt = "eyJ" + "a" * 30 + "." + "b" * 12 + "." + "c" * 12

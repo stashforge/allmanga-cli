@@ -116,20 +116,43 @@ render trigger).
 
 ---
 
-### Phase 2: Storage ⬜ NOT STARTED
-**Target:** `allmanga_cli/core/storage.py`
+### Phase 2: Storage ✅ DONE (2026-07-19)
+**Created:** `allmanga_cli/core/storage.py` (~710 lines)
 
-- [ ] `load_prefs()` / `save_prefs()` + `_prefs_cache`
-- [ ] `get_preferred_mirror()` / `toggle_preferred_mirror()`
-- [ ] `get_episode_order()` / `toggle_episode_order()`
-- [ ] `get_title_sync*` / `set_title_sync`
-- [ ] history: `get_history_entry`, `write_history_progress`, `sanitize_*_history`
-- [ ] resume/completion: `save_resume_time`, `save_pending_completion`, `get_pending_completion`, `clear_pending_completion`
-- [ ] search history load/save
-- [ ] `is_incognito()` + incognito cache handling (owns persistence policy)
+**What moved (~45 functions):** incognito policy (`is_incognito`, cover cache dir,
+cleanup), `_atomic_write_json`, private/exception logs, playback prefs
+(load/save + mirror/order/title-sync getters+togglers), resume time, pending
+completion, AniList match prefs, watch history (load/save/delete/sanitize/
+write-progress/patch/refresh-save), search history, history formatting
+delegates, config (load/save/sanitize_token/secure-permissions).
 
-**Steps:** create → move → re-export → verify → commit
-Commit: "refactor: extract storage/persistence to core/storage.py"
+**Design decisions:**
+- Paths read via `state.paths` at CALL TIME (`paths.HISTORY_PATH`), never
+  imported as constants → tests patch `allmanga_cli.state.paths` in one place.
+- `storage.reset_caches()` — official cache-reset API for tests.
+- Two upper-layer facts injected via `storage.configure(...)`:
+  `episode_ids_fn` (provider catalogs) and `prepare_display_state_fn`
+  (display priming). `configure_redactor(...)` injects log redaction.
+  app_core wires all three after its defs. No upward imports.
+- app_core keeps `name = storage.name` aliases for every moved function —
+  all existing callers (app/, ui/, cli/, tests) work unchanged.
+- `prepare_show_display_state`, `playback_ep_from_history_entry`,
+  `episode_id_for_progress` callers of ensure_episode_ids stay in app_core
+  (provider-layer coupling); AniList queue + history-refresh-from-AniList
+  deliberately deferred to Phase 3a (they are AniList domain, not storage).
+
+**Test updates (4 files, old `__globals__` patching → paths patching):**
+- `test_allmanga_cli_logs.py` → `patch.object(paths, "LOG_DIR", ...)`
+- `test_allmanga_cli_history_refresh.py` → paths + `storage.reset_caches()`
+- `test_allmanga_cli_incognito.py` → paths + reset; queue path still set via
+  app_core ns (queue moves in Phase 3a)
+- `test_allmanga_cli_token_storage.py` → `paths.CONFIG_PATH`; also fixed the
+  pre-existing isolation bug (test read the real secret-backend token)
+
+**Verified:** suite 297 passed / 2 pre-existing failures (was 296/3 — the
+token-storage isolation failure is now FIXED). End-to-end smoke test: prefs,
+resume, history, mirror-pref roundtrips through app_core aliases against a
+temp dir. app_core: 3512 → 3023 lines.
 
 ---
 

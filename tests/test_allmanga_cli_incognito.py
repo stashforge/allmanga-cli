@@ -5,13 +5,15 @@ from unittest.mock import patch
 
 from tests.app_namespace import load_app_namespace
 from allmanga_cli.context import FLAGS
+from allmanga_cli.core import storage
+from allmanga_cli.state import paths as state_paths
 
 class IncognitoModeTests(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp_dir.cleanup)
         self.ns = load_app_namespace(reload=True)
-        self.globals = self.ns["is_incognito"].__globals__
+        self.globals = self.ns
         self._orig_flags = (FLAGS.incognito_mode, FLAGS.debug_mode)
         FLAGS.incognito_mode = True
         FLAGS.debug_mode = False
@@ -25,11 +27,15 @@ class IncognitoModeTests(unittest.TestCase):
             "LOG_DIR": root / "logs",
         }
         for name, path in self.paths.items():
-            self.globals[name] = str(path)
-        self.globals["_prefs_cache"] = None
-        self.globals["_history_cache"] = None
-        self.globals["_search_history_cache"] = None
-        self.globals["_anilist_queue_cache"] = None
+            patcher = patch.object(state_paths, name, str(path))
+            patcher.start()
+            self.addCleanup(patcher.stop)
+            # anilist queue still reads its path from app_core's namespace
+            if name in self.ns:
+                self.ns[name] = str(path)
+        storage.reset_caches()
+        self.addCleanup(storage.reset_caches)
+        self.ns["_anilist_queue_cache"] = None
 
     def _restore_flags(self):
         FLAGS.incognito_mode, FLAGS.debug_mode = self._orig_flags

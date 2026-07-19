@@ -2,8 +2,11 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from tests.app_namespace import load_app_namespace
+from allmanga_cli.core import storage
+from allmanga_cli.state import paths
 
 
 class HistoryAniListRefreshTests(unittest.TestCase):
@@ -12,10 +15,13 @@ class HistoryAniListRefreshTests(unittest.TestCase):
         self.addCleanup(self.temp_dir.cleanup)
         self.ns = load_app_namespace(reload=True)
         self.globals = self.ns["refresh_history_entry_from_anilist"].__globals__
-        self.globals["HISTORY_PATH"] = str(
-            Path(self.temp_dir.name) / "history.json"
+        patcher = patch.object(
+            paths, "HISTORY_PATH", str(Path(self.temp_dir.name) / "history.json")
         )
-        self.globals["_history_cache"] = None
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        storage.reset_caches()
+        self.addCleanup(storage.reset_caches)
 
     def entry(self):
         return {
@@ -81,9 +87,9 @@ class HistoryAniListRefreshTests(unittest.TestCase):
 
         self.assertTrue(self.ns["save_refreshed_history"](history))
 
-        saved = json.loads(Path(self.globals["HISTORY_PATH"]).read_text())
+        saved = json.loads(Path(paths.HISTORY_PATH).read_text())
         self.assertNotIn("_anilist_progress", saved[0]["show"])
-        self.assertIsNot(self.globals["_history_cache"], history)
+        self.assertIsNot(storage._history_cache, history)
 
     def test_refreshed_history_strips_large_runtime_cache_fields(self):
         history = [self.entry()]
@@ -98,7 +104,7 @@ class HistoryAniListRefreshTests(unittest.TestCase):
         self.assertTrue(self.ns["save_refreshed_history"](history))
 
         saved_show = json.loads(
-            Path(self.globals["HISTORY_PATH"]).read_text()
+            Path(paths.HISTORY_PATH).read_text()
         )[0]["show"]
         for key in (
             "_poster_raw",
