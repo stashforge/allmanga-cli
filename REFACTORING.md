@@ -156,7 +156,30 @@ temp dir. app_core: 3512 → 3023 lines.
 
 ---
 
-### Phase 3a: AniList ⬜ NOT STARTED
+### Phase 3a: AniList 🔶 IN PROGRESS (2026-07-19)
+**Created:** `allmanga_cli/core/anilist.py`
+
+**Sub-commit 1 DONE — auth + API + read-cache cluster (21 funcs):**
+token/auth (save/clear/status/mask/stored/auth-lines/prompt), media+id
+helpers (fetch_media, get_show_anilist_id/mal_id/media_id,
+update_anime_from_anilist_media), list/search (fetch_anilist_list,
+search_anilist) + shared `_anilist_list_cache`/`_anilist_search_cache`,
+entry writes (scrobble, date-updates, update_anilist_entry).
+- ANSI colours declared locally (matches per-module convention).
+- Read caches live in core.anilist; app_core keeps SAME-OBJECT aliases so
+  invalidation on write still crosses (verified via identity smoke test).
+- app_core aliases every moved name; callers/tests unchanged.
+- Verified: 297 passed / 2 pre-existing failures.
+
+**Sub-commit 2 TODO — sync + queue + reconcile (the hard half):**
+sync_progress_and_checkpoint, sync_watched_to_anilist, save_and_sync_watched,
+should_update_anilist_progress; the threaded write-queue (_load/_save_queue,
+_enqueue, _run_queued, _anilist_write_worker, _start_queued,
+queue_anilist_progress, retry/flush); reconcile_progress, _push_local_progress,
+_import_anilist_progress; refresh_history_entry_from_anilist +
+refresh_history_anilist_airing_batch.
+Cross-domain couplings needing injected hooks: set_action_feedback (UI toast),
+refresh_history_entry_allanime_catalog (provider catalog), ensure_episode_ids.
 **Target:** `allmanga_cli/core/anilist.py`
 
 - [ ] token/auth: `stored_anilist_token`, `save_anilist_token`, `clear_anilist_token`, `anilist_token_storage_status`, `anilist_auth_*`, `prompt_anilist_token`

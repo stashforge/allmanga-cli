@@ -194,6 +194,7 @@ from allmanga_cli.services import anilist as anilist_service
 from allmanga_cli.context import FLAGS as runtime_flags
 from allmanga_cli.core import reporting
 from allmanga_cli.core import storage
+from allmanga_cli.core import anilist
 
 # Persistence lives in core.storage; these aliases keep app_core callers and
 # the many tests that reach for app_core.<fn> working unchanged.
@@ -925,43 +926,11 @@ load_history = storage.load_history
 save_history = storage.save_history
 delete_history_entry = storage.delete_history_entry
 
-def fetch_anilist_media(token, media_id):
-    try:
-        return anilist_service.fetch_media(
-            anilist_urlopen,
-            read_json_response,
-            token,
-            media_id,
-        )
-    except Exception as e:
-        debug_warn("Failed to refresh AniList media", e)
-        return {}
-
-def get_show_anilist_id(show):
-    try:
-        if show.get("_anilist_id"):
-            return int(show.get("_anilist_id"))
-        if show.get("aniListId"):
-            return int(show.get("aniListId"))
-        match = show.get("anilistMatch")
-        if isinstance(match, dict) and match.get("id"):
-            return int(match["id"])
-        return None
-    except (ValueError, TypeError):
-        return None
-
-def get_show_mal_id(show):
-    try:
-        return int(show.get("malId")) if show.get("malId") else None
-    except (ValueError, TypeError):
-        return None
-
-def get_anilist_media_id(anime):
-    return get_show_anilist_id(anime)
-
-def update_anime_from_anilist_media(anime, media):
-    return anilist_service.apply_media_update(anime, media)
-
+fetch_anilist_media = anilist.fetch_anilist_media
+get_show_anilist_id = anilist.get_show_anilist_id
+get_show_mal_id = anilist.get_show_mal_id
+get_anilist_media_id = anilist.get_anilist_media_id
+update_anime_from_anilist_media = anilist.update_anime_from_anilist_media
 
 def refresh_history_entry_from_anilist(entry, token):
     show = (entry or {}).get("show", {})
@@ -1207,98 +1176,15 @@ def open_external_url(url):
 
 sanitize_token = storage.sanitize_token
 
-def save_anilist_token(cfg, token):
-    token = sanitize_token(token)
-    if token and secret_state.set_secret(secret_state.ANILIST_KEY, token):
-        disk_cfg = dict(cfg)
-        disk_cfg["anilist_token"] = ""
-        save_config(disk_cfg)
-        cfg["anilist_token"] = token
-        return "secret"
-    cfg["anilist_token"] = token or ""
-    save_config(cfg)
-    return "config"
-
-def clear_anilist_token(cfg):
-    secret_state.delete_secret(secret_state.ANILIST_KEY)
-    cfg["anilist_token"] = ""
-    save_config(cfg)
-
-def anilist_token_storage_status(cfg):
-    if secret_state.get_secret(secret_state.ANILIST_KEY):
-        return "secret"
-    if cfg.get("anilist_token"):
-        return "config"
-    return "none"
-
-def mask_token(token):
-    token = sanitize_token(token)
-    if not token:
-        return ""
-    if len(token) <= 8:
-        return "*" * len(token)
-    return f"{token[:4]}************{token[-4:]}"
-
-def anilist_auth_status_lines(cfg):
-    raw_secret_token = secret_state.get_secret(secret_state.ANILIST_KEY)
-    raw_config_token = cfg.get("anilist_token") or ""
-    secret_token = sanitize_token(raw_secret_token)
-    config_token = sanitize_token(raw_config_token)
-    storage = "secret" if secret_token else ("config" if config_token else "none")
-    token = secret_token or config_token
-    keyring_path = secret_state.backend_path()
-    lines = ["AniList"]
-    if token:
-        lines.append(f"  {GREEN}✓{RESET} Token stored")
-    else:
-        lines.append(f"  {RED}✗{RESET} Not logged in")
-    if storage == "secret":
-        lines.append("  - Storage: OS secret storage")
-    elif storage == "config":
-        lines.append("  - Storage: private config file")
-    else:
-        lines.append("  - Storage: none")
-    lines.append(f"  - Config: {CFG_PATH}")
-    if keyring_path:
-        lines.append(f"  - Keyring: available ({keyring_path})")
-    else:
-        lines.append("  - Keyring: unavailable (secret-tool not found)")
-    if token:
-        lines.append(f"  - Token: {mask_token(token)}")
-    if raw_secret_token != secret_token or raw_config_token != config_token:
-        lines.append("  - Warning: token had wrapping quotes; they will be stripped on next login")
-    if storage == "config" and keyring_path:
-        lines.append("  - Hint: run auth login again to move the token to keyring")
-    return lines
-
-def stored_anilist_token(cfg):
-    return sanitize_token(
-        secret_state.get_secret(secret_state.ANILIST_KEY)
-        or cfg.get("anilist_token")
-        or ""
-    )
-
-def anilist_auth_login_existing_lines(cfg):
-    return [
-        "AniList",
-        f"  {GREEN}✓{RESET} Already authenticated",
-        "",
-        "Run `auth logout` first to replace the stored token.",
-    ]
-
-def anilist_auth_token_lines(cfg, raw=False):
-    token = stored_anilist_token(cfg)
-    if not token:
-        return None
-    if raw:
-        return [token]
-    return [
-        f"AniList token: {mask_token(token)}",
-        "Use `auth token --raw` to reveal the complete token.",
-    ]
-
-def prompt_anilist_token():
-    return sanitize_token(getpass.getpass(f"\n{BOLD}Paste AniList Token: {RESET}"))
+save_anilist_token = anilist.save_anilist_token
+clear_anilist_token = anilist.clear_anilist_token
+anilist_token_storage_status = anilist.anilist_token_storage_status
+mask_token = anilist.mask_token
+anilist_auth_status_lines = anilist.anilist_auth_status_lines
+stored_anilist_token = anilist.stored_anilist_token
+anilist_auth_login_existing_lines = anilist.anilist_auth_login_existing_lines
+anilist_auth_token_lines = anilist.anilist_auth_token_lines
+prompt_anilist_token = anilist.prompt_anilist_token
 
 def redact_sensitive_text(content):
     text = str(content)
@@ -1330,113 +1216,11 @@ storage.configure(
 )
 
 # ── AniList Tracking ──────────────────────────────────────────────────────────
-def scrobble_anilist(
-        token,
-        title,
-        ep,
-        media_id=None,
-        status=None,
-        show=None,
-        started_at=None,
-        completed_at=None):
-    try:
-        if media_id is None:
-            media_id = anilist_service.search_media_id(
-                anilist_urlopen,
-                read_json_response,
-                title,
-            )
-
-        return update_anilist_entry(
-            token,
-            int(media_id),
-            progress=ep,
-            status=status,
-            show=show,
-            started_at=started_at,
-            completed_at=completed_at,
-        )
-    except Exception:
-        return False
-
-def _fuzzy_date_has_value(value):
-    return bool(
-        isinstance(value, dict)
-        and value.get("year")
-        and value.get("month")
-        and (value.get("day") or value.get("date"))
-    )
-
-def _today_fuzzy_date():
-    today = date.today()
-    return {
-        "year": today.year,
-        "month": today.month,
-        "day": today.day,
-    }
-
-def _anilist_date_updates(show, progress=None, status=None):
-    updates = {}
-    normalized_status = str(status or "").upper()
-    try:
-        progress_value = int(progress) if progress is not None else None
-    except (TypeError, ValueError):
-        progress_value = None
-    should_start = (
-        (progress_value is not None and progress_value > 0)
-        or normalized_status in {"CURRENT", "REPEATING", "COMPLETED"}
-    )
-    if should_start and not _fuzzy_date_has_value(show.get("_anilist_started_at")):
-        updates["started_at"] = _today_fuzzy_date()
-    if (
-        normalized_status == "COMPLETED"
-        and not _fuzzy_date_has_value(show.get("_anilist_completed_at"))
-    ):
-        updates["completed_at"] = _today_fuzzy_date()
-    return updates
-
-def update_anilist_entry(
-        token,
-        media_id,
-        progress=None,
-        status=None,
-        score=None,
-        show=None,
-        started_at=None,
-        completed_at=None):
-    if is_incognito():
-        return False
-    try:
-        date_updates = _anilist_date_updates(show or {}, progress, status)
-        if started_at is not None:
-            date_updates["started_at"] = started_at
-        if completed_at is not None:
-            date_updates["completed_at"] = completed_at
-        res = anilist_service.update_entry(
-            anilist_urlopen,
-            read_json_response,
-            token,
-            media_id,
-            progress=progress,
-            status=status,
-            score=score,
-            **date_updates,
-        )
-        if res.get("errors"):
-            debug_warn("AniList update returned errors", res.get("errors"))
-            return False
-        entry = (res.get("data") or {}).get("SaveMediaListEntry") or {}
-        if show is not None and entry:
-            if entry.get("startedAt"):
-                show["_anilist_started_at"] = entry["startedAt"]
-            if entry.get("completedAt"):
-                show["_anilist_completed_at"] = entry["completedAt"]
-        _anilist_list_cache.clear()
-        _anilist_search_cache.clear()
-        return True
-    except Exception as e:
-        debug_warn("AniList update failed", e)
-        return False
+scrobble_anilist = anilist.scrobble_anilist
+_fuzzy_date_has_value = anilist._fuzzy_date_has_value
+_today_fuzzy_date = anilist._today_fuzzy_date
+_anilist_date_updates = anilist._anilist_date_updates
+update_anilist_entry = anilist.update_anilist_entry
 
 _anilist_queue_lock = threading.RLock()
 _anilist_queue_cache = None
@@ -1774,57 +1558,11 @@ def reconcile_progress(show, ttype, token, *, anilist_source=False, sync_enabled
 
     return {"action": "local", "progress": local}
 
-_anilist_list_cache = {}
-_anilist_search_cache = {}
-
-def fetch_anilist_list(token, status=None, force_refresh=False):
-    cache_key = (
-        anilist_account_cache_key(token),
-        str(status or "ALL").upper(),
-    )
-    if not force_refresh and cache_key in _anilist_list_cache:
-        return _anilist_list_cache[cache_key]
-
-    try:
-        shows = anilist_service.fetch_list(
-            anilist_urlopen,
-            read_json_response,
-            token,
-            status,
-        )
-        _anilist_list_cache[cache_key] = shows
-        return shows
-    except Exception as e:
-        debug_warn("Failed to fetch AniList list", e)
-        return []
-
-def search_anilist(token, query, raise_errors=False):
-    cache_key = (
-        anilist_account_cache_key(token),
-        str(query or "").strip().casefold(),
-    )
-    if cache_key in _anilist_search_cache:
-        return _anilist_search_cache[cache_key]
-
-    try:
-        shows = anilist_service.search(
-            anilist_urlopen,
-            read_json_response,
-            token,
-            query,
-        )
-        _anilist_search_cache[cache_key] = shows
-        return shows
-    except SearchFailure as e:
-        debug_warn("AniList search failed", e)
-        if raise_errors:
-            raise
-        return []
-    except Exception as e:
-        debug_warn("AniList search failed", e)
-        if raise_errors:
-            raise SearchFailure(search_failure_message("AniList", e)) from e
-        return []
+fetch_anilist_list = anilist.fetch_anilist_list
+search_anilist = anilist.search_anilist
+# Shared read caches now live in core.anilist; keep aliases for callers/tests.
+_anilist_list_cache = anilist._anilist_list_cache
+_anilist_search_cache = anilist._anilist_search_cache
 
 def provider_display_name(provider_id="allanime"):
     return get_provider(provider_id).name
