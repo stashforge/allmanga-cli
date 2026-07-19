@@ -5,8 +5,11 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from tests.app_namespace import load_app_namespace
+from allmanga_cli.core import anilist, storage
+from allmanga_cli.state import paths as state_paths
 
 
 class AniListQueueTests(unittest.TestCase):
@@ -14,14 +17,21 @@ class AniListQueueTests(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp_dir.cleanup)
         self.ns = load_app_namespace(reload=True)
-        self.globals = self.ns["queue_anilist_progress"].__globals__
+        # queue + scrobble now live in core.anilist; patch there.
+        self.globals = anilist.__dict__
         root = Path(self.temp_dir.name)
-        self.globals["ANILIST_QUEUE_PATH"] = str(root / "anilist_queue.json")
-        self.globals["PLAYBACK_PATH"] = str(root / "playback.json")
-        self.globals["HISTORY_PATH"] = str(root / "history.json")
-        self.globals["_anilist_queue_cache"] = None
-        self.globals["_prefs_cache"] = None
-        self.globals["_history_cache"] = None
+        for name, fname in (
+            ("ANILIST_QUEUE_PATH", "anilist_queue.json"),
+            ("PLAYBACK_PATH", "playback.json"),
+            ("HISTORY_PATH", "history.json"),
+        ):
+            patcher = patch.object(state_paths, name, str(root / fname))
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.queue_path = root / "anilist_queue.json"
+        anilist._anilist_queue_cache = None
+        storage.reset_caches()
+        self.addCleanup(storage.reset_caches)
 
     def tearDown(self):
         self.ns["flush_anilist_writes"](2)
@@ -36,7 +46,7 @@ class AniListQueueTests(unittest.TestCase):
         }
 
     def queue_file(self):
-        path = Path(self.globals["ANILIST_QUEUE_PATH"])
+        path = self.queue_path
         return json.loads(path.read_text()) if path.exists() else []
 
     def test_mutation_is_persisted_before_network_and_removed_after_success(self):
@@ -56,7 +66,7 @@ class AniListQueueTests(unittest.TestCase):
         self.assertTrue(started.wait(2))
         self.assertEqual(self.queue_file()[0]["progress"], 1)
         queue_mode = stat.S_IMODE(
-            Path(self.globals["ANILIST_QUEUE_PATH"]).stat().st_mode
+            self.queue_path.stat().st_mode
         )
         self.assertEqual(queue_mode, 0o600)
         release.set()

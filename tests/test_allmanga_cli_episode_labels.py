@@ -163,8 +163,9 @@ class EpisodeLabelTests(unittest.TestCase):
         def save_history(show, episode, ttype):
             saved_history.append(episode)
 
-        with patch.object(app_core, "sync_watched_to_anilist", sync), patch.object(
-            app_core,
+        from allmanga_cli.core import anilist, storage
+        with patch.object(anilist, "sync_watched_to_anilist", sync), patch.object(
+            storage,
             "save_history",
             save_history,
         ):

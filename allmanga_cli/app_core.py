@@ -347,84 +347,10 @@ def buildInfoMetadataLine(show, ttype, override_ep_str=None, local_only=False, h
         hide_anilist_status=hide_anilist_status,
     )
 
-def should_update_anilist_progress(existing_progress, watched_episode):
-    if watched_episode is None:
-        return False
-
-    from allmanga_cli.domain.episodes import anilist_progress_target_for_episode
-    target_progress = anilist_progress_target_for_episode(watched_episode, fallback=None)
-
-    if target_progress is None:
-        return False
-
-    if existing_progress is None:
-        return True
-    try:
-        return target_progress > int(existing_progress)
-    except (TypeError, ValueError):
-        return True
-
-def sync_progress_and_checkpoint(token, title, progress, media_id, show, ttype, status=None):
-    status = tracking_status_for_progress(show, progress) if status is None else status
-    progress = tracking_progress_for_sync(show, progress, status)
-
-    existing = show.get("_anilist_progress")
-    prog_to_send = progress if should_update_anilist_progress(existing, progress) else None
-
-    if not scrobble_anilist(
-        token,
-        title,
-        prog_to_send,
-        media_id=media_id,
-        status=status,
-        show=show,
-    ):
-        return False
-
-    if progress is not None:
-        apply_tracking_progress_local(show, progress, status)
-    else:
-        if status:
-            show["_anilist_list"] = status
-    show["_progress_authority"] = "AL"
-    return True
-
-def sync_watched_to_anilist(token, title, ep, media_id, show, ttype):
-    return sync_progress_and_checkpoint(
-        token, title, ep, media_id, show, ttype
-    )
-
-def save_and_sync_watched(show, episode, ttype, token, title, progress, media_id):
-    save_history(show, episode, ttype)
-
-    if not (token and title and media_id):
-        set_action_feedback(show, f"Saved locally as EP {episode}.")
-        return {"status": "local_saved"}
-
-    from allmanga_cli.domain.episodes import anilist_progress_target_for_episode
-    sync_prog = anilist_progress_target_for_episode(episode, fallback=progress)
-
-    try:
-        current_al = max(0, int(show.get("_anilist_progress") or 0))
-    except (TypeError, ValueError):
-        current_al = 0
-
-    if sync_prog is None:
-        # Fallback if invalid
-        set_action_feedback(show, f"Saved locally as EP {episode}.")
-        return {"status": "local_saved"}
-
-    if sync_prog <= current_al:
-        set_action_feedback(show, f"Saved locally as EP {episode}. AniList already ahead at EP {current_al}, sync skipped.")
-        return {"status": "skipped", "anilist_target": sync_prog, "anilist_current": current_al}
-
-    result = sync_watched_to_anilist(token, title, sync_prog, media_id, show, ttype)
-    if result:
-        set_action_feedback(show, f"Saved locally as EP {episode}. AniList synced as EP {sync_prog}.")
-        return {"status": "synced", "anilist_target": sync_prog}
-    else:
-        set_action_feedback(show, f"Saved locally as EP {episode}. AniList sync failed.")
-        return {"status": "failed"}
+should_update_anilist_progress = anilist.should_update_anilist_progress
+sync_progress_and_checkpoint = anilist.sync_progress_and_checkpoint
+sync_watched_to_anilist = anilist.sync_watched_to_anilist
+save_and_sync_watched = anilist.save_and_sync_watched
 
 def set_action_feedback(show, msg):
     show["_action_feedback"] = msg
@@ -932,20 +858,7 @@ get_show_mal_id = anilist.get_show_mal_id
 get_anilist_media_id = anilist.get_anilist_media_id
 update_anime_from_anilist_media = anilist.update_anime_from_anilist_media
 
-def refresh_history_entry_from_anilist(entry, token):
-    show = (entry or {}).get("show", {})
-    media_id = get_anilist_media_id(show)
-    if not token or not media_id or not show.get("_sync_enabled"):
-        return False
-    media = fetch_anilist_media(token, media_id)
-    if not media:
-        return False
-    changed = update_anime_from_anilist_media(show, media)
-    if changed and show.get("_anilist_progress") is not None:
-        show["_progress_authority"] = "AL"
-    return changed
-
-
+refresh_history_entry_from_anilist = anilist.refresh_history_entry_from_anilist
 
 def apply_allanime_metadata_to_history_show(show, allanime_show):
     changed = False
@@ -972,103 +885,7 @@ def apply_allanime_metadata_to_history_show(show, allanime_show):
     return changed
 
 
-def refresh_history_anilist_airing_batch(history_entries):
-    import time
-    from .services import anilist as anilist_service
-    from .services.http import urllib, json, request_json
-    now = int(time.time())
-
-    # 1 hour cooldown
-    COOLDOWN = 3600
-
-    media_ids_to_fetch = []
-    entry_map = {}
-
-    for entry in history_entries:
-        show = entry.get("show")
-        if not show:
-            continue
-
-        al_id = get_show_anilist_id(show)
-        if not al_id:
-            continue
-
-        last_checked = show.get("_anilist_airing_checked_at", 0)
-        next_airing_at = show.get("_next_airing_at")
-        status = str(show.get("_anilist_status") or show.get("status") or "").upper()
-
-        needs_refresh = False
-        if next_airing_at and next_airing_at <= now:
-            needs_refresh = True
-        elif last_checked == 0:
-            needs_refresh = True
-        elif status in ("RELEASING", "NOT_YET_RELEASED", "UNKNOWN", "") and (now - last_checked) > COOLDOWN:
-            needs_refresh = True
-
-        if needs_refresh:
-            media_ids_to_fetch.append(str(al_id))
-            if str(al_id) not in entry_map:
-                entry_map[str(al_id)] = []
-            entry_map[str(al_id)].append({"entry": entry, "old_next_airing_at": next_airing_at})
-
-    if not media_ids_to_fetch:
-        return False
-
-    # Deduplicate IDs
-    media_ids_to_fetch = list(set(media_ids_to_fetch))
-
-    try:
-        batch_results = anilist_service.fetch_media_batch(anilist_urlopen, read_json_response, media_ids_to_fetch)
-    except Exception as e:
-        debug_warn("AniList batch fetch failed", e)
-        return False
-
-    changed = False
-    for al_id, media in batch_results.items():
-        items = entry_map.get(str(al_id), [])
-        for item in items:
-            entry = item["entry"]
-            old_next_airing_at = item["old_next_airing_at"]
-            show = entry.get("show")
-            if not show: continue
-
-            show["_anilist_airing_checked_at"] = now
-            changed = True
-
-            airing = media.get("nextAiringEpisode")
-            if airing:
-                new_ep = airing.get("episode")
-                new_time = airing.get("timeUntilAiring")
-                new_at = airing.get("airingAt")
-                if not new_at and new_time:
-                    new_at = now + new_time
-                if new_ep != show.get("_next_airing_ep"):
-                    show["_next_airing_ep"] = new_ep
-                if new_at != show.get("_next_airing_at"):
-                    show["_next_airing_at"] = new_at
-                if new_time != show.get("_next_airing_time"):
-                    show["_next_airing_time"] = new_time
-            else:
-                show.pop("_next_airing_ep", None)
-                show.pop("_next_airing_time", None)
-                show.pop("_next_airing_at", None)
-
-            new_count = media.get("episodes")
-            if new_count is not None and new_count != show.get("_anilist_episode_count"):
-                show["_anilist_episode_count"] = new_count
-
-            new_status = media.get("status")
-            if new_status and show.get("_anilist_status") != new_status:
-                show["_anilist_status"] = new_status
-                changed = True
-
-            if old_next_airing_at and old_next_airing_at <= now:
-                if refresh_history_entry_allanime_catalog(entry):
-                    changed = True
-
-    if changed:
-        _atomic_write_json(HISTORY_PATH, sanitize_history_list(history_entries), indent=2)
-    return changed
+refresh_history_anilist_airing_batch = anilist.refresh_history_anilist_airing_batch
 
 def refresh_history_entry_allanime_catalog(entry):
     import time
@@ -1214,6 +1031,10 @@ storage.configure(
         prepare_show_display_state(show, ttype, sync_enabled)
     ),
 )
+anilist.configure(
+    action_feedback_fn=lambda show, msg: set_action_feedback(show, msg),
+    allanime_catalog_refresh_fn=lambda entry: refresh_history_entry_allanime_catalog(entry),
+)
 
 # ── AniList Tracking ──────────────────────────────────────────────────────────
 scrobble_anilist = anilist.scrobble_anilist
@@ -1222,341 +1043,24 @@ _today_fuzzy_date = anilist._today_fuzzy_date
 _anilist_date_updates = anilist._anilist_date_updates
 update_anilist_entry = anilist.update_anilist_entry
 
-_anilist_queue_lock = threading.RLock()
-_anilist_queue_cache = None
-_anilist_write_lock = threading.Lock()
-_anilist_write_condition = threading.Condition(_anilist_write_lock)
-_anilist_active_mutations = set()
-_anilist_work_items = []
-_anilist_worker = None
-
-def _load_anilist_queue():
-    global _anilist_queue_cache
-    with _anilist_queue_lock:
-        try:
-            _anilist_queue_cache = anilist_queue_state.load_records(
-                ANILIST_QUEUE_PATH,
-                _anilist_queue_cache,
-            )
-        except Exception as e:
-            debug_warn("Failed to load AniList mutation queue", e)
-            _preserve_invalid_state_file(ANILIST_QUEUE_PATH, "AniList mutation queue")
-            _anilist_queue_cache = []
-        return _anilist_queue_cache
-
-def _save_anilist_queue(records):
-    global _anilist_queue_cache
-    if is_incognito():
-        return False
-    with _anilist_queue_lock:
-        _atomic_write_json(ANILIST_QUEUE_PATH, records, indent=2)
-        anilist_queue_state.secure_queue_file(ANILIST_QUEUE_PATH)
-        _anilist_queue_cache = records
-        return True
-
-def _anilist_mutation_key(record):
-    return anilist_queue_state.mutation_key(record)
-
-def _enqueue_anilist_progress(media_id, title, progress, status, show, ttype,
-                              pending_completion=None):
-    date_updates = _anilist_date_updates(show or {}, progress, status)
-    record = anilist_queue_state.make_progress_record(
-        media_id,
-        title,
-        progress,
-        status,
-        show,
-        ttype,
-        pending_completion,
-        date_updates=date_updates,
-    )
-    with _anilist_queue_lock:
-        records = anilist_queue_state.replace_progress_record(
-            _load_anilist_queue(),
-            record,
-        )
-        _save_anilist_queue(records)
-    return record
-
-def _update_queued_mutation(mutation_id, **changes):
-    with _anilist_queue_lock:
-        records, changed = anilist_queue_state.update_record(
-            _load_anilist_queue(),
-            mutation_id,
-            changes,
-        )
-        if changed:
-            _save_anilist_queue(records)
-
-def _remove_queued_mutation(mutation_id):
-    with _anilist_queue_lock:
-        _save_anilist_queue(anilist_queue_state.remove_record(
-            _load_anilist_queue(),
-            mutation_id,
-        ))
-
-def _checkpoint_queued_progress(record):
-    return None
-
-def _finish_queued_pending_completion(record):
-    completion = record.get("pending_completion") or {}
-    show_id = completion.get("show_id")
-    episode = completion.get("episode")
-    if not show_id or episode is None:
-        return
-    pending = get_pending_completion(show_id)
-    if str(pending.get("episode")) != str(episode):
-        return
-    save_resume_time(show_id, episode, 0)
-    clear_pending_completion(show_id)
-
-def _run_anilist_callback(callback, label):
-    if not callback:
-        return
-    try:
-        callback()
-    except Exception as e:
-        debug_warn(f"AniList {label} callback failed", e)
-
-def _run_queued_anilist_progress(record, token, show=None,
-                                  on_success=None, on_failure=None):
-    mutation_id = record["id"]
-    success = False
-    try:
-        _update_queued_mutation(
-            mutation_id,
-            attempts=int(record.get("attempts") or 0) + 1,
-            last_attempt_at=int(time.time()),
-        )
-        prog_val = record.get("progress")
-        prog_int = int(prog_val) if prog_val is not None else None
-        success = scrobble_anilist(
-            token,
-            record.get("title") or "",
-            prog_int,
-            media_id=record.get("media_id"),
-            status=record.get("status"),
-            show=show,
-            started_at=record.get("started_at"),
-            completed_at=record.get("completed_at"),
-        )
-        if success:
-            if show is not None:
-                if prog_int is not None:
-                    apply_tracking_progress_local(
-                        show, prog_int, record.get("status")
-                    )
-                else:
-                    if record.get("status"):
-                        show["_anilist_list"] = record.get("status")
-                show["_progress_authority"] = "AL"
-            else:
-                _checkpoint_queued_progress(record)
-            _finish_queued_pending_completion(record)
-            _remove_queued_mutation(mutation_id)
-            _run_anilist_callback(on_success, "success")
-        else:
-            _update_queued_mutation(mutation_id, last_error="AniList update failed")
-            _run_anilist_callback(on_failure, "failure")
-    except Exception as e:
-        debug_warn("Queued AniList update failed", e)
-        _update_queued_mutation(mutation_id, last_error=str(e))
-        _run_anilist_callback(on_failure, "failure")
-    finally:
-        with _anilist_write_condition:
-            _anilist_active_mutations.discard(mutation_id)
-            _anilist_write_condition.notify_all()
-    return success
-
-def _anilist_write_worker():
-    global _anilist_worker
-    while True:
-        with _anilist_write_condition:
-            if not _anilist_work_items:
-                _anilist_worker = None
-                _anilist_write_condition.notify_all()
-                return
-            record, token, show, on_success, on_failure = _anilist_work_items.pop(0)
-        _run_queued_anilist_progress(
-            record, token, show, on_success, on_failure
-        )
-
-def _start_queued_anilist_progress(record, token, show=None,
-                                   on_success=None, on_failure=None):
-    global _anilist_worker
-    mutation_id = record.get("id")
-    with _anilist_write_condition:
-        if not mutation_id or mutation_id in _anilist_active_mutations:
-            return None
-        _anilist_active_mutations.add(mutation_id)
-        _anilist_work_items.append(
-            (record, token, show, on_success, on_failure)
-        )
-        if _anilist_worker is None:
-            _anilist_worker = threading.Thread(
-                target=_anilist_write_worker,
-                name="anilist-write-worker",
-                daemon=True,
-            )
-            _anilist_worker.start()
-        _anilist_write_condition.notify_all()
-        return record
-
-def queue_anilist_progress(token, title, progress, media_id, show, ttype,
-                           status=None, on_success=None, on_failure=None,
-                           pending_completion=None):
-    if is_incognito():
-        return None
-    status = tracking_status_for_progress(show, progress) if status is None else status
-    progress = tracking_progress_for_sync(show, progress, status)
-
-    existing = show.get("_anilist_progress") if show else None
-    prog_to_send = progress if should_update_anilist_progress(existing, progress) else None
-
-    try:
-        record = _enqueue_anilist_progress(
-            media_id, title, prog_to_send, status, show, ttype,
-            pending_completion=pending_completion,
-        )
-    except Exception as e:
-        debug_warn("Could not persist AniList update", e)
-        if on_failure:
-            on_failure()
-        return None
-    return _start_queued_anilist_progress(
-        record, token, show, on_success, on_failure
-    )
-
-def retry_queued_anilist_writes(token):
-    if is_incognito():
-        return 0
-    if not token:
-        return 0
-    records = list(_load_anilist_queue())
-    latest = {}
-    for record in records:
-        key = _anilist_mutation_key(record)
-        previous = latest.get(key)
-        if (previous and previous.get("pending_completion")
-                and not record.get("pending_completion")):
-            record["pending_completion"] = previous["pending_completion"]
-        latest[key] = record
-    records = sorted(
-        latest.values(),
-        key=lambda record: (int(record.get("created_at") or 0), record.get("id") or ""),
-    )
-    if len(records) != len(_load_anilist_queue()):
-        _save_anilist_queue(records)
-    started = 0
-    for record in records:
-        if _start_queued_anilist_progress(record, token):
-            started += 1
-    return started
-
-def flush_anilist_writes(timeout=None):
-    if is_incognito():
-        return True
-    timeout = ANILIST_TIMEOUT + 2 if timeout is None else max(0, float(timeout))
-    deadline = time.monotonic() + timeout
-    with _anilist_write_condition:
-        while _anilist_active_mutations or _anilist_work_items:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                return False
-            _anilist_write_condition.wait(remaining)
-        return True
-
-def _reconcile_status(show, progress):
-    return reconciliation_domain.reconcile_status(
-        show,
-        progress,
-        _positive_int,
-    )
-
-def _import_anilist_progress(show, ttype, progress, *, authority="AL"):
-    progress = max(0, int(progress or 0))
-    if progress > 0 or get_history_entry(show, ttype):
-        write_history_progress(show, progress, ttype, last_synced=progress, touch=False)
-    show["_anilist_progress"] = progress
-    show["_local_progress"] = progress
-    show["_progress_authority"] = authority
-    show.pop("_sync_conflict", None)
-    return {"action": "imported", "progress": progress}
-
-def _push_local_progress(show, ttype, token, progress):
-    al_id = get_show_anilist_id(show)
-    if not token or not al_id:
-        return {"action": "failed", "progress": progress}
-    status = _reconcile_status(show, progress)
-
-    existing = show.get("_anilist_progress")
-    prog_to_send = int(progress) if should_update_anilist_progress(existing, progress) else None
-
-    if not update_anilist_entry(
-        token,
-        int(al_id),
-        progress=prog_to_send,
-        status=status,
-        show=show,
-    ):
-        return {"action": "failed", "progress": progress}
-
-    if progress is not None:
-        apply_tracking_progress_local(show, int(progress), status)
-    else:
-        if status:
-            show["_anilist_list"] = status
-
-    show["_progress_authority"] = "AL"
-    show.pop("_sync_conflict", None)
-    return {"action": "pushed", "progress": int(progress) if progress is not None else None, "status": status}
-
-def reconcile_progress(show, ttype, token, *, anilist_source=False, sync_enabled=True):
-    local = get_local_progress(show, ttype)
-    local_label = get_local_episode_label(show, ttype) or str(local if local is not None else 0)
-    try:
-        remote = max(0, int(show.get("_anilist_progress") or 0))
-    except (TypeError, ValueError):
-        remote = 0
-    last = get_last_synced_progress(show, ttype)
-    show.pop("_sync_conflict", None)
-    decision = reconciliation_domain.decide_progress_reconciliation(
-        local=local,
-        remote=remote,
-        last_synced=last,
-        status=show.get("_anilist_list"),
-        anilist_source=anilist_source,
-        sync_enabled=sync_enabled,
-    )
-    action = decision["action"]
-
-    if action in ("import", "push"):
-        conflict = {
-            "local": local_label,
-            "anilist": decision.get("anilist", remote),
-        }
-        show["_sync_conflict"] = conflict
-        show["_progress_authority"] = decision.get("authority", "LOCAL")
-        return {"action": "conflict", **conflict}
-
-    if action == "local":
-        show["_local_progress"] = local
-        show["_progress_authority"] = decision["authority"]
-        return {"action": "local", "progress": decision["progress"]}
-    if action == "equal":
-        set_last_synced_progress(show, local, ttype)
-        show["_progress_authority"] = "AL"
-        return {"action": "equal", "progress": local}
-    if action == "conflict":
-        conflict = {
-            "local": local_label,
-            "anilist": decision["anilist"],
-        }
-        show["_sync_conflict"] = conflict
-        show["_progress_authority"] = decision["authority"]
-        return {"action": "conflict", **conflict}
-
-    return {"action": "local", "progress": local}
+# Durable AniList write-queue + reconciliation live in core.anilist.
+_load_anilist_queue = anilist._load_anilist_queue
+_save_anilist_queue = anilist._save_anilist_queue
+_anilist_mutation_key = anilist._anilist_mutation_key
+_enqueue_anilist_progress = anilist._enqueue_anilist_progress
+_update_queued_mutation = anilist._update_queued_mutation
+_remove_queued_mutation = anilist._remove_queued_mutation
+_checkpoint_queued_progress = anilist._checkpoint_queued_progress
+_finish_queued_pending_completion = anilist._finish_queued_pending_completion
+_run_queued_anilist_progress = anilist._run_queued_anilist_progress
+_start_queued_anilist_progress = anilist._start_queued_anilist_progress
+queue_anilist_progress = anilist.queue_anilist_progress
+retry_queued_anilist_writes = anilist.retry_queued_anilist_writes
+flush_anilist_writes = anilist.flush_anilist_writes
+_reconcile_status = anilist._reconcile_status
+_import_anilist_progress = anilist._import_anilist_progress
+_push_local_progress = anilist._push_local_progress
+reconcile_progress = anilist.reconcile_progress
 
 fetch_anilist_list = anilist.fetch_anilist_list
 search_anilist = anilist.search_anilist
