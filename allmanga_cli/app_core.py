@@ -195,6 +195,7 @@ from allmanga_cli.context import FLAGS as runtime_flags
 from allmanga_cli.core import reporting
 from allmanga_cli.core import storage
 from allmanga_cli.core import anilist
+from allmanga_cli.core import streams
 
 # Persistence lives in core.storage; these aliases keep app_core callers and
 # the many tests that reach for app_core.<fn> working unchanged.
@@ -1035,6 +1036,11 @@ anilist.configure(
     action_feedback_fn=lambda show, msg: set_action_feedback(show, msg),
     allanime_catalog_refresh_fn=lambda entry: refresh_history_entry_allanime_catalog(entry),
 )
+streams.configure(
+    episode_data_fn=lambda show_id, ep, ttype="sub", provider_id="allanime": (
+        get_episode_data(show_id, ep, ttype, provider_id=provider_id)
+    ),
+)
 
 # ── AniList Tracking ──────────────────────────────────────────────────────────
 scrobble_anilist = anilist.scrobble_anilist
@@ -1756,120 +1762,20 @@ def get_clock_links(path):
 
 
 # ── Background resolver ───────────────────────────────────────────────────────
-# all_streams is the shared list for the current episode.
-# Both _streams_lock and _bg_lock are used to synchronize access.
-all_streams: list = []
-_streams_lock = threading.Lock()  # guards all_streams reads/writes
-_streams_generation = 0  # invalidates workers started for an older episode
-_bg_thread = None  # type: Optional[threading.Thread]
-_bg_lock = threading.Lock()  # guards _bg_thread and _bg_stats
-_bg_generation = 0
-_bg_stats = {"resolved": 0, "failed": 0, "total": 0, "current": ""}
-
-def _clear_streams():
-    global _streams_generation
-    with _streams_lock:
-        _streams_generation += 1
-        all_streams.clear()
-        return _streams_generation
-
-def _extend_streams(streams):
-    with _streams_lock:
-        all_streams.extend(streams)
-
-def _stream_snapshot():
-    with _streams_lock:
-        return list(all_streams)
-
-def _stream_count():
-    with _streams_lock:
-        return len(all_streams)
-
-def _publish_stream(stream, generation):
-    """Publish a resolved stream only while its episode generation is current."""
-    link = stream.get("link")
-    with _streams_lock:
-        if generation != _streams_generation:
-            return False
-        if link and any(existing.get("link") == link for existing in all_streams):
-            return False
-        all_streams.append(stream)
-        return True
-
-def _generation_is_current(generation):
-    with _streams_lock:
-        return generation == _streams_generation
-
-def _update_bg_stats(generation, *, current=None, resolved=0, failed=0):
-    with _bg_lock:
-        if generation != _bg_generation:
-            return False
-        if current is not None:
-            _bg_stats["current"] = current
-        _bg_stats["resolved"] += resolved
-        _bg_stats["failed"] += failed
-        return True
-
-def start_bg_resolve(ep_data, exclude_names: set):
-    """
-    Start resolving all remaining sources in background.
-    Call after the first stream is already playing.
-    exclude_names: source names already resolved (skip them to avoid duplicates).
-    """
-    global _streams_generation, _bg_thread, _bg_generation, _bg_stats
-    sources = sorted(ep_data.get("episode",{}).get("sourceUrls",[]),
-                     key=source_priority)
-    with _streams_lock:
-        _streams_generation += 1
-        generation = _streams_generation
-        seen_links = {s.get("link") for s in all_streams}
-    with _bg_lock:
-        _bg_generation = generation
-        _bg_stats = {"resolved": len(exclude_names), "failed": 0, "total": len(sources), "current": ""}
-
-    def worker():
-        for src in sources:
-            if not _generation_is_current(generation):
-                return
-            sname = src.get("sourceName","")
-            if sname in exclude_names:
-                continue
-            if not _update_bg_stats(generation, current=sname):
-                return
-            try:
-                found = False
-                for stream in resolve_source(src, silent=True):
-                    if not _generation_is_current(generation):
-                        return
-                    link = stream.get("link")
-                    if link not in seen_links and _publish_stream(stream, generation):
-                        seen_links.add(link)
-                        found = True
-                if not _update_bg_stats(
-                    generation,
-                    resolved=1 if found else 0,
-                    failed=0 if found else 1
-                ):
-                    return
-            except Exception:
-                if not _update_bg_stats(generation, failed=1):
-                    return
-        _update_bg_stats(generation, current="")
-
-    with _bg_lock:
-        _bg_thread = threading.Thread(target=worker, daemon=True)
-        _bg_thread.start()
-
-
-def wait_for_bg():
-    """Join bg thread if still running. Called before showing Mirrors."""
-    global _bg_thread
-    with _bg_lock:
-        t = _bg_thread
-    if t and t.is_alive():
-        print(f"{YELLOW}Checking remaining mirrors...{RESET}")
-        t.join()
-
+# Stream pool + background resolver live in core.streams; aliases below keep
+# existing callers (app/playback.py, app/search.py, tests) working unchanged.
+all_streams = streams.all_streams
+_streams_lock = streams._streams_lock
+_bg_lock = streams._bg_lock
+_clear_streams = streams._clear_streams
+_extend_streams = streams._extend_streams
+_stream_snapshot = streams._stream_snapshot
+_stream_count = streams._stream_count
+_publish_stream = streams._publish_stream
+_generation_is_current = streams._generation_is_current
+_update_bg_stats = streams._update_bg_stats
+start_bg_resolve = streams.start_bg_resolve
+wait_for_bg = streams.wait_for_bg
 
 def _redraw_player(props):
     _player_ui_state["mpv_props"] = props
@@ -1966,39 +1872,7 @@ def browse_download_library(flags, ui, cfg, args):
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
-def fetch_episode_stream(show_id, ep_number, ttype="sub", quality="best", provider_id="allanime"):
-    ep_data = get_episode_data(show_id, ep_number, ttype, provider_id=provider_id)
-    if not ep_data: return None
-    sources = ep_data.get("episode",{}).get("sourceUrls",[])
-    pref = get_preferred_mirror(show_id)
-    pref_name = pref.get("source_name", "")
-    pref_res = pref.get("resolution", "")
-
-    def dynamic_prio(src):
-        api_name = src.get("sourceName", "")
-        if pref_name.startswith(api_name) and api_name: return 0
-        return source_priority(src)
-
-    from .media.resolver import generate_source_passes
-    for src, failed in generate_source_passes(sorted(sources, key=dynamic_prio), max_passes=3):
-        streams = resolve_source(src)
-        if streams:
-            selected_stream = streams[0]
-            found_pref = False
-            if pref_name:
-                for s in streams:
-                    if s.get("source_name") == pref_name and s.get("resolution", "?") == pref_res:
-                        selected_stream = s
-                        found_pref = True
-                        break
-            if not found_pref:
-                for s in streams:
-                    if quality in s.get("resolution","") or quality=="best":
-                        selected_stream = s; break
-            return selected_stream, src.get("sourceName",""), ep_data, streams
-        else:
-            failed.append(src)
-    return None
+fetch_episode_stream = streams.fetch_episode_stream
 
 def main():
     global all_streams, _bg_thread

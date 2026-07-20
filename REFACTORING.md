@@ -190,15 +190,32 @@ refresh_history_entry_allanime_catalog (provider catalog), ensure_episode_ids.
 **Steps:** create → move → re-export → verify → commit
 Commit: "refactor: extract AniList operations to core/anilist.py"
 
-### Phase 3b: Streams ⬜ NOT STARTED
-**Target:** `allmanga_cli/core/streams.py`
+### Phase 3b: Streams ✅ DONE (2026-07-19)
+**Created:** `allmanga_cli/core/streams.py` (~200 lines)
 
-- [ ] `fetch_episode_stream()`
-- [ ] source selection / quality filtering
-- [ ] mirror-preference glue (reads storage)
+**What moved:** the shared stream pool (`all_streams` + locks + generation
+counters + `_bg_stats`), pool helpers (`_clear/_extend/_snapshot/_count/
+_publish_stream`, `_generation_is_current`, `_update_bg_stats`), the
+background resolver (`start_bg_resolve`, `wait_for_bg`), and
+`fetch_episode_stream` (pref-mirror priority + retry passes + quality pick).
 
-**Steps:** create → move → re-export → verify → commit
-Commit: "refactor: extract stream resolution to core/streams.py"
+**Design:**
+- One injected hook via `streams.configure(episode_data_fn=...)` —
+  provider episode-catalog lookup stays in app_core (get_episode_data).
+- `resolve_source` bound at import but kept module-global so
+  tests patch `streams.resolve_source` / via `__globals__` as before.
+- Discovery for this phase was DELEGATED to a subagent per the new
+  CLAUDE.md trigger; claims verified before acting (bg_resolver.py has
+  zero importers — flagged for Phase 5 decision, not auto-deleted).
+- Test `test_allmanga_cli_stream_generations.py` needed NO changes: it
+  reaches state via `fn.__globals__`, which follows the moved functions.
+
+**Verified:** 297 passed / 2 pre-existing failures; stream-generation
+threading tests green; smoke: aliases identity, hook wiring, quality
+pick, stale-generation publish rejection. app_core: 2265 → 2139 lines.
+
+**Phase 5 note:** `media/bg_resolver.py` is a dead near-duplicate of this
+cluster (zero importers) — decide keep/delete in cleanup.
 
 ---
 
