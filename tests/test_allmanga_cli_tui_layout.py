@@ -3,6 +3,7 @@ from pathlib import Path
 from tests.app_namespace import load_app_namespace
 from allmanga_cli.ui import picker
 from allmanga_cli.ui import spinner
+from allmanga_cli.ui import display
 namespace = load_app_namespace()
 
 
@@ -50,14 +51,14 @@ class TuiLayoutTests(unittest.TestCase):
             FLAGS.show_image = original_show_image
 
     def test_configured_loading_frame_uses_configured_spinner(self):
-        original_style = namespace["_spinner_style"]
+        original_style = display._spinner_style
         original_time = spinner.time.time
         try:
-            namespace["_configure_spinner_from_config"]({"spinner": "line"})
+            display._configure_spinner_from_config({"spinner": "line"})
             spinner.time.time = lambda: 0.2
-            self.assertEqual(namespace["_configured_loading_frame"](), "|")
+            self.assertEqual(display._configured_loading_frame(), "|")
         finally:
-            namespace["_spinner_style"] = original_style
+            display._spinner_style = original_style
             spinner.time.time = original_time
 
     def test_cover_command_uses_high_quality_relative_output(self):

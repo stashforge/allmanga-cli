@@ -30,12 +30,11 @@ _RESET = "\033[0m"
 
 
 def _set_app_alt_screen(active):
-    module = sys.modules.get("allmanga_cli.app_core")
-    if module is not None:
-        try:
-            module._alt_screen_active = bool(active)
-        except Exception:
-            pass
+    try:
+        from . import display as _display
+        _display.set_alt_screen_active(active)
+    except Exception:
+        pass
 
 
 def verification_page(

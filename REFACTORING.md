@@ -219,16 +219,36 @@ cluster (zero importers) — decide keep/delete in cleanup.
 
 ---
 
-### Phase 4: UI Display ⬜ NOT STARTED
-**Target:** `allmanga_cli/ui/display.py`
+### Phase 4: UI Display ✅ DONE (2026-07-19)
+**Created:** `allmanga_cli/ui/display.py` (~265 lines)
 
-- [ ] poster: `_get_poster`, `_request_poster_redraw`, `_clear_poster_downloads`, `_poster_footer_line`, `_poster_needs_tick`, `_poster_manager`
-- [ ] terminal images: `clear_terminal_images`
-- [ ] alt screen: `enter_alt_screen`, `exit_alt_screen`
-- [ ] banners/headers: `print_app_banner`, `print_episode_header`
+**What moved:** posters (`_poster_manager` + get/redraw/clear/footer/tick),
+alt-screen (`_alt_screen_active`, enter/exit + NEW `set_alt_screen_active()`
+helper + atexit registration), `clear_terminal_images`, spinner state
+(`_spinner_style`, `_configured_loading_frame`, `_configure_spinner_from_config`),
+loading overlays (`with_loading`, `render_anilist_menu_loading`,
+`with_anilist_menu_loading`, `with_footer_loading`).
 
-**Steps:** create → move → re-export → verify → commit
-Commit: "refactor: extract UI display helpers to ui/display.py"
+**Design:**
+- One injected hook: `display.configure(hovered_show_id_fn=...)` — hovered-show
+  id is orchestrator state written by the app layer onto app_core; display only
+  reads it. No upward import.
+- Anti-pattern REMOVED: picker.py and verification.py used to poke
+  `sys.modules["allmanga_cli.app_core"]._alt_screen_active` directly; both now
+  call `display.set_alt_screen_active()`. Single owner for the flag.
+- app_core's spinner readers (`make_anilist_oneshot_search`, `main()`) read
+  `display._spinner_style` live (a snapshot alias would go stale on config).
+- Discovery delegated to a subagent; its two dead-code claims were verified
+  then acted on: DELETED `print_app_banner`/`print_episode_header` (dup of
+  ui/banners.py, zero callers) and app_core's `_needs_redraw`/SIGWINCH handler
+  (picker owns its own; app_core's flag was never read).
+
+**Test updates:** `test_allmanga_cli_tui_layout.py` spinner test targets
+`display` directly (state moved); poster/`__globals__` tests unchanged.
+
+**Verified:** 297 passed / 2 pre-existing failures; smoke: alias identity,
+alt-screen single ownership via helper (both call sites), hovered-show hook,
+live spinner config, picker tick-fn wiring. app_core: 2139 → 1948 lines."
 
 ---
 

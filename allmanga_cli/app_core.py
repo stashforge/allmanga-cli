@@ -196,6 +196,7 @@ from allmanga_cli.core import reporting
 from allmanga_cli.core import storage
 from allmanga_cli.core import anilist
 from allmanga_cli.core import streams
+from allmanga_cli.ui import display
 
 # Persistence lives in core.storage; these aliases keep app_core callers and
 # the many tests that reach for app_core.<fn> working unchanged.
@@ -208,16 +209,6 @@ atexit.register(_cleanup_incognito_cache)
 # ── ANSI ──────────────────────────────────────────────────────────────────────
 GREEN  = "\033[1;32m"; YELLOW = "\033[1;33m"; RED   = "\033[1;31m"
 CYAN   = "\033[1;36m"; BOLD   = "\033[1m";    RESET = "\033[0m"
-
-_needs_redraw = True
-def _handle_sigwinch(signum, frame):
-    global _needs_redraw
-    _needs_redraw = True
-
-try:
-    signal.signal(signal.SIGWINCH, _handle_sigwinch)
-except Exception:
-    pass
 
 _player_ui_state = {
     "active": False,
@@ -295,27 +286,6 @@ def get_ep_prev(ui, default="SEARCH"):
 def get_action_prev(ui, default="SEARCH"):
     return ui.action_prev_state if ui.action_prev_state else default
 
-# ── Banners ───────────────────────────────────────────────────────────────────
-def print_app_banner():
-    sys.stdout.write("\033[2J\033[H")
-    sys.stdout.flush()
-    C, B, R = "\033[36m", "\033[1m", "\033[0m"
-    line = f"{C}{'─'*48}{R}"
-    print(f"{line}\n{C}{B}▶ allmanga-cli — Anime Stream Player{R}\n{line}")
-
-def print_episode_header(title, ep, total):
-    B, R, LG = "\033[1m", "\033[0m", "\033[38;5;248m"
-    clean, sn, stype = _extract_title_parts(title)
-    info_bits = []
-    if sn:    info_bits.append(f"season {sn}")
-    if stype: info_bits.append(stype)
-    ep_str = f"episode {ep} / {total}"
-    if info_bits:
-        ep_str += f"  \u2022  {' \u2022 '.join(info_bits)}"
-    print(f"\n\033[2;36mnow playing\033[0m\n{B}{clean}{R}")
-    print(f"{LG}{ep_str}{R}")
-    print()
-
 # ── TUI picker ────────────────────────────────────────────────────────────────
 # Colors (Catppuccin-inspired, matching old fzf theme)
 _C_NORMAL  = "\033[38;5;252m"           # #cccccc  normal item text
@@ -390,188 +360,28 @@ def build_info_panel(
     parts.extend([info_title_line, info_alt_title_line, info_metadata_line])
 
 
-def _request_poster_redraw():
-    import allmanga_cli.ui.picker as _picker_mod
-    _picker_mod._needs_redraw = True
+# ── Display (posters / spinner / alt-screen / loading) → ui.display ──────────────
+# All terminal-presentation logic lives in ui.display; these aliases keep the
+# many app_core.<name> callers (app/, ui/, cli/, tests) working unchanged.
+# hovered-show id is app_core/orchestrator state the app layer writes; display
+# reads it through the injected hook below.
+display.configure(hovered_show_id_fn=lambda: globals().get("_hovered_show_id"))
 
-
-_spinner_style = DEFAULT_SPINNER
-
-
-def _configured_loading_frame():
-    return _loading_frame(_spinner_style)
-
-
-def _configure_spinner_from_config(cfg):
-    global _spinner_style
-    _spinner_style = spinner_from_config(cfg)
-
-
-_poster_manager = PosterManager(
-    enabled=lambda: bool(runtime_flags.show_image),
-    cache_dir=cover_cache_dir,
-    hovered_show_id=lambda: globals().get("_hovered_show_id"),
-    request_redraw=_request_poster_redraw,
-    loading_frame=_configured_loading_frame,
-)
-try:
-    import allmanga_cli.ui.picker as _picker_mod
-    _picker_mod._set_poster_tick_fn(_poster_manager.needs_tick)
-except Exception:
-    pass
-
-
-def _clear_poster_downloads():
-    _poster_manager.clear_downloads()
-
-
-def clear_terminal_images():
-    sys.stdout.write(terminal_images.clear_now())
-    sys.stdout.flush()
-
-
-def _poster_footer_line(show, default_text, width):
-    return _poster_manager.footer_line(show, default_text, width)
-
-
-def _poster_needs_tick(show):
-    return _poster_manager.needs_tick(show)
-
-
-def _get_poster(show):
-    globals()["_hovered_show_obj"] = show
-    return _poster_manager.get(show)
-
-
-_alt_screen_active = False
-
-def enter_alt_screen():
-    global _alt_screen_active
-    pending_image_clear = terminal_images.clear_if_active()
-    if not _alt_screen_active:
-        sys.stdout.write(pending_image_clear + "\033[?1049h\033[2J\033[?25l")
-        sys.stdout.flush()
-        _alt_screen_active = True
-    elif pending_image_clear:
-        sys.stdout.write(pending_image_clear)
-        sys.stdout.flush()
-
-def exit_alt_screen():
-    global _alt_screen_active
-    if _alt_screen_active:
-        sys.stdout.write("\033[?1049l\033[?25h")
-        sys.stdout.flush()
-        _alt_screen_active = False
-
-def with_loading(msg, fn, *args, **kwargs):
-    spinner_style = kwargs.pop("_spinner_style", _spinner_style)
-    try:
-        ts = os.get_terminal_size()
-        w, h = ts.columns, ts.lines
-    except OSError:
-        w, h = 80, 24
-
-    fd = sys.stdin.fileno()
-    old = termios.tcgetattr(fd)
-    result = {}
-
-    def _runner():
-        try:
-            result["value"] = fn(*args, **kwargs)
-        except BaseException as exc:
-            result["error"] = exc
-
-    try:
-        tty.setcbreak(fd)
-        thread = threading.Thread(target=_runner, daemon=True)
-        thread.start()
-        while thread.is_alive():
-            sys.stdout.write(
-                f"\033[{h};1H\033[2K"
-                f"{_loading_line(msg, w, spinner_style)}"
-                "\033[?25l"
-            )
-            sys.stdout.flush()
-            thread.join(0.1)
-        if "error" in result:
-            raise result["error"]
-        return result.get("value")
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old)
-        termios.tcflush(fd, termios.TCIFLUSH)
-        # sys.stdout.write("\033[?25h")
-        sys.stdout.flush()
-
-
-def render_anilist_menu_loading(status, loading_text=""):
-    enter_alt_screen()
-    try:
-        size = os.get_terminal_size()
-        columns, rows = size.columns, size.lines
-    except OSError:
-        columns, rows = 80, 24
-    sys.stdout.write(
-        "\033[?25l" + anilist_menu_loading_frame(
-            status, rows, columns, loading_text
-        )
-    )
-    sys.stdout.flush()
-
-
-def with_anilist_menu_loading(status, msg, fn, *args, **kwargs):
-    result = {}
-
-    def _runner():
-        try:
-            result["value"] = fn(*args, **kwargs)
-        except BaseException as exc:
-            result["error"] = exc
-
-    thread = threading.Thread(target=_runner, daemon=True)
-    thread.start()
-    while thread.is_alive():
-        try:
-            width = os.get_terminal_size().columns
-        except OSError:
-            width = 80
-        render_anilist_menu_loading(
-            status,
-            _loading_line(msg, width, _spinner_style),
-        )
-        thread.join(0.1)
-    if "error" in result:
-        raise result["error"]
-    return result.get("value")
-
-
-def with_footer_loading(msg, fn, *args, **kwargs):
-    result = {}
-
-    def _runner():
-        try:
-            result["value"] = fn(*args, **kwargs)
-        except BaseException as exc:
-            result["error"] = exc
-
-    thread = threading.Thread(target=_runner, daemon=True)
-    thread.start()
-    while thread.is_alive():
-        try:
-            size = os.get_terminal_size()
-            columns, rows = size.columns, size.lines
-        except OSError:
-            columns, rows = 80, 24
-        sys.stdout.write(
-            f"\033[{rows};1H\033[2K"
-            f"{_loading_line(msg, columns, _spinner_style)}"
-            "\033[?25l"
-        )
-        sys.stdout.flush()
-        thread.join(0.1)
-    if "error" in result:
-        raise result["error"]
-    return result.get("value")
-
+_request_poster_redraw = display._request_poster_redraw
+_configured_loading_frame = display._configured_loading_frame
+_configure_spinner_from_config = display._configure_spinner_from_config
+_poster_manager = display._poster_manager
+_clear_poster_downloads = display._clear_poster_downloads
+clear_terminal_images = display.clear_terminal_images
+_poster_footer_line = display._poster_footer_line
+_poster_needs_tick = display._poster_needs_tick
+_get_poster = display._get_poster
+enter_alt_screen = display.enter_alt_screen
+exit_alt_screen = display.exit_alt_screen
+with_loading = display.with_loading
+render_anilist_menu_loading = display.render_anilist_menu_loading
+with_anilist_menu_loading = display.with_anilist_menu_loading
+with_footer_loading = display.with_footer_loading
 
 def load_anilist_browse(token, status):
     return with_anilist_menu_loading(
@@ -582,7 +392,6 @@ def load_anilist_browse(token, status):
         status,
     )
 
-atexit.register(exit_alt_screen)
 
 def _exit_player_screen(close_alt=False):
     if close_alt:
@@ -1171,7 +980,7 @@ def make_anilist_oneshot_search(token, initial_query):
     results = []
     loading = True
     error = ""
-    spinner_style = _spinner_style
+    spinner_style = display._spinner_style
 
     def worker():
         nonlocal results, loading, error
@@ -1896,7 +1705,7 @@ def main():
 
     check_deps()
     cfg = load_config()
-    _configure_spinner_from_config(cfg)
+    display._configure_spinner_from_config(cfg)
 
     runtime_flags.debug_mode = args.debug
     runtime_flags.incognito_mode = bool(args.incognito)
@@ -1971,7 +1780,7 @@ def main():
     # ``runtime_flags`` (context.FLAGS) is the single shared CliFlags instance.
     # It was populated from argparse above; hand the same object to handlers so
     # mid-run mutations (e.g. disabling sync) stay visible process-wide.
-    runtime_flags.spinner_style = _spinner_style
+    runtime_flags.spinner_style = display._spinner_style
     flags = runtime_flags
     ui = UiState()
 

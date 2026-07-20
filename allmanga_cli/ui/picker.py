@@ -183,9 +183,8 @@ def tui_pick(
     sys.stdout.write("\033[?1049h\033[2J\033[?25l")
     sys.stdout.flush()
     try:
-        from ..app_core import _alt_screen_active
-        import sys as _sys
-        _sys.modules["allmanga_cli.app_core"]._alt_screen_active = True
+        from . import display as _display
+        _display.set_alt_screen_active(True)
     except Exception:
         pass
 
