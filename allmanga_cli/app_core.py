@@ -644,7 +644,6 @@ get_al_match = storage.get_al_match
 save_al_match = storage.save_al_match
 get_source_anilist_match = storage.get_source_anilist_match
 save_source_anilist_match = storage.save_source_anilist_match
-clear_al_match = storage.clear_al_match
 
 def playback_ep_from_history_entry(h, ttype=None):
     show = h.get("show", {})
@@ -664,7 +663,6 @@ delete_history_entry = storage.delete_history_entry
 
 fetch_anilist_media = anilist.fetch_anilist_media
 get_show_anilist_id = anilist.get_show_anilist_id
-get_show_mal_id = anilist.get_show_mal_id
 get_anilist_media_id = anilist.get_anilist_media_id
 update_anime_from_anilist_media = anilist.update_anime_from_anilist_media
 
@@ -752,7 +750,6 @@ history_entry_progress = storage.history_entry_progress
 history_entry_category = storage.history_entry_category
 filter_history_entries = storage.filter_history_entries
 
-_secure_config_permissions = storage._secure_config_permissions
 load_config = storage.load_config
 save_config = storage.save_config
 
@@ -873,9 +870,7 @@ queue_anilist_progress = anilist.queue_anilist_progress
 retry_queued_anilist_writes = anilist.retry_queued_anilist_writes
 flush_anilist_writes = anilist.flush_anilist_writes
 _reconcile_status = anilist._reconcile_status
-_import_anilist_progress = anilist._import_anilist_progress
 _push_local_progress = anilist._push_local_progress
-reconcile_progress = anilist.reconcile_progress
 
 fetch_anilist_list = anilist.fetch_anilist_list
 search_anilist = anilist.search_anilist
@@ -1584,7 +1579,6 @@ _publish_stream = streams._publish_stream
 _generation_is_current = streams._generation_is_current
 _update_bg_stats = streams._update_bg_stats
 start_bg_resolve = streams.start_bg_resolve
-wait_for_bg = streams.wait_for_bg
 
 def _redraw_player(props):
     _player_ui_state["mpv_props"] = props

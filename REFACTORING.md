@@ -301,3 +301,45 @@ finish cleanly, revert the partial move rather than leaving broken files.
   - `core/logging.py` → **`core/reporting.py`** (avoid shadowing stdlib `logging`)
   - reporting↔player-screen coupling → **dependency injection** via `set_status_sink()`
   - Added **Layer 0** (`core/textutils.py`) for pure helpers everything depends on
+
+---
+
+### Phase 5: Cleanup ✅ DONE (2026-07-21)
+
+**Deleted dead file:** `media/bg_resolver.py` — an abandoned earlier
+extraction attempt, near-duplicate of `core/streams.py`. Verified zero
+importers across `allmanga_cli/` + `tests/` before removal.
+
+**Deleted 6 dead symbols** (each had only its `def` + an orphaned
+`name = module.name` alias in app_core, zero callers anywhere — verified
+by grep, including dynamic `ns[...]`/`__globals__` test access):
+- `clear_al_match` (storage)
+- `_secure_config_permissions` (storage; never called by load/save_config)
+- `get_show_mal_id` (anilist)
+- `_import_anilist_progress` (anilist)
+- `reconcile_progress` (anilist)
+- `wait_for_bg` (streams)
+
+**Verified:** 297 passed / 2 pre-existing failures (shell-completion
+nested values, animexin live-network) — both confirmed to fail on the
+prior commit too, so unrelated to this cleanup.
+
+---
+
+## Final state
+
+`app_core.py`: **3512 → ~1930 lines** (~45% extracted into cohesive
+domain leaders). Layers, low → high:
+
+| Module | Owns |
+|---|---|
+| `core/reporting.py` | info/ok/warn/err/debug_warn + status-sink DI hook |
+| `core/storage.py` | prefs, history, config, resume, incognito policy, file I/O |
+| `core/anilist.py` | token/auth, API, sync, write-queue, match/reconcile |
+| `core/streams.py` | stream pool + source resolution (fg pick, bg fill) |
+| `ui/display.py` | posters, alt-screen, spinner, loading overlays |
+| `app_core.py` | orchestrator: main(), routing, provider glue, DI wiring |
+
+Design invariants held throughout: single responsibility, dependencies
+point down only, upward needs met by injected hooks (`configure(...)`),
+adding a provider still touches no unrelated file.

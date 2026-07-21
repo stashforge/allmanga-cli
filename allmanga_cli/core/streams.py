@@ -153,16 +153,6 @@ def start_bg_resolve(ep_data, exclude_names: set):
         _bg_thread.start()
 
 
-def wait_for_bg():
-    """Join bg thread if still running. Called before showing Mirrors."""
-    global _bg_thread
-    with _bg_lock:
-        t = _bg_thread
-    if t and t.is_alive():
-        print(f"{YELLOW}Checking remaining mirrors...{RESET}")
-        t.join()
-
-
 def fetch_episode_stream(show_id, ep_number, ttype="sub", quality="best", provider_id="allanime"):
     ep_data = _episode_data_fn(show_id, ep_number, ttype, provider_id=provider_id)
     if not ep_data:

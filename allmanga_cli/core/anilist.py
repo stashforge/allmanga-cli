@@ -185,13 +185,6 @@ def get_show_anilist_id(show):
         return None
 
 
-def get_show_mal_id(show):
-    try:
-        return int(show.get("malId")) if show.get("malId") else None
-    except (ValueError, TypeError):
-        return None
-
-
 def get_anilist_media_id(anime):
     return get_show_anilist_id(anime)
 
@@ -778,17 +771,6 @@ def _reconcile_status(show, progress):
     )
 
 
-def _import_anilist_progress(show, ttype, progress, *, authority="AL"):
-    progress = max(0, int(progress or 0))
-    if progress > 0 or storage.get_history_entry(show, ttype):
-        storage.write_history_progress(show, progress, ttype, last_synced=progress, touch=False)
-    show["_anilist_progress"] = progress
-    show["_local_progress"] = progress
-    show["_progress_authority"] = authority
-    show.pop("_sync_conflict", None)
-    return {"action": "imported", "progress": progress}
-
-
 def _push_local_progress(show, ttype, token, progress):
     from ..domain.tracking import apply_tracking_progress_local
     al_id = get_show_anilist_id(show)
@@ -817,53 +799,6 @@ def _push_local_progress(show, ttype, token, progress):
     show["_progress_authority"] = "AL"
     show.pop("_sync_conflict", None)
     return {"action": "pushed", "progress": int(progress) if progress is not None else None, "status": status}
-
-
-def reconcile_progress(show, ttype, token, *, anilist_source=False, sync_enabled=True):
-    from ..domain import reconciliation as reconciliation_domain
-    local = storage.get_local_progress(show, ttype)
-    local_label = storage.get_local_episode_label(show, ttype) or str(local if local is not None else 0)
-    try:
-        remote = max(0, int(show.get("_anilist_progress") or 0))
-    except (TypeError, ValueError):
-        remote = 0
-    last = storage.get_last_synced_progress(show, ttype)
-    show.pop("_sync_conflict", None)
-    decision = reconciliation_domain.decide_progress_reconciliation(
-        local=local,
-        remote=remote,
-        last_synced=last,
-        status=show.get("_anilist_list"),
-        anilist_source=anilist_source,
-        sync_enabled=sync_enabled,
-    )
-    action = decision["action"]
-
-    if action in ("import", "push"):
-        conflict = {
-            "local": local_label,
-            "anilist": decision.get("anilist", remote),
-        }
-        show["_sync_conflict"] = conflict
-        show["_progress_authority"] = decision.get("authority", "LOCAL")
-        return {"action": "conflict", **conflict}
-
-    if action == "local":
-        show["_local_progress"] = local
-        show["_progress_authority"] = decision["authority"]
-        return {"action": "local", "progress": decision["progress"]}
-    if action == "equal":
-        storage.set_last_synced_progress(show, local, ttype)
-        show["_progress_authority"] = "AL"
-        return {"action": "equal", "progress": local}
-    if action == "conflict":
-        conflict = {
-            "local": local_label,
-            "anilist": decision["anilist"],
-        }
-        show["_sync_conflict"] = conflict
-        show["_progress_authority"] = decision["authority"]
-        return {"action": "conflict", **conflict}
 
 
 # ---------------------------------------------------------------------------

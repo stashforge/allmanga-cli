@@ -316,14 +316,6 @@ def save_source_anilist_match(aa_show: dict, anilist_show: dict):
     ))
 
 
-def clear_al_match(al_id: str):
-    if is_incognito():
-        return
-    save_prefs(preference_state.clear_anilist_match(
-        load_prefs(), al_id
-    ))
-
-
 # ---------------------------------------------------------------------------
 # Watch history
 # ---------------------------------------------------------------------------
@@ -686,10 +678,6 @@ def sanitize_token(token):
     if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
         value = value[1:-1].strip()
     return value
-
-
-def _secure_config_permissions():
-    _secure_permissions(paths.CONFIG_PATH)
 
 
 def load_config():
