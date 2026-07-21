@@ -365,6 +365,7 @@ def build_info_panel(
 # many app_core.<name> callers (app/, ui/, cli/, tests) working unchanged.
 # hovered-show id is app_core/orchestrator state the app layer writes; display
 # reads it through the injected hook below.
+_hovered_show_id = None  # provider id of the show hovered in the picker (app layer writes it)
 display.configure(hovered_show_id_fn=lambda: globals().get("_hovered_show_id"))
 
 _request_poster_redraw = display._request_poster_redraw
@@ -1678,8 +1679,6 @@ def browse_download_library(flags, ui, cfg, args):
 fetch_episode_stream = streams.fetch_episode_stream
 
 def main():
-    global all_streams, _bg_thread
-
     args, pa = parse_cli_args()
     if getattr(args, "completion_shell", None):
         globals()["SUPPRESS_FINAL_CURSOR_RESTORE"] = True

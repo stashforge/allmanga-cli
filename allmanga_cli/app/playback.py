@@ -4,6 +4,7 @@ Playback state handlers for allmanga-cli.
 
 from __future__ import annotations
 from allmanga_cli import app_core
+from allmanga_cli.core import streams
 from allmanga_cli.ui.picker import tui_pick
 
 import os
@@ -735,9 +736,9 @@ def handle_action_menu_state(
         except OSError: w = 80
 
         n = app_core._stream_count()
-        _bg_lock = app_core._bg_lock
-        _bg_thread = app_core._bg_thread
-        _bg_stats = app_core._bg_stats
+        _bg_lock = streams._bg_lock
+        _bg_thread = streams._bg_thread
+        _bg_stats = streams._bg_stats
 
         with _bg_lock:
             bg_alive = _bg_thread and _bg_thread.is_alive()
@@ -896,9 +897,9 @@ def handle_mirrors_state(
         _live_deduped = _dedup()
         mopts = [_mlabel(s) for s in _live_deduped]
 
-        _bg_lock = app_core._bg_lock
-        _bg_thread = app_core._bg_thread
-        _bg_stats = app_core._bg_stats
+        _bg_lock = streams._bg_lock
+        _bg_thread = streams._bg_thread
+        _bg_stats = streams._bg_stats
 
         with _bg_lock:
             alive = _bg_thread and _bg_thread.is_alive()
@@ -937,8 +938,8 @@ def handle_mirrors_state(
 
     init_opts, init_hdr, _ = _mirror_refresh()
     if not init_opts:
-        with app_core._bg_lock:
-            still_alive = app_core._bg_thread and app_core._bg_thread.is_alive()
+        with streams._bg_lock:
+            still_alive = streams._bg_thread and streams._bg_thread.is_alive()
         if not still_alive:
             if ui.ui_show_ctx:
                 app_core.set_action_feedback(

@@ -238,8 +238,8 @@ def render(
     content = []
 
     try:
-        from ..app._app_helpers import is_incognito_fn  # lazy import to avoid circular
-        if is_incognito_fn and is_incognito_fn():
+        from ..core.storage import is_incognito as is_incognito_fn  # lazy import to avoid circular
+        if is_incognito_fn():
             content.append("\033[1;33mINCOGNITO\033[0m")
             content.append("")
     except Exception:
