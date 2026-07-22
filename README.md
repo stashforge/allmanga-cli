@@ -9,20 +9,38 @@ A robust, lightweight Python CLI tool for scraping and streaming anime directly 
 - **Built-in Background Resolver**: Uses background threads to resolve multiple streams simultaneously to prevent CLI blocking.
 
 ## Installation
-1. Clone the repository:
+
+### Method 1: Using pipx (Recommended for Linux/macOS)
+Modern Linux distributions and macOS environments often block system-wide `pip` installations (`error: externally-managed-environment`). Using `pipx` is the easiest way to install `allmanga-cli` as a global command-line tool securely:
+
+1. Install `pipx` if you haven't already (e.g., `sudo pacman -S pipx` or `brew install pipx`).
+2. Install the CLI directly from the cloned repository with optional dependencies:
    ```bash
    git clone https://github.com/stashforge/allmanga-cli.git
    cd allmanga-cli
+   pipx install .[allanime,miruro]
    ```
-2. Set up a virtual environment (optional but recommended):
+*(Note: If you edit the source code later, run `pipx install . --force` to update the executable.)*
+
+### Method 2: Standard pip Installation
+If you are on Windows, inside a Docker container, or explicitly using a virtual environment (`venv`), you can use standard `pip`:
+
+1. Clone the repository and set up a virtual environment:
    ```bash
+   git clone https://github.com/stashforge/allmanga-cli.git
+   cd allmanga-cli
    python -m venv venv
    source venv/bin/activate
    ```
-3. Install the CLI package:
+2. Install the package with the necessary provider dependencies:
    ```bash
-   pip install .
+   pip install .[allanime,miruro]
    ```
+
+### Optional Dependencies Explained
+By default, the core installation only installs basic dependencies. To enable specific scrapers to bypass Cloudflare and decode streams, install their optional flags:
+- `[miruro]`: Installs `curl_cffi` for advanced TLS impersonation required by the Miruro scraper.
+- `[allanime]`: Installs `cryptography` for decrypting the Allanime clock endpoints.
 
 ## Requirements
 - Python 3.10+
