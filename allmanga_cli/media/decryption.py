@@ -6,8 +6,6 @@ import json
 import subprocess
 import time
 
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-
 
 _ALLANIME_KEY_HEX = "cf4777b5778aeadc9449e12769ea545d00c43cd8ff65d482364586cde204f359"
 
@@ -42,6 +40,15 @@ def decrypt_tobeparsed(encoded):
 
 
 def generate_aa_req() -> str:
+    try:
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    except Exception as exc:
+        raise RuntimeError(
+            "AllAnime playback requires the optional 'cryptography' package. "
+            "Install it with your platform package manager, or install "
+            "allmanga-cli[allanime]."
+        ) from exc
+
     epoch = 4130
     build_id = "12"
     query_hash = "d405d0edd690624b66baba3068e0edc3ac90f1597d898a1ec8db4e5c43c00fec"

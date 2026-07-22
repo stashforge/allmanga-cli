@@ -16,7 +16,8 @@ def resolve_ytdlp_embed(url: str, *, name: str, priority: int, ok, warn) -> list
     if not shutil.which("yt-dlp"):
         warn(f"[{name}] yt-dlp not found, skipping embed")
         return []
-    attempts = 3 if is_dailymotion_url(url) else 1
+    
+    attempts = 1
     command = ["yt-dlp", "-j", "--no-warnings", url]
     data = None
     last_error = ""

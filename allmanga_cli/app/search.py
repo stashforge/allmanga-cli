@@ -454,6 +454,9 @@ def handle_search_state(
         elif episode_ids:
             ms.current_ep_index = 0
             ms.current_ep = episode_id_at(episode_ids, 0)
+        else:
+            app_core.set_action_feedback(s, app_core.episode_catalog_error(s))
+            return "DETAILS"
 
         if requested_episode_missing:
             return "EPISODE"

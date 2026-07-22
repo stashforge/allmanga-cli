@@ -23,7 +23,9 @@ def sanitize_terminal_text(value):
 
 
 def strip_ansi(value):
-    return sanitize_terminal_text(value)
+    text = str(value or "")
+    text = _TERMINAL_STRING_RE.sub("", text)
+    return _ANSI_RE.sub("", text)
 
 
 def char_width(char):

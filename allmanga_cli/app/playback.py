@@ -165,6 +165,8 @@ def handle_episode_state(
     episode_ids = app_core.ensure_episode_ids(show, ttype)
     if not episode_ids:
         app_core.err(app_core.episode_catalog_error(show))
+        if ui.ep_prev_state in ("SEARCH", "ANILIST_SEARCH", "ANILIST_BROWSE", "ANILIST_AIRING"):
+            return "DETAILS"
         return ui.ep_prev_state
 
     ms.total_eps = len(episode_ids) or ms.total_eps

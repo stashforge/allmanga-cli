@@ -53,20 +53,7 @@ def expand_wixmp(url):
 
 
 def source_priority(source):
-    name = source.get("sourceName", "").strip().casefold()
-    url = source.get("sourceUrl", "")
-    if "yt-mp4" in name or "fast4speed" in url or "wixstatic" in url:
-        return 1
-    if name == "default":
-        return 2
-    if name == "ak":
-        return 3
-    if name in {"mp4", "mp4upload"}:
-        return 4
-    if name == "ok":
-        return 5
-    if url.startswith("--"):
-        return 6
-    if any(value in name for value in ("fm-hls", "filemoon")):
-        return 7
+    if "priority" in source:
+        return source["priority"]
+
     return 8

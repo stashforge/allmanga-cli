@@ -33,6 +33,32 @@ RESET = "\033[0m"
 _episode_data_fn = None
 
 
+def expand_direct_sources(sources: list) -> list:
+    """
+    If a source provides a direct `link` to a media file (.m3u8, .mp4),
+    automatically duplicate it as a `sourceUrl` entry. This allows the 
+    resolver to spawn a background yt-dlp worker to extract adaptive 
+    qualities (e.g. 720p, 1080p), while still preserving the instant 
+    playback of the direct `link` entry.
+    """
+    expanded = []
+    for src in sources:
+        expanded.append(src)
+        url = src.get("link") or src.get("streamUrl")
+        
+        if url and (".m3u8" in url or ".mp4" in url):
+            if "Yt-Dlp" not in src.get("sourceName", ""):
+                ytdl_src = src.copy()
+                ytdl_src.pop("link", None)
+                ytdl_src.pop("streamUrl", None)
+                
+                ytdl_src["sourceUrl"] = url
+                base_name = src.get("sourceName", "Direct").replace(" Direct", "")
+                ytdl_src["sourceName"] = f"{base_name} Yt-Dlp"
+                expanded.append(ytdl_src)
+    return expanded
+
+
 def configure(*, episode_data_fn=None):
     """Inject the provider episode-catalog lookup (see module docstring)."""
     global _episode_data_fn
@@ -109,8 +135,9 @@ def start_bg_resolve(ep_data, exclude_names: set):
     exclude_names: source names already resolved (skip them to avoid duplicates).
     """
     global _streams_generation, _bg_thread, _bg_generation, _bg_stats
-    sources = sorted(ep_data.get("episode", {}).get("sourceUrls", []),
-                     key=source_priority)
+    sources = ep_data.get("episode", {}).get("sourceUrls", [])
+    sources = expand_direct_sources(sources)
+    sources = sorted(sources, key=source_priority)
     with _streams_lock:
         _streams_generation += 1
         generation = _streams_generation
@@ -120,7 +147,8 @@ def start_bg_resolve(ep_data, exclude_names: set):
         _bg_stats = {"resolved": len(exclude_names), "failed": 0, "total": len(sources), "current": ""}
 
     def worker():
-        for src in sources:
+        from ..media.resolver import generate_source_passes
+        for src, failed_queue in generate_source_passes(sources, max_passes=3):
             if not _generation_is_current(generation):
                 return
             sname = src.get("sourceName", "")
@@ -137,6 +165,8 @@ def start_bg_resolve(ep_data, exclude_names: set):
                     if link not in seen_links and _publish_stream(stream, generation):
                         seen_links.add(link)
                         found = True
+                if not found:
+                    failed_queue.append(src)
                 if not _update_bg_stats(
                     generation,
                     resolved=1 if found else 0,
@@ -144,6 +174,7 @@ def start_bg_resolve(ep_data, exclude_names: set):
                 ):
                     return
             except Exception:
+                failed_queue.append(src)
                 if not _update_bg_stats(generation, failed=1):
                     return
         _update_bg_stats(generation, current="")
@@ -158,6 +189,7 @@ def fetch_episode_stream(show_id, ep_number, ttype="sub", quality="best", provid
     if not ep_data:
         return None
     sources = ep_data.get("episode", {}).get("sourceUrls", [])
+    sources = expand_direct_sources(sources)
     pref = get_preferred_mirror(show_id)
     pref_name = pref.get("source_name", "")
     pref_res = pref.get("resolution", "")

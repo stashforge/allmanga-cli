@@ -55,13 +55,36 @@ class AllAnimeProvider:
         episode: str,
         ttype: str = "sub",
     ) -> dict[str, Any] | None:
+        data = allanime_service.get_episode_data(
+            self._request_json,
+            provider_id,
+            episode,
+            ttype,
+        )
+        if data and isinstance(data.get("sourceUrls"), list):
+            for src in data["sourceUrls"]:
+                name = src.get("sourceName", "").strip().casefold()
+                url = src.get("sourceUrl", "")
+                
+                if "yt-mp4" in name or "fast4speed" in url or "wixstatic" in url:
+                    src["priority"] = 2
+                elif name == "default":
+                    src["priority"] = 3
+                elif name == "ak":
+                    src["priority"] = 4
+                elif name in {"mp4", "mp4upload"}:
+                    src["priority"] = 5
+                elif name == "ok" or "ok.ru" in name:
+                    src["priority"] = 6
+                elif url.startswith("--"):
+                    src["priority"] = 6
+                elif any(val in name for val in ("fm-hls", "filemoon")):
+                    src["priority"] = 7
+                else:
+                    src["priority"] = 8
+                    
         return normalize_episode_sources(
-            allanime_service.get_episode_data(
-                self._request_json,
-                provider_id,
-                episode,
-                ttype,
-            ),
+            data,
             provider_id=self.id,
             provider_title_id=provider_id,
             episode=episode,

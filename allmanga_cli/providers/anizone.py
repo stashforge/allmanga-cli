@@ -138,21 +138,11 @@ class AniZoneProvider:
             if media_player and media_player.get('src'):
                 stream_url = media_player.get('src')
 
-                # Option 1: yt-dlp extracted (prioritized for quality/split streams)
                 source_urls.append({
-                    "sourceName": "AniZone (yt-dlp)",
-                    "sourceUrl": stream_url,
-                    "type": "hls",
-                    "priority": 1,
-                    "resolution": "auto"
-                })
-
-                # Option 2: Native HLS (fallback / raw master.m3u8)
-                source_urls.append({
-                    "sourceName": "AniZone (Native)",
+                    "sourceName": "AniZone",
                     "streamUrl": stream_url,
                     "type": "hls",
-                    "priority": 2,
+                    "priority": 1,
                     "resolution": "auto"
                 })
             

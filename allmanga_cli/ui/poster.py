@@ -8,6 +8,7 @@ import tempfile
 import threading
 import time
 
+from ..core.terminal import display_width, fit_terminal_line, truncate_display
 from .covers import (
     chafa_cover_command,
     enforce_cache_limits,
@@ -57,9 +58,10 @@ class PosterManager:
     def footer_line(self, show, default_text, width):
         reset = "\033[0m"
         hint = "\033[38;5;244m"
+        max_width = max(1, int(width) - 1)
 
         def trim(value):
-            return value[:width - 1] + "\u2026" if len(value) > width else value
+            return truncate_display(value, max_width)
 
         def split_replaced_footer(value):
             if "\u2502" in default_text:
@@ -71,14 +73,11 @@ class PosterManager:
             left, right = split_replaced_footer(value)
             if loading:
                 left = f"{self.loading_frame()} {left}"
-            if len(left + right) > width:
-                keep_right = max(0, width - len(left) - 1)
-                right = right[:keep_right] + (
-                    "\u2026" if keep_right else ""
-                )
-            return f"{color}{left}{reset}{hint}{right}{reset}"
+            right_width = max(0, max_width - display_width(left))
+            right = truncate_display(right, right_width)
+            return fit_terminal_line(f"{color}{left}{reset}{hint}{right}{reset}", width)
 
-        default_line = f"{hint}{trim(default_text)}{reset}"
+        default_line = fit_terminal_line(f"{hint}{trim(default_text)}{reset}", width)
         if not self.enabled() or not show:
             return default_line
         with self.poster_lock:
