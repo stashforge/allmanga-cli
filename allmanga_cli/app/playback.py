@@ -696,8 +696,8 @@ def handle_action_menu_state(
         opts.append("Verify")
         acts.append("VERIFY")
 
-    opts += ["Replay", "Mirror", "Back", "Quit"]
-    acts += ["REPLAY", "MIRRORS", "BACK", "QUIT"]
+    opts += ["Browser", "Replay", "Mirror", "Back", "Quit"]
+    acts += ["BROWSER_PLAY", "REPLAY", "MIRRORS", "BACK", "QUIT"]
 
     action_hints = {}
     from allmanga_cli.domain.episodes import anilist_progress_target_for_episode
@@ -725,6 +725,7 @@ def handle_action_menu_state(
         elif act == "EPISODES": action_hints[opt] = "browse all"
         elif act == "VERIFY": action_hints[opt] = "verification"
         elif act == "REPLAY": action_hints[opt] = f"EP {current_ep_label} again"
+        elif act == "BROWSER_PLAY": action_hints[opt] = "open url in browser"
         elif act == "MIRRORS":action_hints[opt] = "switch source"
         elif act == "BACK":   action_hints[opt] = "Back"
         elif act == "QUIT":   action_hints[opt] = "Quit"
@@ -852,6 +853,9 @@ def handle_action_menu_state(
     elif a == "MIRRORS":
         return "MIRRORS"
 
+    elif a == "BROWSER_PLAY":
+        return "BROWSER_PLAY"
+
     elif a == "BACK":
         return ui.action_prev_state
 
@@ -977,3 +981,69 @@ def handle_mirrors_state(
         return "PLAY"
     else:
         return "ACTION_MENU"
+
+def handle_browser_play_state(
+    flags: CliFlags,
+    ui: UiState,
+    ms: MachineState,
+    cfg: dict,
+    args: Any,
+    ttype: str,
+    resolve_tracking_fn,) -> str:
+
+    ep_data = app_core.with_loading(
+        f"Fetching {ttype.upper()} URLs...",
+        app_core.get_episode_data, ms.show_id, ms.current_ep, ttype, provider_id=getattr(args, "provider", None)
+    )
+
+    if not ep_data:
+        app_core.set_action_feedback(ui.ui_show_ctx, "No links found for this episode.")
+        return "ACTION_MENU"
+
+    sources = ep_data.get("episode", {}).get("sourceUrls", [])
+    opts = []
+    urls = []
+    for s in sources:
+        url = s.get("sourceUrl") or s.get("link")
+        if url:
+            name = s.get("sourceName", "Unknown")
+            opts.append(f"{name} ({url})")
+            urls.append(url)
+
+    if not opts:
+        app_core.set_action_feedback(ui.ui_show_ctx, "No valid URLs found.")
+        return "ACTION_MENU"
+
+    def _browser_hdr(si):
+        try: w = os.get_terminal_size().columns
+        except OSError: w = 80
+        parts = []
+        ep_str = _display_episode_label(ui.ui_show_ctx, ms.current_ep, ttype)
+        app_core.build_info_panel(ui.ui_show_ctx, ttype, w, parts, override_ep_str=ep_str)
+        _t = lambda s: _truncate_display(s, max(1, w - 1))
+        parts.append(f"\033[38;5;244m{_t('Enter/Right=select  ? = Help  Left/Esc=back')}\033[0m")
+        return "\n".join(parts)
+
+    idx = tui_pick(flags, ui, "Select link to open in browser", opts, header_fn=_browser_hdr)
+    
+    if idx < 0:
+        return "ACTION_MENU"
+
+    url = urls[idx]
+
+    if app_core.is_termux():
+        import subprocess
+        try:
+            subprocess.run(["termux-open-url", url], check=False)
+            app_core.set_action_feedback(ui.ui_show_ctx, f"Opened {url} in Android browser")
+        except Exception:
+            app_core.set_action_feedback(ui.ui_show_ctx, "Failed to open link via termux-open-url")
+    else:
+        import webbrowser
+        try:
+            webbrowser.open(url)
+            app_core.set_action_feedback(ui.ui_show_ctx, f"Opened {url} in browser")
+        except Exception:
+            app_core.set_action_feedback(ui.ui_show_ctx, "Failed to open link in browser")
+
+    return "ACTION_MENU"

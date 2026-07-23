@@ -184,7 +184,7 @@ def start_bg_resolve(ep_data, exclude_names: set):
         _bg_thread.start()
 
 
-def fetch_episode_stream(show_id, ep_number, ttype="sub", quality="best", provider_id="allanime"):
+def fetch_episode_stream(show_id, ep_number, ttype="sub", quality="best", provider_id=None):
     ep_data = _episode_data_fn(show_id, ep_number, ttype, provider_id=provider_id)
     if not ep_data:
         return None
@@ -218,6 +218,6 @@ def fetch_episode_stream(show_id, ep_number, ttype="sub", quality="best", provid
                         selected_stream = s
                         break
             return selected_stream, src.get("sourceName", ""), ep_data, streams
-        else:
+        elif streams is not None:
             failed.append(src)
     return None

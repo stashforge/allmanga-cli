@@ -19,6 +19,10 @@ class ProviderVerificationRequired(RuntimeError):
     pass
 
 
+class ProviderDependencyError(RuntimeError):
+    pass
+
+
 def read_limited_response(response, max_bytes=MAX_API_JSON_BYTES):
     try:
         max_bytes = max(1, int(max_bytes))

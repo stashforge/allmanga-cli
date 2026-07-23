@@ -8,7 +8,7 @@ from typing import Iterable
 
 
 _SKIPPED_MODULES = {"base", "models", "schema", "wordpress"}
-_DEFAULT_PROVIDER_ID = "allanime"
+_DEFAULT_PROVIDER_ID = "miruro"
 
 
 def _provider_classes_from_module(module) -> list[type]:
@@ -67,12 +67,12 @@ def available_providers():
     return dict(PROVIDERS)
 
 
-def provider_key(provider_id="allanime"):
+def provider_key(provider_id=_DEFAULT_PROVIDER_ID):
     key = str(provider_id or "").casefold()
     return key if key in PROVIDERS else _DEFAULT_PROVIDER_ID
 
 
-def get_provider(provider_id="allanime", request_json_fn=None):
+def get_provider(provider_id=_DEFAULT_PROVIDER_ID, request_json_fn=None):
     key = provider_key(provider_id)
     if request_json_fn is None:
         return PROVIDERS[key]

@@ -18,6 +18,7 @@ DEFAULT_CONFIG = {
     "anilist_sort": "recent",
     "spinner": "braille",
     "allanime_frontend_domain": "https://mkissa.to",
+    "provider": "miruro",
 }
 
 
@@ -83,8 +84,13 @@ def load_config_file(
                 secure_permissions(path)
             with open(path, encoding="utf-8") as handle:
                 config = json.load(handle)
+            changed = False
             for key, value in defaults.items():
-                config.setdefault(key, value)
+                if key not in config:
+                    config[key] = value
+                    changed = True
+            if changed:
+                save_config_file(path, config, disabled=disabled)
             return config
         except Exception as exc:
             if on_error:

@@ -12,6 +12,7 @@ from typing import Optional
 from allmanga_cli.core.api import (
     MAX_API_JSON_BYTES,
     ProviderVerificationRequired,
+    ProviderDependencyError,
     SearchFailure,
     anilist_account_cache_key,
     read_json_response,
@@ -844,7 +845,7 @@ anilist.configure(
     allanime_catalog_refresh_fn=lambda entry: refresh_history_entry_allanime_catalog(entry),
 )
 streams.configure(
-    episode_data_fn=lambda show_id, ep, ttype="sub", provider_id="allanime": (
+    episode_data_fn=lambda show_id, ep, ttype="sub", provider_id=None: (
         get_episode_data(show_id, ep, ttype, provider_id=provider_id)
     ),
 )
@@ -879,11 +880,11 @@ search_anilist = anilist.search_anilist
 _anilist_list_cache = anilist._anilist_list_cache
 _anilist_search_cache = anilist._anilist_search_cache
 
-def provider_display_name(provider_id="allanime"):
+def provider_display_name(provider_id=None):
     return get_provider(provider_id).name
 
 
-def make_provider_oneshot_search(query, ttype, provider_id="allanime"):
+def make_provider_oneshot_search(query, ttype, provider_id=None):
     loading = True
     results = []
     error = ""
@@ -1387,7 +1388,7 @@ def _provider_for_title(show):
     return get_provider(title_provider_key(show), _req)
 
 
-def search_anime(query, ttype="sub", raise_errors=False, provider_id="allanime"):
+def search_anime(query, ttype="sub", raise_errors=False, provider_id=None):
     provider_id = provider_key(provider_id)
     provider_name = provider_display_name(provider_id)
     try:
@@ -1413,7 +1414,7 @@ def get_allanime_show(show_id):
         debug_warn("AllAnime show fetch failed", e)
         return None
 
-def fetch_episode_catalog(show_id, ttype="sub", provider_id="allanime"):
+def fetch_episode_catalog(show_id, ttype="sub", provider_id=None):
     return get_provider(provider_id, _req).episode_catalog(show_id, ttype)
 
 def fetch_episode_ids(show_id, ttype="sub"):
@@ -1547,7 +1548,7 @@ def episode_catalog_error(show):
         or "Episode catalog is unavailable. Try again later."
     )
 
-def get_episode_data(show_id, ep, ttype="sub", provider_id="allanime"):
+def get_episode_data(show_id, ep, ttype="sub", provider_id=None):
     provider_id = provider_key(provider_id)
     try:
         return get_provider(provider_id, _req).episode_sources(show_id, ep, ttype)
@@ -1556,6 +1557,13 @@ def get_episode_data(show_id, ep, ttype="sub", provider_id="allanime"):
             "_provider_error": "browser_verification_required",
             "episode": {"sourceUrls": []},
         }
+    except ProviderDependencyError as exc:
+        from allmanga_cli.ui.display import exit_alt_screen
+        import sys
+        exit_alt_screen()
+        sys.stderr.write(f"{exc}\n")
+        sys.stderr.flush()
+        sys.exit(1)
     except Exception as e:
         err(f"Episode fetch failed: {e}"); return None
 
@@ -1698,6 +1706,9 @@ def main():
 
     check_deps()
     cfg = load_config()
+    from allmanga_cli.providers import _DEFAULT_PROVIDER_ID
+    if getattr(args, "provider", None) is None:
+        args.provider = cfg.get("provider", _DEFAULT_PROVIDER_ID)
     display._configure_spinner_from_config(cfg)
 
     runtime_flags.debug_mode = args.debug
@@ -1730,7 +1741,7 @@ def main():
                 res = search_anime(
                     q,
                     ttype,
-                    provider_id=getattr(args, "provider", "allanime"),
+                    provider_id=args.provider,
                 )
                 print(json.dumps(res, indent=2))
         sys.exit(0)
@@ -1934,6 +1945,8 @@ def main():
             state = handlers.handle_provider_verify_state(flags, ui, ms, cfg, args, ttype, resolveTracking)
         elif state == "MIRRORS":
             state = handlers.handle_mirrors_state(flags, ui, ms, cfg, args, ttype, resolveTracking)
+        elif state == "BROWSER_PLAY":
+            state = handlers.handle_browser_play_state(flags, ui, ms, cfg, args, ttype, resolveTracking)
         else:
             err(f"Unknown state: {state}")
             state = "QUIT"

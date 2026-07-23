@@ -122,7 +122,7 @@ def fetch_episode_catalog(request_json, show_id, ttype="sub"):
 
 def get_episode_data(request_json, show_id, episode, ttype="sub"):
     query_hash = (
-        "d405d0edd690624b66baba3068e0edc3ac90f1597d898a1ec8db4e5c43c00fec"
+        "f4662f4b7510b26795dd53ef824a0bf1740fbbc5d1273fab18222ac831bca8d0"
     )
     variables = {
         "showId": show_id,
@@ -142,8 +142,9 @@ def get_episode_data(request_json, show_id, episode, ttype="sub"):
     response = request_json(
         url,
         extra_hdrs={
-            "Origin": "https://youtu-chan.com",
-            "Referer": "https://youtu-chan.com",
+            "Origin": "https://mkissa.to",
+            "Referer": "https://mkissa.to/",
+            "x-build-id": "64",
         },
     )
     if _needs_browser_verification(response):

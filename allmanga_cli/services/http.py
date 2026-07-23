@@ -15,7 +15,7 @@ SSL_CTX.verify_mode = ssl.CERT_NONE
 SSL_CTX_SECURE = ssl.create_default_context()
 
 ANILIST_TIMEOUT = 15
-API_BASE = "https://api.allanime.day/api"
+API_BASE = "https://api.mkissa.net/api"
 CLOCK_BASE = "allanime.day"
 REFERER = "https://allmanga.to/"
 UA = (

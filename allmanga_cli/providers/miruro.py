@@ -55,9 +55,16 @@ def _decode_pipe_response(encoded_str: str) -> dict:
 def _load_curl_requests():
     try:
         from curl_cffi import requests
-    except Exception:
-        return None
-    return requests
+        return requests
+    except Exception as exc:
+        from ..core.api import ProviderDependencyError
+        raise ProviderDependencyError(
+            f"\n\033[91m[ERROR] Miruro playback requires the 'curl_cffi' library.\n"
+            f"        Failed to import 'curl_cffi':\n"
+            f"        {exc}\n\n"
+            f"        Please install it with your package manager or run:\n"
+            f"        pipx inject allmanga-cli curl_cffi\033[0m\n"
+        )
 
 
 def _fetch_pipe_urllib(encoded_req: str, domain: str, headers: dict[str, str]) -> dict | None:

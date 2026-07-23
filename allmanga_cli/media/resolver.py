@@ -266,7 +266,7 @@ def resolve_source(source, silent=False):
         except Exception as exc:
             warn(f"[{name}] direct extraction failed: {exc}")
             stream_url = ""
-        referer = "https://www.mp4upload.com/"
+        referer = "https://mp4upload.com/"
         if stream_url and is_alive(stream_url, referer=referer):
             size = get_size(stream_url, referer=referer)
             size_text = f"~{size // (1024 * 1024)} MB" if size else "?"

@@ -1,11 +1,11 @@
-"""Command-line parsing and help formatting for AllManga CLI."""
+"""Command-line parsing and help formatting for Anime Providers CLI."""
 
 import argparse
 import os
 import re
 import sys
 
-from allmanga_cli.providers import available_providers
+from allmanga_cli.providers import available_providers, _DEFAULT_PROVIDER_ID
 
 _ANSI_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
@@ -297,7 +297,7 @@ def build_command_parser():
     parser = _configure_help_parser(argparse.ArgumentParser(
         prog="allmanga-cli",
         usage="allmanga-cli <command> [options]",
-        description="Watch anime from AllManga.",
+        description="Watch anime from Anime Providers.",
         add_help=False,
         epilog=(
             "Examples:\n"
@@ -322,7 +322,7 @@ def build_command_parser():
         "search",
         help="Search and watch anime",
         usage="allmanga-cli search <query> [options]",
-        description="Search and watch anime from AllManga.",
+        description="Search and watch anime from Anime Providers.",
         epilog=(
             "Examples:\n"
             "  allmanga-cli search slime\n"
@@ -587,7 +587,7 @@ def build_anilist_search_parser():
 
 def build_legacy_parser():
     parser = _configure_help_parser(argparse.ArgumentParser(
-        description="Watch anime from AllManga.",
+        description="Watch anime from Anime Providers.",
         formatter_class=MinimalHelpFormatter,
     ))
     _set_cli_defaults(parser)
@@ -609,7 +609,7 @@ def build_legacy_parser():
     parser.add_argument("-a", "--anilist", nargs="?", const="menu", default=None, help="Browse AniList (e.g., CURRENT, PLANNING)")
     parser.add_argument("-c", "--continue-last", action="store_true", dest="cont", help="Resume last watched")
     parser.add_argument("--cover", action="store_true", help="Show image cover in search results")
-    parser.add_argument("--provider", default="allanime", help="Streaming provider to search")
+    parser.add_argument("--provider", default=None, help="Streaming provider to search")
     parser.add_argument("--incognito", action="store_true", help="Do not save local playback data or update AniList")
     _add_debug_option(parser)
     parser.add_argument("--json", action="store_true", help="Print search results as JSON and exit")

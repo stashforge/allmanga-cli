@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import time
+import random
 import urllib.parse
 
 from ..core.processes import read_bounded_process_stdout
@@ -17,20 +19,41 @@ def resolve_ytdlp_embed(url: str, *, name: str, priority: int, ok, warn) -> list
         warn(f"[{name}] yt-dlp not found, skipping embed")
         return []
     
-    attempts = 1
-    command = ["yt-dlp", "-j", "--no-warnings", url]
+    attempts = 5
+    command = ["yt-dlp", "-j", "--no-warnings"]
+    if "ok.ru" not in url and "odnoklassniki.ru" not in url:
+        command.extend(["--impersonate", "chrome"])
+    command.append(url)
     data = None
     last_error = ""
+    is_unsupported = False
+    
+    PERMANENT_ERRORS = [
+        b"Unsupported URL",
+        b"Cloudflare anti-bot",
+        b"Geo-restricted",
+    ]
+    
     for attempt in range(1, attempts + 1):
         try:
             process = subprocess.Popen(
                 command,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
+                stderr=subprocess.STDOUT,
             )
             output = read_bounded_process_stdout(process, timeout=20)
             if process.returncode != 0:
-                last_error = f"yt-dlp exited with {process.returncode}"
+                if b"Impersonate target" in output and b"not available" in output:
+                    command = ["yt-dlp", "-j", "--no-warnings", url]
+                    continue
+                
+                if any(err in output for err in PERMANENT_ERRORS):
+                    is_unsupported = True
+                    last_error = "Unsupported/Blocked URL"
+                    break
+                
+                err_msg = output.strip()[:100].decode("utf-8", errors="replace")
+                last_error = f"yt-dlp exited with {process.returncode}: {err_msg}"
                 continue
             data = json.loads(output)
             break
@@ -38,12 +61,13 @@ def resolve_ytdlp_embed(url: str, *, name: str, priority: int, ok, warn) -> list
             last_error = "yt-dlp timed out"
         except Exception as exc:
             last_error = f"yt-dlp failed: {exc}"
-        if attempt < attempts:
+        if attempt < attempts and not is_unsupported:
             warn(f"[{name}] {last_error}; retrying")
+            time.sleep(0.5 + random.random() * 0.5)
     if data is None:
         if last_error:
             warn(f"[{name}] {last_error}")
-        return []
+        return None if is_unsupported else []
 
     streams = streams_from_ytdlp_data(data, url=url, name=name, priority=priority)
     if streams:
@@ -268,4 +292,11 @@ def streams_from_ytdlp_data(data: dict, *, url: str, name: str, priority: int) -
             continue
         seen_urls.add(link)
         streams.append(stream)
+
+    _is_okru = "ok.ru" in url or "odnoklassniki.ru" in url or name.casefold() == "ok"
+    if _is_okru:
+        has_adaptive = any(s.get("resolution") == "Adaptive" for s in streams)
+        if has_adaptive:
+            streams = [s for s in streams if s.get("resolution") == "Adaptive"]
+
     return streams

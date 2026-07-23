@@ -204,15 +204,17 @@ def start_bg_resolve(ep_data: dict, exclude_names: set) -> None:
                 return
             try:
                 found = False
-                for stream in stream_resolver.resolve_source(src, silent=True):
-                    if not _generation_is_current(generation):
-                        return
-                    link = stream.get("link")
-                    if link not in seen_links and publish_stream(stream, generation):
-                        seen_links.add(link)
-                        found = True
-                if not found:
-                    failed_queue.append(src)
+                res = stream_resolver.resolve_source(src, silent=True)
+                if res is not None:
+                    for stream in res:
+                        if not _generation_is_current(generation):
+                            return
+                        link = stream.get("link")
+                        if link not in seen_links and publish_stream(stream, generation):
+                            seen_links.add(link)
+                            found = True
+                    if not found:
+                        failed_queue.append(src)
                 if not _update_bg_stats(
                     generation,
                     resolved=1 if found else 0,
