@@ -131,7 +131,7 @@ def handle_history_state(
             h = filtered_hist[si]
             tt = h.get("translation_type", "sub")
             selected_show = h.get("show", {})
-            app_core.build_info_panel(selected_show, tt, w, parts, local_only=True)
+            app_core.build_info_panel(selected_show, tt, w, parts, local_only=True, main_title=selected_show.get('name'))
         selected_entry = (
             filtered_hist[si]
             if 0 <= si < len(filtered_hist)
@@ -286,7 +286,7 @@ def handle_search_state(
                 parts.append(f"\033[38;5;250mSource: \033[1;97m{provider_name}\033[0m")
             elif shows and 0 <= si < len(shows):
                 selected_show = shows[si]
-                app_core.build_info_panel(selected_show, ttype_local, w, parts)
+                app_core.build_info_panel(selected_show, ttype_local, w, parts, main_title=selected_show.get('name'))
             else:
                 selected_show = {}
                 parts.append("")

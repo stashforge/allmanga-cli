@@ -15,7 +15,10 @@ def _provider_classes_from_module(module) -> list[type]:
     classes = []
     provider_class = getattr(module, "PROVIDER_CLASS", None)
     if provider_class is not None:
-        classes.append(provider_class)
+        if isinstance(provider_class, (list, tuple)):
+            classes.extend(provider_class)
+        else:
+            classes.append(provider_class)
     provider_classes = getattr(module, "PROVIDER_CLASSES", None)
     if provider_classes:
         classes.extend(provider_classes)

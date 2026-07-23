@@ -128,6 +128,10 @@ from allmanga_cli.domain.titles import (
     get_show_display_title,
     wrap_title as _wrap_title,
 )
+from allmanga_cli.core.enrichment import (
+    enrich_provider_results,
+    _merge_anilist_into_provider as _merge_anilist_into_allanime
+)
 from allmanga_cli.domain.tracking import (
     apply_tracking_progress_local,
     completed_media_total,
@@ -876,9 +880,12 @@ _push_local_progress = anilist._push_local_progress
 
 fetch_anilist_list = anilist.fetch_anilist_list
 search_anilist = anilist.search_anilist
+fetch_anilist_by_ids = anilist.fetch_anilist_by_ids
 # Shared read caches now live in core.anilist; keep aliases for callers/tests.
 _anilist_list_cache = anilist._anilist_list_cache
 _anilist_search_cache = anilist._anilist_search_cache
+
+_provider_search_cache = {}
 
 def provider_display_name(provider_id=None):
     return get_provider(provider_id).name
@@ -891,8 +898,28 @@ def make_provider_oneshot_search(query, ttype, provider_id=None):
     cfg = load_config()
     spinner_style = spinner_from_config(cfg)
     token = cfg.get("anilist_token")
+    
+    from allmanga_cli.context import FLAGS as runtime_flags
+    use_sync = runtime_flags.sync_force_on or (cfg.get("sync") and not runtime_flags.sync_force_off)
+    if not use_sync:
+        token = ""
+
     provider_id = provider_key(provider_id)
     provider_name = provider_display_name(provider_id)
+    cache_key = (query, ttype, provider_id)
+
+    if cache_key in _provider_search_cache:
+        loading = False
+        results = _provider_search_cache[cache_key]
+        
+        def get_results(): return results
+        def get_loading(): return ""
+        def get_error(): return ""
+        def live_fn(q=""):
+            opts = [f"{s.get('name')}" for s in results]
+            return opts, "", True
+            
+        return live_fn, get_results, get_loading, get_error
 
     def _fetch():
         nonlocal loading, results, error
@@ -920,22 +947,17 @@ def make_provider_oneshot_search(query, ttype, provider_id=None):
             for t in threads: t.start()
             for t in threads: t.join()
 
-            if shows and token and al_shows:
-                for s in shows:
-                    stored = get_source_anilist_match(s.get("_id"))
-                    stored_id = str(stored.get("_id") or "")
-                    matched = next(
-                        (candidate for candidate in al_shows
-                         if str(candidate.get("_id") or "") == stored_id),
-                        None,
-                    ) if stored_id else None
-                    if not matched:
-                        matched = _choose_confident_match(s, al_shows)
-                    if matched:
-                        save_source_anilist_match(s, matched)
-                        _merge_anilist_into_allanime(s, matched)
+            if shows:
+                # Pass the results to the central metadata enrichment builder
+                shows = enrich_provider_results(shows, token, al_shows)
 
-            if shows: results.extend(shows)
+            if shows:
+                for s in shows:
+                    if s.get("status") == "NOT_YET_RELEASED":
+                        continue
+                    results.append(s)
+                _provider_search_cache[cache_key] = list(results)
+
         except Exception as e:
             if not error:
                 error = search_failure_message(provider_name, e)
@@ -1297,25 +1319,6 @@ def check_deps():
             sys.exit(1)
 
 # ── HTTP helpers ──────────────────────────────────────────────────────────────
-def _merge_anilist_into_allanime(allanime_show, anilist_show):
-    allanime_show["_allanime_name"] = allanime_show.get("name")
-    allanime_show["_display_name"] = anilist_show.get("name") or allanime_show.get("name")
-    allanime_show["_display_english_name"] = anilist_show.get("englishName") or allanime_show.get("englishName")
-    allanime_show["_anilist_list"] = anilist_show.get("_anilist_list")
-    allanime_show["_anilist_progress"] = anilist_show.get("_anilist_progress")
-    allanime_show["_anilist_score"] = anilist_show.get("_anilist_score")
-
-    match_source = allanime_show.get("_match_source") or "fuzzy"
-    allanime_show["anilistMatch"] = {"id": anilist_show.get("_id"), "source": match_source}
-    allanime_show["aniListId"] = str(anilist_show.get("_id") or "")
-
-    if anilist_show.get("_next_airing_ep"):
-        allanime_show["_next_airing_ep"] = anilist_show["_next_airing_ep"]
-        allanime_show["_next_airing_time"] = anilist_show["_next_airing_time"]
-        allanime_show["_next_airing_at"] = anilist_show.get("_next_airing_at")
-    if not allanime_show.get("thumbnail") and anilist_show.get("thumbnail"):
-        allanime_show["thumbnail"] = anilist_show["thumbnail"]
-    return allanime_show
 
 def match_anilist_show_to_allanime(anilist_show, ttype):
     al_id = str(anilist_show.get("_id") or "")

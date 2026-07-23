@@ -4,6 +4,23 @@ import difflib
 import re
 import unicodedata
 
+_title_cache = {}
+
+
+def _cached_match_titles(item):
+    key = id(item)
+    cached = _title_cache.get(key)
+    if cached is None:
+        cached = match_titles(item)
+        _title_cache[key] = cached
+    return cached
+
+
+def reset_title_cache():
+    """Call this once per batch (e.g. start of enrich_provider_results) to
+    prevent unbounded growth in long-running processes."""
+    _title_cache.clear()
+
 
 def _positive_int(value):
     try:
@@ -94,8 +111,8 @@ def title_match_score(left_titles, right_titles):
 
 
 def match_score_details(anilist, allmanga):
-    anilist_titles = match_titles(anilist)
-    allmanga_titles = match_titles(allmanga)
+    anilist_titles = _cached_match_titles(anilist)
+    allmanga_titles = _cached_match_titles(allmanga)
     title_score, exact_title = title_match_score(
         anilist_titles, allmanga_titles
     )

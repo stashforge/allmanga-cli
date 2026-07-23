@@ -42,12 +42,16 @@ def _start_date(media):
 def normalize_media(media, *, list_name=None, entry=None):
     titles = media.get("title") or {}
     quarter = media.get("season")
+    main_name = titles.get("romaji") or titles.get("english") or "Unknown"
+
     show = {
         "_id": str(media["id"]),
-        "name": titles.get("romaji") or titles.get("english") or "Unknown",
+        "malId": media.get("idMal"),
+        "name": main_name,
+        "romajiName": titles.get("romaji") or "",
         "englishName": titles.get("english") or "",
         "nativeName": titles.get("native") or "",
-        "altNames": media.get("synonyms", []),
+        "altNames": list(media.get("synonyms") or []),
         "type": media.get("format") or "TV",
         "season": {
             "year": media.get("seasonYear"),
@@ -60,6 +64,7 @@ def normalize_media(media, *, list_name=None, entry=None):
             else None
         ),
         "genres": media.get("genres", []),
+        "description": media.get("description", ""),
         "availableEpisodes": {
             "sub": media.get("episodes", 0) or 0,
             "dub": 0,
@@ -109,12 +114,22 @@ def apply_media_update(anime, media):
         media.get("id") or media_id(anime) or ""
     )
     titles = media.get("title") or {}
-    if titles.get("romaji"):
-        anime["_display_name"] = titles["romaji"]
     if titles.get("english"):
+        anime["englishName"] = titles["english"]
         anime["_display_english_name"] = titles["english"]
+    if titles.get("romaji"):
+        anime["romajiName"] = titles["romaji"]
+        anime["_display_name"] = titles["romaji"]
     if titles.get("native"):
         anime["nativeName"] = titles["native"]
+
+    main_name = anime.get("_display_name") or titles.get("romaji") or titles.get("english") or "Unknown"
+    
+    if media.get("synonyms"):
+        anime["altNames"] = list(media["synonyms"])
+
+    if media.get("description"):
+        anime["description"] = media["description"]
     if media.get("format"):
         anime["type"] = media["format"]
     anime["status"] = media.get("status") or anime.get("status")
@@ -341,6 +356,7 @@ def search(urlopen, read_json, token, query_text):
           seasonYear
           averageScore
           genres
+          description(asHtml: false)
           startDate { year month day }
           coverImage { large }
           nextAiringEpisode { episode airingAt timeUntilAiring }
@@ -368,6 +384,63 @@ def search(urlopen, read_json, token, query_text):
         for media in payload["data"]["Page"]["media"]
     ]
 
+
+def fetch_by_ids(urlopen, read_json, token, anilist_ids=None, mal_ids=None):
+    if not anilist_ids and not mal_ids:
+        return []
+    
+    query = """
+    query($idIn: [Int], $idMalIn: [Int]) {
+      Page(page: 1, perPage: 50) {
+        media(id_in: $idIn, idMal_in: $idMalIn, type: ANIME) {
+          id
+          idMal
+          title { romaji english native }
+          synonyms
+          format
+          episodes
+          status
+          season
+          seasonYear
+          averageScore
+          genres
+          description(asHtml: false)
+          startDate { year month day }
+          coverImage { large }
+          nextAiringEpisode { episode airingAt timeUntilAiring }
+          mediaListEntry {
+            status
+            progress
+            startedAt { year month day }
+            completedAt { year month day }
+          }
+        }
+      }
+    }
+    """
+    
+    variables = {}
+    if anilist_ids:
+        variables["idIn"] = [int(i) for i in anilist_ids if str(i).isdigit()]
+    if mal_ids:
+        variables["idMalIn"] = [int(i) for i in mal_ids if str(i).isdigit()]
+        
+    if not variables:
+        return []
+
+    payload = _post(
+        urlopen,
+        read_json,
+        query,
+        variables,
+        token,
+    )
+    if payload.get("errors"):
+        return []
+    return [
+        normalize_media(media)
+        for media in payload["data"]["Page"]["media"]
+    ]
 
 def search_media_id(urlopen, read_json, title):
     payload = _post(

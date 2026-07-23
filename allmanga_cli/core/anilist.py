@@ -244,6 +244,32 @@ def search_anilist(token, query, raise_errors=False):
         return []
 
 
+def fetch_anilist_by_ids(token, anilist_ids=None, mal_ids=None, raise_errors=False):
+    if not anilist_ids and not mal_ids:
+        return []
+        
+    # We could implement a cache here by exact IDs, but for now just pass through
+    try:
+        shows = anilist_service.fetch_by_ids(
+            anilist_urlopen,
+            read_json_response,
+            token,
+            anilist_ids=anilist_ids,
+            mal_ids=mal_ids,
+        )
+        return shows
+    except SearchFailure as e:
+        debug_warn("AniList fetch_by_ids failed", e)
+        if raise_errors:
+            raise
+        return []
+    except Exception as e:
+        debug_warn("AniList fetch_by_ids failed", e)
+        if raise_errors:
+            raise SearchFailure(search_failure_message("AniList", e)) from e
+        return []
+
+
 # ---------------------------------------------------------------------------
 # Entry writes (dates + mutation). Read caches invalidated on success.
 # ---------------------------------------------------------------------------

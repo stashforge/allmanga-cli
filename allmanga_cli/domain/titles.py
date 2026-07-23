@@ -58,10 +58,10 @@ def extract_title_parts(title):
 
 
 def get_display_titles(show, main_title):
-    romaji = show.get("name")
+    romaji = show.get("_display_name") or show.get("name")
     if romaji:
         romaji = romaji.strip()
-    english = show.get("englishName")
+    english = show.get("_display_english_name") or show.get("englishName")
     if english:
         english = english.strip()
 
@@ -78,40 +78,59 @@ def get_display_titles(show, main_title):
             for name in show["altNames"]
             if name and name.strip().lower() != excluded
         ]
+        ROMAJI_TOKENS = {
+            "wo", "ga", "ni", "shi", "tsu", "chi", "shita", "datta",
+            "naru", "suru", "kara", "desu", "masu", "dewa", "yori", "wa",
+        }
+        PINYIN_TOKENS = {
+            "dou", "po", "cang", "qiong", "nian", "fan", "zhi", "lan",
+            "yuan", "qi", "sha", "xiao", "zhan", "chen", "tang", "yao",
+            "xuan", "jing", "feng", "lei", "ming", "hong", "ling", "wang",
+            "liu", "zhang", "yang", "wei", "jun", "xue", "long", "shen",
+            "wu", "zhou", "dao", "tian", "bei", "nan", "dong", "xi",
+        }
+        ENGLISH_STOPWORDS = {
+            "the", "a", "an", "of", "and", "in", "on", "with", "for", "to",
+            "is", "are", "was", "were", "my", "your", "his", "her", "their",
+            "this", "that", "at", "from", "as", "it", "he", "she", "we",
+        }
+
         non_latin = re.compile(r"[^\x00-\x7F]")
-        romaji_pattern = re.compile(
-            r"\b(no|wo|wa|ga|ni|de|to|na|shi|tsu|chi|shita|datta|"
-            r"naru|suru|kara)\b",
-            re.IGNORECASE,
-        )
-        pinyin_pattern = re.compile(
-            r"\b(dou|po|cang|qiong|nian|fan|zhi|lan|yuan|qi|sha|xiao|"
-            r"zhan|chen|tang|yao|xuan|jing|feng|lei|ming|hong|ling|"
-            r"wang|liu|zhang|yang|wei|jun|xue|long|shen|wu|zhou|dao|"
-            r"tian|bei|nan|dong|xi)\b",
-            re.IGNORECASE,
-        )
-        english_titles = []
-        romaji_titles = []
-        pinyin_titles = []
-        native_titles = []
-        for name in candidates:
+        word_re = re.compile(r"[a-zA-Z']+")
+
+        def classify(name: str) -> str:
             if non_latin.search(name):
-                native_titles.append(name)
-            elif romaji_pattern.search(name):
-                romaji_titles.append(name)
-            elif pinyin_pattern.search(name):
-                pinyin_titles.append(name)
-            else:
-                english_titles.append(name)
-        if english_titles:
-            alternate = english_titles[0]
-        elif romaji_titles:
-            alternate = romaji_titles[0]
-        elif pinyin_titles:
-            alternate = pinyin_titles[0]
-        elif native_titles:
-            alternate = native_titles[0]
+                return "native"
+
+            words = [w.lower() for w in word_re.findall(name)]
+            if not words:
+                return "english"
+
+            stop_hits   = sum(w in ENGLISH_STOPWORDS for w in words)
+            romaji_hits = sum(w in ROMAJI_TOKENS for w in words)
+            pinyin_hits = sum(w in PINYIN_TOKENS for w in words)
+
+            if stop_hits >= 2 and stop_hits >= max(romaji_hits, pinyin_hits):
+                return "english"
+
+            if romaji_hits >= 2 and romaji_hits / len(words) >= 0.25:
+                return "romaji"
+            if pinyin_hits >= 2 and pinyin_hits / len(words) >= 0.25:
+                return "pinyin"
+
+            return "english"
+
+        buckets = {"english": [], "romaji": [], "pinyin": [], "native": []}
+        for name in candidates:
+            buckets[classify(name)].append(name)
+
+        for bucket in buckets.values():
+            bucket.sort(key=len, reverse=True)
+
+        for key in ("english", "romaji", "pinyin", "native"):
+            if buckets[key]:
+                alternate = buckets[key][0]
+                break
 
     if not alternate:
         native = show.get("nativeName")

@@ -315,6 +315,18 @@ def save_source_anilist_match(aa_show: dict, anilist_show: dict):
         load_prefs(), aa_show, anilist_show
     ))
 
+def get_source_anilist_matches(show_ids: list[str]) -> dict:
+    prefs = load_prefs()
+    return {sid: preference_state.source_anilist_match(prefs, sid) for sid in show_ids}
+
+def save_source_anilist_matches(pairs: list[tuple[dict, dict]]):
+    if is_incognito() or not pairs:
+        return
+    prefs = load_prefs()
+    for aa_show, anilist_show in pairs:
+        prefs = preference_state.save_source_anilist_match(prefs, aa_show, anilist_show)
+    save_prefs(prefs)
+
 
 # ---------------------------------------------------------------------------
 # Watch history

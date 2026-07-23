@@ -4,6 +4,8 @@ A robust, lightweight Python CLI tool for scraping and streaming anime directly 
 
 ## Features
 - **Headless Stream Scraping**: Fetches video streams from various anime providers directly in the terminal without requiring a bloated browser.
+- **Unified Metadata Enrichment**: Seamlessly merges disparate provider search results with rich, unified metadata direct from AniList, including exact episode counts, scores, formats, and alternative titles.
+- **Robust Language Classifier**: Features a custom density-based NLP tokenizer to automatically identify and prioritize the most accurate English, Romaji, and Native titles for display.
 - **Advanced Fallback Priority**: Includes a smart stream-ranking system. When a provider returns multiple mirrors, `allmanga-cli` automatically ranks them, prioritizing the fastest, most reliable servers (like `ok.ru` and `pewe`) and seamlessly skipping failing/obfuscated embeds.
 - **Direct MPV Integration**: Pipes raw `.m3u8` playlists and `.mp4` files straight to `mpv` for a native playback experience.
 - **Built-in Background Resolver**: Uses background threads to resolve multiple streams simultaneously to prevent CLI blocking.
