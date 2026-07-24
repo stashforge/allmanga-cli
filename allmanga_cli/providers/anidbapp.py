@@ -140,9 +140,9 @@ class AniDBApp(Provider):
             "name": title,
         }
         if anilist_match:
-            result["anilist_id"] = int(anilist_match.group(1))
+            result["aniListId"] = int(anilist_match.group(1))
         if mal_match:
-            result["mal_id"] = int(mal_match.group(1))
+            result["malId"] = int(mal_match.group(1))
         
         return normalize_title(result, provider_id=self.id, provider_name=self.name, id_key="id")
 
