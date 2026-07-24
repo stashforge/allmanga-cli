@@ -141,8 +141,12 @@ def start_local_proxy(target_url, referer, headers=None, timeout=15, stream_type
             request.add_header("User-Agent", "Mozilla/5.0")
             for key, value in fetch_headers.items():
                 request.add_header(key, value)
+            
+            # Only forward Range header if we are NOT fetching a playlist.
+            # Playlists must be fetched entirely so we can rewrite them.
             range_header = proxy_range_header(self.headers.get("Range", ""))
-            if range_header:
+            is_m3u8_url = ".m3u8" in fetch_url.lower()
+            if range_header and not is_m3u8_url:
                 request.add_header("Range", range_header)
 
             try:
@@ -159,22 +163,27 @@ def start_local_proxy(target_url, referer, headers=None, timeout=15, stream_type
                         rewritten = rewrite_playlist(text, fetch_url, fetch_headers, host, secret_base)
                         payload = rewritten.encode("utf-8")
                         
-                        self.send_response(response.status)
-                        for key, value in proxy_response_headers(response.headers):
-                            if key.casefold() in ("content-length", "content-type"):
-                                continue
-                            self.send_header(key, value)
+                        # Force 200 OK for intercepted playlists (never 206)
+                        self.send_response(200)
                         self.send_header("Content-Type", "application/vnd.apple.mpegurl")
                         self.send_header("Content-Length", str(len(payload)))
+                        self.send_header("Cache-Control", "no-store")
+                        self.send_header("Access-Control-Allow-Origin", "*")
                         self.end_headers()
                         
                         self.wfile.write(payload)
                         return
 
                     self.send_response(response.status)
+                    has_accept_ranges = False
                     for key, value in proxy_response_headers(response.headers):
+                        if str(key).casefold() == "accept-ranges":
+                            has_accept_ranges = True
                         self.send_header(key, value)
+                    if not has_accept_ranges:
+                        self.send_header("Accept-Ranges", "bytes")
                     self.end_headers()
+                    
                     if method == "GET":
                         while chunk := response.read(65536):
                             try:
