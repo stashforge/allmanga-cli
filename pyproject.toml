@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "allmanga-cli"
-version = "0.2.1"
+version = "0.2.0"
 description = "Terminal anime browser and player with AniList support."
 requires-python = ">=3.10"
 dependencies = [

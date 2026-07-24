@@ -2,13 +2,12 @@
 
 import subprocess
 
-from ..media.dailymotion import build_dailymotion_hls_manifest
 from ..media.dash import generate_dash_mpd
-from ..media.hls import build_titled_hls_manifest
 from ..media.local_proxy import (
     cleanup_active_local_proxy,
     replace_active_local_proxy,
     start_local_content_server,
+    start_local_dual_proxy,
     start_local_proxy,
 )
 from ..media.proxy_rules import proxy_filtered_headers
@@ -109,17 +108,14 @@ def play_android(
             and stream.get("type") == "hls"):
         _info(f"{player}: preparing video and audio...")
         try:
-            manifest = build_dailymotion_hls_manifest(
+            url, proxy_server = start_local_dual_proxy(
                 stream["split_video_url"],
                 stream["split_audio_url"],
+                referer,
+                headers,
                 width=stream.get("split_width") or 1280,
                 height=stream.get("split_height") or 720,
                 bandwidth=int(float(stream.get("split_bandwidth") or 2400) * 1000),
-            )
-            url, proxy_server = start_local_content_server(
-                manifest,
-                "stream.m3u8",
-                "application/vnd.apple.mpegurl",
             )
             replace_active_local_proxy(proxy_server)
             intent_type = "application/vnd.apple.mpegurl"
@@ -129,25 +125,36 @@ def play_android(
     elif stream.get("dailymotion_video") and stream.get("dailymotion_audio"):
         _info(f"{player}: preparing Dailymotion video and audio...")
         try:
-            manifest = build_dailymotion_hls_manifest(
+            url, proxy_server = start_local_dual_proxy(
                 stream["dailymotion_video"],
                 stream["dailymotion_audio"],
+                referer,
+                headers,
                 width=stream.get("dailymotion_width") or 1280,
                 height=stream.get("dailymotion_height") or 720,
                 bandwidth=int(float(stream.get("dailymotion_bandwidth") or 2400) * 1000),
-            )
-            url, proxy_server = start_local_content_server(
-                manifest,
-                "stream.m3u8",
-                "application/vnd.apple.mpegurl",
             )
             replace_active_local_proxy(proxy_server)
             intent_type = "application/vnd.apple.mpegurl"
         except Exception as exc:
             _error(f"Could not prepare Dailymotion stream: {exc}")
             return False
-    elif referer or headers:
-        _warn(f"{player}: starting local HTTP proxy for stream headers...")
+    elif not (
+            stream.get("dash_video")
+            or (stream.get("split_video_url") and stream.get("split_audio_url"))
+            or (stream.get("dailymotion_video") and stream.get("dailymotion_audio"))):
+        # Always proxy everything else, unconditionally -- do NOT gate this
+        # on stream.get("type") == "hls". start_local_proxy auto-detects
+        # playlists vs plain files from the ACTUAL response (URL/Content-Type
+        # at fetch time), so it doesn't need to be told in advance. Branching
+        # on a metadata "type" string is fragile: if an extractor labels a
+        # stream anything other than the exact string "hls", it silently
+        # falls through with NO proxying and NO error, handing the player
+        # the raw origin URL with no header control at all. Always calling
+        # start_local_proxy here removes that failure mode entirely and
+        # matches how the aiohttp prototype behaved (always proxy, let the
+        # response itself decide rewrite vs passthrough).
+        _info(f"{player}: starting local HTTP proxy...")
         try:
             url, proxy_server = start_local_proxy(
                 url,
@@ -156,22 +163,10 @@ def play_android(
                 stream_type=stream.get("type", "mp4"),
             )
             replace_active_local_proxy(proxy_server)
+            if url.lower().endswith(".m3u8"):
+                intent_type = "application/x-mpegURL"
         except Exception as exc:
             _error(f"Could not start local stream proxy: {exc}")
-            return False
-    elif stream.get("type") == "hls":
-        _info(f"{player}: preparing HLS title wrapper...")
-        try:
-            manifest = build_titled_hls_manifest(url, media_title)
-            url, proxy_server = start_local_content_server(
-                manifest,
-                "stream.m3u8",
-                "application/x-mpegURL",
-            )
-            replace_active_local_proxy(proxy_server)
-            intent_type = "application/x-mpegURL"
-        except Exception as exc:
-            _error(f"Could not prepare HLS stream: {exc}")
             return False
 
     _info(f"Opening {media_title} in {player}...")

@@ -1,8 +1,6 @@
 """Private localhost proxy and generated-content server lifecycle."""
 
-import base64
 import http.server
-import json
 import re
 import threading
 import urllib.parse
@@ -25,62 +23,19 @@ _active_lock = threading.Lock()
 _active_server = None
 _debug_warn = lambda context, error: None
 
+# Fallback UA used only when the caller hasn't supplied one. Some CDNs
+# validate the User-Agent shape (not just presence) against parameters
+# baked into signed URLs, so a bare "Mozilla/5.0" can get rejected where a
+# realistic browser UA passes.
+_DEFAULT_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+)
+
 
 def configure_debug_reporter(reporter):
     global _debug_warn
     _debug_warn = reporter
-
-
-def encode_segment(url: str, headers: dict) -> str:
-    payload = json.dumps({"u": url, "h": headers}, separators=(",", ":")).encode()
-    return base64.urlsafe_b64encode(payload).decode().rstrip("=")
-
-
-def decode_segment(token: str) -> dict:
-    pad = "=" * (-len(token) % 4)
-    payload = base64.urlsafe_b64decode(token + pad)
-    return json.loads(payload)
-
-
-def guess_ext(url: str) -> str:
-    path = url.split("?", 1)[0]
-    if "." in path.rsplit("/", 1)[-1]:
-        return "." + path.rsplit(".", 1)[-1]
-    return ""
-
-
-def is_playlist(url: str, ctype: str) -> bool:
-    return ".m3u8" in url.lower() or "mpegurl" in str(ctype).lower()
-
-
-def rewrite_playlist(text: str, base_url: str, headers: dict, host: str, secret_base: str) -> str:
-    base = base_url.rsplit("/", 1)[0] + "/"
-    out = []
-    for line in text.splitlines():
-        line = line.strip()
-
-        if line.startswith("#") and 'URI="' in line:
-            start = line.index('URI="') + 5
-            end = line.index('"', start)
-            target = line[start:end]
-            real = urllib.parse.urljoin(base, target)
-            token = encode_segment(real, headers)
-            ext = guess_ext(real) or ".bin"
-            proxied = f"{host}{secret_base}/seg/{token}/x{ext}"
-            line = line[:start] + proxied + line[end:]
-            out.append(line)
-            continue
-
-        if line.startswith("#") or not line:
-            out.append(line)
-            continue
-
-        real = urllib.parse.urljoin(base, line)
-        token = encode_segment(real, headers)
-        ext = guess_ext(real) or (".m3u8" if ".m3u8" in real.lower() else ".ts")
-        out.append(f"{host}{secret_base}/seg/{token}/x{ext}")
-
-    return "\n".join(out)
 
 
 class _ThreadedHTTPServer(http.server.ThreadingHTTPServer):
@@ -88,12 +43,72 @@ class _ThreadedHTTPServer(http.server.ThreadingHTTPServer):
     block_on_close = False
 
 
-def start_local_proxy(target_url, referer, headers=None, timeout=15, stream_type="mp4"):
-    validate_http_url(target_url)
-    extension = "m3u8" if str(stream_type).lower() == "hls" else "mp4"
-    secret_path = new_proxy_secret_path(extension)
-    secret_base = "/" + secret_path.split("/")[1]
-    forwarded_headers = proxy_filtered_headers(headers)
+def _is_playlist(url, content_type):
+    return ".m3u8" in url.lower() or "mpegurl" in str(content_type or "").lower()
+
+
+def _guess_ext(url):
+    path = urllib.parse.urlsplit(url).path
+    name = path.rsplit("/", 1)[-1]
+    if "." in name:
+        ext = name.rsplit(".", 1)[-1].lower()
+        if re.fullmatch(r"[a-z0-9]{1,8}", ext):
+            return ext
+    return ""
+
+
+def _build_proxy_server(initial_entries, timeout):
+    """Spin up one local proxy server backing an arbitrary set of routes.
+
+    initial_entries: {path: entry_dict}, where entry_dict is either
+      {"kind": "fetch", "url": ..., "ref": ..., "hdrs": {...}}
+      {"kind": "synthetic", "text": "...m3u8 content..."}
+
+    Returns (port, registry, register_fn, server). register_fn lets the
+    handler add newly-discovered child routes (segments, sub-playlists,
+    keys) on the fly while rewriting a playlist it just fetched.
+    """
+    registry = dict(initial_entries)
+    registry_lock = threading.Lock()
+    port_holder = {}
+
+    def register(url, ref, hdrs):
+        ext = _guess_ext(url) or ("m3u8" if ".m3u8" in url.lower() else "ts")
+        path = new_proxy_secret_path(ext)
+        with registry_lock:
+            registry[path] = {
+                "kind": "fetch", "url": url, "ref": ref, "hdrs": dict(hdrs),
+            }
+        return path
+
+    def local_url_for(path):
+        return f"http://127.0.0.1:{port_holder['port']}{path}"
+
+    def rewrite_playlist(text, base_url, ref, hdrs):
+        base = base_url.rsplit("/", 1)[0] + "/"
+        out = []
+        for line in text.splitlines():
+            line = line.strip()
+
+            if line.startswith("#") and 'URI="' in line:
+                start = line.index('URI="') + 5
+                end = line.index('"', start)
+                target = line[start:end]
+                real = urllib.parse.urljoin(base, target)
+                path = register(real, ref, hdrs)
+                line = line[:start] + local_url_for(path) + line[end:]
+                out.append(line)
+                continue
+
+            if line.startswith("#") or not line:
+                out.append(line)
+                continue
+
+            real = urllib.parse.urljoin(base, line)
+            path = register(real, ref, hdrs)
+            out.append(local_url_for(path))
+
+        return "\n".join(out)
 
     class ProxyHandler(http.server.BaseHTTPRequestHandler):
         def log_message(self, format, *args):
@@ -110,43 +125,35 @@ def start_local_proxy(target_url, referer, headers=None, timeout=15, stream_type
                 self._reject_method()
                 return
 
-            req_path = urllib.parse.urlsplit(self.path).path
-            if not req_path.startswith(secret_base):
+            path = urllib.parse.urlsplit(self.path).path
+            with registry_lock:
+                entry = registry.get(path)
+            if entry is None:
                 self.send_error(404)
                 return
 
-            if req_path == secret_path:
-                fetch_url = target_url
-                fetch_headers = dict(forwarded_headers)
-                if referer:
-                    fetch_headers["Referer"] = referer
-            elif req_path.startswith(f"{secret_base}/seg/"):
-                parts = req_path.split("/")
-                if len(parts) < 4:
-                    self.send_error(404)
-                    return
-                token = parts[3]
-                try:
-                    data = decode_segment(token)
-                    fetch_url = data["u"]
-                    fetch_headers = proxy_filtered_headers(data["h"])
-                except Exception:
-                    self.send_error(400, "Bad segment token")
-                    return
-            else:
-                self.send_error(404)
+            if entry["kind"] == "synthetic":
+                data = entry["text"].encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/vnd.apple.mpegurl")
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                if method == "GET":
+                    self.wfile.write(data)
                 return
 
-            request = urllib.request.Request(fetch_url, method=method)
-            request.add_header("User-Agent", "Mozilla/5.0")
-            for key, value in fetch_headers.items():
+            url, ref, hdrs = entry["url"], entry["ref"], entry["hdrs"]
+            request = urllib.request.Request(url, method=method)
+            request.add_header("User-Agent", hdrs.get("User-Agent", _DEFAULT_UA))
+            if ref:
+                request.add_header("Referer", ref)
+            for key, value in hdrs.items():
+                if key.casefold() == "user-agent":
+                    continue
                 request.add_header(key, value)
-            
-            # Only forward Range header if we are NOT fetching a playlist.
-            # Playlists must be fetched entirely so we can rewrite them.
             range_header = proxy_range_header(self.headers.get("Range", ""))
-            is_m3u8_url = ".m3u8" in fetch_url.lower()
-            if range_header and not is_m3u8_url:
+            if range_header:
                 request.add_header("Range", range_header)
 
             try:
@@ -155,35 +162,27 @@ def start_local_proxy(target_url, referer, headers=None, timeout=15, stream_type
                         context=SSL_CTX_SECURE,
                         timeout=max(1, float(timeout))) as response:
                     validate_http_url(response.geturl())
-                    
-                    ctype = response.headers.get("Content-Type", "") or "application/octet-stream"
-                    if method == "GET" and is_playlist(fetch_url, ctype):
-                        text = response.read().decode('utf-8', errors='ignore')
-                        host = f"http://{self.server.server_address[0]}:{self.server.server_address[1]}"
-                        rewritten = rewrite_playlist(text, fetch_url, fetch_headers, host, secret_base)
-                        payload = rewritten.encode("utf-8")
-                        
-                        # Force 200 OK for intercepted playlists (never 206)
+                    content_type = response.headers.get("Content-Type", "")
+
+                    if method == "GET" and _is_playlist(url, content_type):
+                        body = response.read()
+                        text = body.decode("utf-8", errors="replace")
+                        rewritten = rewrite_playlist(text, url, ref, hdrs)
+                        data = rewritten.encode("utf-8")
                         self.send_response(200)
-                        self.send_header("Content-Type", "application/vnd.apple.mpegurl")
-                        self.send_header("Content-Length", str(len(payload)))
+                        self.send_header(
+                            "Content-Type", "application/vnd.apple.mpegurl"
+                        )
+                        self.send_header("Content-Length", str(len(data)))
                         self.send_header("Cache-Control", "no-store")
-                        self.send_header("Access-Control-Allow-Origin", "*")
                         self.end_headers()
-                        
-                        self.wfile.write(payload)
+                        self.wfile.write(data)
                         return
 
                     self.send_response(response.status)
-                    has_accept_ranges = False
                     for key, value in proxy_response_headers(response.headers):
-                        if str(key).casefold() == "accept-ranges":
-                            has_accept_ranges = True
                         self.send_header(key, value)
-                    if not has_accept_ranges:
-                        self.send_header("Accept-Ranges", "bytes")
                     self.end_headers()
-                    
                     if method == "GET":
                         while chunk := response.read(65536):
                             try:
@@ -211,8 +210,79 @@ def start_local_proxy(target_url, referer, headers=None, timeout=15, stream_type
 
     server = _ThreadedHTTPServer(("127.0.0.1", 0), ProxyHandler)
     port = server.server_address[1]
+    port_holder["port"] = port
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    return f"http://127.0.0.1:{port}{secret_path}", server
+    return port, registry, register, server
+
+
+def start_local_proxy(target_url, referer, headers=None, timeout=15, stream_type="mp4"):
+    validate_http_url(target_url)
+    is_hls = str(stream_type).lower() == "hls"
+    extension = "m3u8" if is_hls else "mp4"
+    base_secret = new_proxy_secret_path(extension)
+    forwarded_headers = proxy_filtered_headers(headers)
+
+    initial = {
+        base_secret: {
+            "kind": "fetch",
+            "url": target_url,
+            "ref": referer,
+            "hdrs": dict(forwarded_headers),
+        }
+    }
+    port, _registry, _register, server = _build_proxy_server(initial, timeout)
+    return f"http://127.0.0.1:{port}{base_secret}", server
+
+
+def start_local_dual_proxy(
+        video_url, audio_url, referer, headers=None, timeout=15,
+        width=1280, height=720, bandwidth=2_400_000):
+    """Like start_local_proxy, but for sources that split video and audio
+    into two separate HLS manifests (Dailymotion does this) with no
+    combined master. Builds the master ourselves; both sub-manifests go
+    through the SAME rewriting/header machinery as everything else, so
+    Dailymotion's video track gets the same header treatment its audio
+    track does, instead of being served as a static unproxied file.
+    """
+    validate_http_url(video_url)
+    validate_http_url(audio_url)
+    forwarded_headers = proxy_filtered_headers(headers)
+
+    master_secret = new_proxy_secret_path("m3u8")
+    video_secret = new_proxy_secret_path("m3u8")
+    audio_secret = new_proxy_secret_path("m3u8")
+
+    master_text = (
+        "#EXTM3U\n"
+        "#EXT-X-VERSION:3\n"
+        '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="Audio",'
+        f'DEFAULT=YES,AUTOSELECT=YES,URI="{{audio_url}}"\n'
+        f'#EXT-X-STREAM-INF:BANDWIDTH={int(bandwidth)},'
+        f'RESOLUTION={int(width)}x{int(height)},AUDIO="audio"\n'
+        "{video_url}\n"
+    )
+
+    initial = {
+        master_secret: {"kind": "synthetic", "text": ""},  # filled in below
+        video_secret: {
+            "kind": "fetch", "url": video_url, "ref": referer,
+            "hdrs": dict(forwarded_headers),
+        },
+        audio_secret: {
+            "kind": "fetch", "url": audio_url, "ref": referer,
+            "hdrs": dict(forwarded_headers),
+        },
+    }
+    port, registry, _register, server = _build_proxy_server(initial, timeout)
+
+    # Now that we know our own port, fill in the synthetic master with
+    # local URLs pointing back at this same server.
+    registry[master_secret]["text"] = master_text.format(
+        audio_url=f"http://127.0.0.1:{port}{audio_secret}",
+        video_url=f"http://127.0.0.1:{port}{video_secret}",
+    )
+
+    return f"http://127.0.0.1:{port}{master_secret}", server
 
 
 def start_local_content_server(content, filename, content_type):
