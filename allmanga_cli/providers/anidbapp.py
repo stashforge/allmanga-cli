@@ -132,10 +132,19 @@ class AniDBApp(Provider):
         title_match = re.search(r'<h1\b[^>]*>([\s\S]*?)</h1>', text, re.IGNORECASE)
         title = re.sub(r'<[^>]+>', '', title_match.group(1)).strip() if title_match else provider_id.replace('-', ' ')
         
-        return normalize_title({
+        anilist_match = re.search(r'href=["\']https?://anilist\.co/anime/(\d+)["\']', text, re.IGNORECASE)
+        mal_match = re.search(r'href=["\']https?://myanimelist\.net/anime/(\d+)["\']', text, re.IGNORECASE)
+        
+        result = {
             "id": provider_id,
             "name": title,
-        }, provider_id=self.id, provider_name=self.name, id_key="id")
+        }
+        if anilist_match:
+            result["anilist_id"] = int(anilist_match.group(1))
+        if mal_match:
+            result["mal_id"] = int(mal_match.group(1))
+        
+        return normalize_title(result, provider_id=self.id, provider_name=self.name, id_key="id")
 
     def episode_catalog(self, provider_id: str, ttype: str = "sub") -> dict[str, Any]:
         # Extract siteId from the slug
