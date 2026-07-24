@@ -65,8 +65,15 @@ def proxy_response_headers(headers):
     ]
 
 
-def new_proxy_secret_path(extension="mp4"):
+def new_proxy_secret_path(extension="mp4", title="stream"):
     extension = str(extension or "mp4").strip().lower().lstrip(".")
     if not re.fullmatch(r"[a-z0-9]{1,8}", extension):
         extension = "mp4"
-    return f"/{uuid.uuid4().hex}/stream.{extension}"
+    
+    # Keep it filename-safe but preserve spaces for players to display nicely
+    safe_title = re.sub(r"[^\w\-. ]+", "", str(title or "stream")).strip()
+    safe_title = re.sub(r" {2,}", " ", safe_title)
+    safe_title = safe_title[:100] or "stream"
+    safe_title = urllib.parse.quote(safe_title)
+    
+    return f"/{uuid.uuid4().hex}/{safe_title}.{extension}"

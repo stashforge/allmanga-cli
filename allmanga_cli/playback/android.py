@@ -116,6 +116,7 @@ def play_android(
                 width=stream.get("split_width") or 1280,
                 height=stream.get("split_height") or 720,
                 bandwidth=int(float(stream.get("split_bandwidth") or 2400) * 1000),
+                title=media_title,
             )
             replace_active_local_proxy(proxy_server)
             intent_type = "application/vnd.apple.mpegurl"
@@ -133,6 +134,7 @@ def play_android(
                 width=stream.get("dailymotion_width") or 1280,
                 height=stream.get("dailymotion_height") or 720,
                 bandwidth=int(float(stream.get("dailymotion_bandwidth") or 2400) * 1000),
+                title=media_title,
             )
             replace_active_local_proxy(proxy_server)
             intent_type = "application/vnd.apple.mpegurl"
@@ -161,6 +163,7 @@ def play_android(
                 referer,
                 headers,
                 stream_type=stream.get("type", "mp4"),
+                title=media_title,
             )
             replace_active_local_proxy(proxy_server)
             if url.lower().endswith(".m3u8"):

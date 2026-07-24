@@ -215,11 +215,11 @@ def _build_proxy_server(initial_entries, timeout):
     return port, registry, register, server
 
 
-def start_local_proxy(target_url, referer, headers=None, timeout=15, stream_type="mp4"):
+def start_local_proxy(target_url, referer, headers=None, timeout=15, stream_type="mp4", title="stream"):
     validate_http_url(target_url)
     is_hls = str(stream_type).lower() == "hls"
     extension = "m3u8" if is_hls else "mp4"
-    base_secret = new_proxy_secret_path(extension)
+    base_secret = new_proxy_secret_path(extension, title=title)
     forwarded_headers = proxy_filtered_headers(headers)
 
     initial = {
@@ -236,7 +236,7 @@ def start_local_proxy(target_url, referer, headers=None, timeout=15, stream_type
 
 def start_local_dual_proxy(
         video_url, audio_url, referer, headers=None, timeout=15,
-        width=1280, height=720, bandwidth=2_400_000):
+        width=1280, height=720, bandwidth=2_400_000, title="stream"):
     """Like start_local_proxy, but for sources that split video and audio
     into two separate HLS manifests (Dailymotion does this) with no
     combined master. Builds the master ourselves; both sub-manifests go
@@ -248,7 +248,7 @@ def start_local_dual_proxy(
     validate_http_url(audio_url)
     forwarded_headers = proxy_filtered_headers(headers)
 
-    master_secret = new_proxy_secret_path("m3u8")
+    master_secret = new_proxy_secret_path("m3u8", title=title)
     video_secret = new_proxy_secret_path("m3u8")
     audio_secret = new_proxy_secret_path("m3u8")
 
