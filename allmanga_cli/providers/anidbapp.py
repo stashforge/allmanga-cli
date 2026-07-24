@@ -64,8 +64,8 @@ class AniDBApp(Provider):
             return 500, str(e)
 
     def search(self, query: str, ttype: str = "sub") -> list[dict[str, Any]]:
-        url = f"{BASE_URL}/search/suggestions?q={urllib.parse.quote(query)}"
-        headers = dict(XHR_HEADERS)
+        url = f"{BASE_URL}/browse?q={urllib.parse.quote(query)}"
+        headers = dict(NAV_HEADERS)
         headers["Referer"] = f"{BASE_URL}/home"
 
         status, html = self._fetch(url, headers=headers)
@@ -74,35 +74,47 @@ class AniDBApp(Provider):
             return []
             
         results = []
+        seen = set()
         
-        # Parse the raw HTML for suggestions
-        # <a href="/anime/one-piece-0948" data-search-item ...>
-        for match in re.finditer(r'<a\b[^>]*href=["\'](?:https://anidb\.app)?/anime/([^"\']+)["\'][^>]*data-search-item\b[^>]*>([\s\S]*?)</a>', html, re.IGNORECASE):
+        # Parse the raw HTML for grid cards
+        # <a href="https://anidb.app/anime/slug" class="anime-card..." title="Title">
+        for match in re.finditer(r'<a\b[^>]*href=["\'](?:https://anidb\.app)?/anime/([^"\']+)["\'][^>]*class=["\'][^"\']*anime-card[^"\']*["\']([^>]*)>([\s\S]*?)</a>', html, re.IGNORECASE):
             slug = match.group(1)
-            content = match.group(2)
+            attrs = match.group(2)
+            content = match.group(3)
             
-            # Extract title
-            title_match = re.search(r'<p\b[^>]*class=["\'][^"\']*text-sm[^"\']*["\'][^>]*>([\s\S]*?)</p>', content, re.IGNORECASE)
-            title = re.sub(r'<[^>]+>', '', title_match.group(1)).strip() if title_match else slug.replace('-', ' ')
+            if slug in seen:
+                continue
+            seen.add(slug)
             
-            # Extract meta
-            meta_match = re.search(r'<p\b[^>]*class=["\'][^"\']*text-xs[^"\']*["\'][^>]*>([\s\S]*?)</p>', content, re.IGNORECASE)
-            meta = re.sub(r'<[^>]+>', '', meta_match.group(1)).strip() if meta_match else ""
+            title_match = re.search(r'title=["\']([^"\']+)["\']', attrs, re.IGNORECASE)
+            if title_match:
+                title = title_match.group(1).replace("&amp;", "&").replace("&#039;", "'")
+            else:
+                title_match2 = re.search(r'<p\b[^>]*class=["\'][^"\']*font-semibold[^"\']*["\'][^>]*>([\s\S]*?)</p>', content, re.IGNORECASE)
+                title = re.sub(r'<[^>]+>', '', title_match2.group(1)).strip() if title_match2 else slug.replace('-', ' ')
+                title = title.replace("&#039;", "'")
             
-            # Check if it has an image in the html
-            img_match = re.search(r'<img\b[^>]*src=["\']([^"\']+)["\']', content, re.IGNORECASE)
-            thumbnail = img_match.group(1).replace("&amp;", "&") if img_match else ""
+            # Extract thumbnail
+            thumbnail = ""
+            img_tag_match = re.search(r'<img\b([^>]+)>', content, re.IGNORECASE)
+            if img_tag_match:
+                src_match = re.search(r'\bsrc=["\']([^"\']+)["\']', img_tag_match.group(1), re.IGNORECASE)
+                if src_match:
+                    thumbnail = src_match.group(1).replace("&amp;", "&")
 
-            # Attempt to extract year from meta
-            year_match = re.search(r'\b(19|20)\d{2}\b', meta)
-            start_date = {"year": int(year_match.group(0))} if year_match else None
+            # Extract type if present (e.g., Movie, TV)
+            show_type = "TV"
+            type_match = re.search(r'<span\b[^>]*badge-orange[^>]*>([\s\S]*?)</span>', content, re.IGNORECASE)
+            if type_match:
+                show_type = re.sub(r'<[^>]+>', '', type_match.group(1)).strip()
             
             results.append({
                 "id": slug,
                 "name": title,
-                "type": "TV",
+                "type": show_type,
                 "thumbnail": thumbnail,
-                "startDate": start_date,
+                "startDate": None,
             })
             
         return normalize_titles(results, provider_id=self.id, provider_name=self.name, id_key="id")
