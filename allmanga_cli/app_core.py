@@ -1500,9 +1500,9 @@ def ensure_episode_ids(show, ttype):
                 if title_data and title_data.get("aniListId"):
                     from allmanga_cli.core.anilist import fetch_anilist_by_ids
                     from allmanga_cli.core.enrichment import _merge_anilist_into_provider
-                    from allmanga_cli.core.storage import get_config
+                    from allmanga_cli.core.storage import load_config
                     
-                    token = get_config().get("anilist_token")
+                    token = load_config().get("anilist_token")
                     al_data = fetch_anilist_by_ids(token, anilist_ids=[title_data["aniListId"]])
                     if al_data:
                         _merge_anilist_into_provider(show, al_data[0])

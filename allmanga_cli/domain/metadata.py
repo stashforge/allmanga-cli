@@ -173,7 +173,9 @@ def format_years(start_year, end_year, status=None):
         return str(start_year)
     if end_year:
         return str(end_year)
-    return "TBA"
+    if status == "NOT_YET_RELEASED":
+        return "TBA"
+    return ""
 
 
 def should_refresh_anilist(anime, now=None):
