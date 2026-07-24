@@ -1493,6 +1493,22 @@ def ensure_episode_ids(show, ttype):
 
     show_id = title_provider_id(show)
     if show_id:
+        # LATE ENRICHMENT: If search failed to enrich, try one last time via provider's get_title ID scraping
+        if not show.get("aniListId") and not show.get("_anilist_score"):
+            try:
+                title_data = _provider_for_title(show).get_title(show_id)
+                if title_data and title_data.get("anilist_id"):
+                    from allmanga_cli.core.anilist import fetch_anilist_by_ids
+                    from allmanga_cli.core.enrichment import _merge_anilist_into_provider
+                    from allmanga_cli.core.storage import get_config
+                    
+                    token = get_config().get("anilist_token")
+                    al_data = fetch_anilist_by_ids(token, anilist_ids=[title_data["anilist_id"]])
+                    if al_data:
+                        _merge_anilist_into_provider(show, al_data[0])
+            except Exception as e:
+                debug_warn("Late enrichment failed", e)
+
         catalog = _provider_for_title(show).episode_catalog(show_id, ttype)
     else:
         catalog = {
