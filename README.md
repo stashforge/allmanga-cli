@@ -62,7 +62,7 @@ Here is the default configuration template and what each setting controls:
     "cover": false,                   // Display anime cover art in terminal (requires image support). Valid options: true, false
     "download_dir": "",               // Absolute path to save downloaded episodes
     "anilist_sort": "recent",         // Default sorting method for AniList library. Valid options: "recent", "anilist", "title", "progress"
-    "spinner": "braille",             // Terminal loading spinner style. Valid options: "braille", "dots", "line", "pulse"
+    "spinner": "braille",             // Terminal loading spinner style. Valid options: "braille", "dots", "line", "pulse", or a custom array of frames (e.g., ["|", "/", "-", "\\"])
     "allanime_frontend_domain": "https://mkissa.to", // Domain used for the AllAnime provider
     "provider": "miruro"              // Default streaming provider. Valid options: "miruro", "allanime", "anidbapp", "animexin", "animegg", "anizone", "lucifer", "animekhor", "senshi", "anikoto", "movies"
 }
