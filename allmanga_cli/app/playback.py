@@ -53,6 +53,11 @@ def _display_episode_label(show: dict, episode_id, ttype: str) -> str:
     labels = _episode_labels_for(show, ttype)
     return str(labels.get(str(episode_id)) or episode_id)
 
+def _fmt_ep(label):
+    if str(label).lower() in ("movie", "full", "ova", "special"):
+        return str(label).title()
+    return f"EP {label}"
+
 
 def _clear_episode_source_state(ms: "MachineState") -> None:
     ms.ep_cache_key = None
@@ -314,7 +319,7 @@ def handle_play_state(
     if _cache_key == ms.ep_cache_key and ms.ep_cache_data:
         ep_data = ms.ep_cache_data
     else:
-        app_core.info(f"Loading EP {current_ep_label} metadata...")
+        app_core.info(f"Loading {_fmt_ep(current_ep_label)} metadata...")
         ep_data = app_core.get_episode_data(
             ms.show_id,
             ms.current_ep,
@@ -329,7 +334,7 @@ def handle_play_state(
         _clear_episode_source_state(ms)
         app_core.set_action_feedback(
             ui.ui_show_ctx,
-            f"Could not load EP {current_ep_label}. Check connection or try another mirror.",
+            f"Could not load {_fmt_ep(current_ep_label)}. Check connection or try another mirror.",
         )
         return "ACTION_MENU"
     if ep_data.get("_provider_error") == "browser_verification_required":
@@ -714,14 +719,14 @@ def handle_action_menu_state(
         current_al = 0
 
     if is_tracking and target_prog is not None:
-        if target_prog <= current_al:
-            sync_txt = f"save EP {current_ep_label} · AL already EP {current_al}"
+        if current_al and int(current_al) >= target_prog:
+            sync_txt = f"save {_fmt_ep(current_ep_label)} · AL already EP {current_al}"
         else:
-            sync_txt = f"save EP {current_ep_label} · sync AL EP {target_prog}"
-    elif is_tracking:
-        sync_txt = f"save EP {current_ep_label} · sync AL EP {current_ep_label}"
+            sync_txt = f"save {_fmt_ep(current_ep_label)} · sync AL EP {target_prog}"
+    elif ms.is_local_only:
+        sync_txt = f"save {_fmt_ep(current_ep_label)} · sync AL EP {current_ep_label}"
     else:
-        sync_txt = f"save EP {current_ep_label}"
+        sync_txt = f"save {_fmt_ep(current_ep_label)}"
 
     for opt, act in zip(opts, acts):
         if act == "TRACK_ONLY": action_hints[opt] = sync_txt
@@ -730,7 +735,7 @@ def handle_action_menu_state(
         elif act == "PREV":   action_hints[opt] = f"EP {prev_ep_label}"
         elif act == "EPISODES": action_hints[opt] = "browse all"
         elif act == "VERIFY": action_hints[opt] = "verification"
-        elif act == "REPLAY": action_hints[opt] = f"EP {current_ep_label} again"
+        elif act == "REPLAY": action_hints[opt] = f"{_fmt_ep(current_ep_label)} again"
         elif act == "BROWSER_PLAY": action_hints[opt] = "open url in browser"
         elif act == "MIRRORS":action_hints[opt] = "switch source"
         elif act == "BACK":   action_hints[opt] = "Back"
@@ -815,10 +820,10 @@ def handle_action_menu_state(
                 app_core.set_action_feedback(action_show, "AniList sync failed.")
         else:
             app_core.with_loading(
-                f"Saving EP {current_ep_label} locally…",
+                f"Saving {_fmt_ep(current_ep_label)} locally…",
                 app_core.save_history, action_show, ms.current_ep, ttype
             )
-            app_core.set_action_feedback(action_show, f"Marked EP {current_ep_label} as watched locally.")
+            app_core.set_action_feedback(action_show, f"Marked {_fmt_ep(current_ep_label)} as watched locally.")
 
         app_core.save_resume_time(ms.show_id, ms.current_ep, 0)
         return synced
