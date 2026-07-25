@@ -723,7 +723,7 @@ def handle_action_menu_state(
             sync_txt = f"save {_fmt_ep(current_ep_label)} · AL already EP {current_al}"
         else:
             sync_txt = f"save {_fmt_ep(current_ep_label)} · sync AL EP {target_prog}"
-    elif ms.is_local_only:
+    elif is_tracking:
         sync_txt = f"save {_fmt_ep(current_ep_label)} · sync AL EP {current_ep_label}"
     else:
         sync_txt = f"save {_fmt_ep(current_ep_label)}"
