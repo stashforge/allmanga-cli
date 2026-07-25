@@ -53,18 +53,18 @@ Here is the default configuration template and what each setting controls:
 
 ```json
 {
-    "quality": "1080p",               // Preferred video quality (e.g., "best", "1080p", "720p", "480p")
-    "translation_type": "sub",        // Default audio type ("sub" or "dub")
-    "binge": false,                   // (true/false) Auto-play next episode when current finishes
-    "player": "mpv",                  // Default video player ("mpv", "vlc", "mpvex", "next")
+    "quality": "1080p",               // Preferred video quality. Valid options: "best", "1080p", "720p", "480p", "360p", "worst"
+    "translation_type": "sub",        // Default audio type. Valid options: "sub", "dub"
+    "binge": false,                   // Auto-play next episode when current finishes. Valid options: true, false
+    "player": "mpv",                  // Default video player. Valid options: "mpv", "mpvex", "vlc", "next"
     "anilist_token": "",              // Your AniList OAuth token (auto-populated if you run with --login)
-    "auto_track": false,              // (true/false) Automatically track watch progress on AniList
-    "cover": false,                   // (true/false) Display anime cover art in terminal (requires image support)
+    "auto_track": false,              // Automatically track watch progress on AniList. Valid options: true, false
+    "cover": false,                   // Display anime cover art in terminal (requires image support). Valid options: true, false
     "download_dir": "",               // Absolute path to save downloaded episodes
-    "anilist_sort": "recent",         // Default sorting method for AniList library ("recent", "score", etc.)
-    "spinner": "braille",             // Terminal loading spinner style
+    "anilist_sort": "recent",         // Default sorting method for AniList library. Valid options: "recent", "anilist", "title", "progress"
+    "spinner": "braille",             // Terminal loading spinner style. Valid options: "braille", "dots", "line", "pulse"
     "allanime_frontend_domain": "https://mkissa.to", // Domain used for the AllAnime provider
-    "provider": "miruro"              // Default streaming provider (e.g., "miruro", "allanime", "anidbapp", "animegg", "anizone")
+    "provider": "miruro"              // Default streaming provider. Valid options: "miruro", "allanime", "anidbapp", "animexin", "animegg", "anizone", "lucifer", "animekhor", "senshi", "anikoto", "movies"
 }
 ```
 
