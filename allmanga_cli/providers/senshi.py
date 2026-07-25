@@ -5,8 +5,8 @@ import urllib.error
 from typing import Any
 import logging
 
-from .base import Provider
-from .models import normalize_title, normalize_episode_catalog, normalize_episode_sources
+from .shared.base import Provider
+from .shared.models import normalize_title, normalize_episode_catalog, normalize_episode_sources
 
 BASE_URL = "https://senshi.live"
 HEADERS = {

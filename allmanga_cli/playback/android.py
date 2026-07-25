@@ -79,7 +79,9 @@ def play_android(
 
     headers = proxy_filtered_headers(stream.get("headers", {}))
     package, activity = PLAYERS.get(player, PLAYERS["mpv"])
-    media_title = f"{title} - Episode {episode}"
+    from allmanga_cli.domain.episodes import episode_label
+    ep_str = episode_label(episode)
+    media_title = f"{title} - {ep_str}"
     proxy_server = None
     intent_type = "video/*"
 

@@ -10,7 +10,7 @@ import urllib.parse
 from typing import Any
 
 from ..services.http import SSL_CTX_SECURE, UA, request_json
-from .models import (
+from .shared.models import (
     normalize_episode_catalog,
     normalize_episode_sources,
     normalize_title,

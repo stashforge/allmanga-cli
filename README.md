@@ -64,7 +64,7 @@ Here is the default configuration template and what each setting controls:
     "anilist_sort": "recent",         // Default sorting method for AniList library ("recent", "score", etc.)
     "spinner": "braille",             // Terminal loading spinner style
     "allanime_frontend_domain": "https://mkissa.to", // Domain used for the AllAnime provider
-    "provider": "miruro"              // Default streaming provider (e.g., "miruro", "allanime", "anidbapp")
+    "provider": "miruro"              // Default streaming provider (e.g., "miruro", "allanime", "anidbapp", "animegg", "anizone")
 }
 ```
 
@@ -76,5 +76,5 @@ Here is the default configuration template and what each setting controls:
 - `yt-dlp` (often used by mpv to resolve certain HTTP streams)
 
 ## Architecture Notes
-- `allmanga_cli/providers/`: Contains modular scraper logic for individual sources (e.g., `miruro.py`, `allanime.py`, `anidbapp.py`). Each scraper is responsible for assigning a `"priority"` to the streams it finds.
+- `allmanga_cli/providers/`: Contains modular scraper logic for individual sources (e.g., `miruro.py`, `allanime.py`, `anidbapp.py`, `animegg.py`, `anizone.py`). Each scraper is responsible for assigning a `"priority"` to the streams it finds.
 - `allmanga_cli/media/`: Contains the global resolver and background streaming logic. The global stream ranker blindly trusts the `priority` tag assigned by the provider to decouple ranking logic from the playback engine.

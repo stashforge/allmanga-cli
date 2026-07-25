@@ -34,7 +34,9 @@ def play_desktop(
     referer = validate_optional_referer(stream.get("referer", ""))
     headers = proxy_filtered_headers(stream.get("headers", {}))
     resolution = stream.get("resolution", "Adaptive")
-    media_title = f"{title} - Episode {episode} ({resolution})"
+    from allmanga_cli.domain.episodes import episode_label
+    ep_str = episode_label(episode)
+    media_title = f"{title} - {ep_str} ({resolution})"
 
     start_time = get_resume_time(show_id, episode) if show_id else 0
     resume_message = (

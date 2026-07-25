@@ -10,7 +10,7 @@ from bs4 import BeautifulSoup
 
 _logger = logging.getLogger(__name__)
 
-from .models import (
+from .shared.models import (
     normalize_episode_catalog,
     normalize_episode_sources,
     normalize_title,
@@ -97,8 +97,31 @@ class AniZoneProvider:
             return []
 
     def get_title(self, provider_id: str) -> dict[str, Any] | None:
-        # Simplest implementation, we don't have full details easily
-        return normalize_title({"_id": provider_id, "name": provider_id}, provider_id=self.id, provider_name=self.name)
+        anime_url = f"{self.base_url}/anime/{provider_id}"
+        req = urllib.request.Request(anime_url, headers=self.headers)
+        description = ""
+        try:
+            html = urllib.request.urlopen(req, timeout=10).read().decode('utf-8', errors='ignore')
+            soup = BeautifulSoup(html, 'html.parser')
+            # AniZone/Zoro clones usually have description in .film-description or similar
+            desc_tag = soup.find(class_=lambda c: c and ('desc' in c.lower() or 'synopsis' in c.lower()))
+            if desc_tag:
+                description = desc_tag.get_text(separator=' ', strip=True)
+            else:
+                # Fallback to finding a p tag that might contain it
+                for p in soup.find_all('p'):
+                    text = p.get_text(strip=True)
+                    if len(text) > 100:
+                        description = text
+                        break
+        except Exception as e:
+            _logger.debug("AniZone get_title error: %s", e)
+
+        return normalize_title(
+            {"_id": provider_id, "name": provider_id.replace('-', ' ').title(), "description": description}, 
+            provider_id=self.id, 
+            provider_name=self.name
+        )
 
     def episode_catalog(self, provider_id: str, ttype: str = "sub") -> dict[str, Any]:
         anime_url = f"{self.base_url}/anime/{provider_id}"

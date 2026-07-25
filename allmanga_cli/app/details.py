@@ -288,6 +288,7 @@ def handle_details_state(
         f"Anime Details", opts,
         header_fn=_details_hdr,
         hints=hints,
+        info_fn=app_core.make_single_show_info_fn(s, ui),
         help_dict=hd5
     )
 
@@ -498,6 +499,7 @@ def handle_update_progress_state(
         hints=progress_hints,
         tab_fn=_progress_tab_fn,
         reverse_fn=_progress_tab_fn,
+        info_fn=app_core.make_single_show_info_fn(s, ui),
         help_dict=hd9
     )
 
@@ -558,6 +560,7 @@ def handle_update_status_state(
         flags, ui,
         "Update AniList Status", opts,
         header_fn=_status_hdr,
+        info_fn=app_core.make_single_show_info_fn(s, ui),
         help_dict=hd7
     )
 
@@ -623,6 +626,7 @@ def handle_update_score_state(
         flags, ui,
         "Update Score", opts,
         header_fn=_score_hdr,
+        info_fn=app_core.make_single_show_info_fn(s, ui),
         help_dict=hd8
     )
 

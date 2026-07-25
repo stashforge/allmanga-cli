@@ -300,6 +300,7 @@ def handle_anilist_airing_state(
         reverse_fn=_airing_refresh,
         count_total=lambda: len(shows),
         disabled_indices=disabled_rows,
+        info_fn=app_core.make_info_fn(lambda: row_shows, ui),
         help_dict=picker_help(
             "Open title",
             "Back to lists",
@@ -411,6 +412,7 @@ def handle_anilist_browse_state(
         top_header_fn=_al_top_hdr,
         tab_fn=_al_tab,
         reverse_fn=_al_reverse,
+        info_fn=app_core.make_info_fn(lambda: al_shows, ui),
         help_dict=picker_help(
             "Open title",
             "Back to lists",
@@ -637,6 +639,7 @@ def handle_anilist_search_state(
             is_search=False,
             help_dict=hd4,
             auto_select_single_when_done=ms.just_searched,
+            info_fn=app_core.make_info_fn(get_results, ui),
         )
 
     shows = get_results()

@@ -12,9 +12,9 @@ from typing import Callable
 
 from bs4 import BeautifulSoup
 
-from ..media.source_entries import build_direct_source, build_embed_source
+from ...media.source_entries import build_direct_source, build_embed_source
 from .schema import build_catalog, build_episode, build_title
-from ..services.http import UA
+from ...services.http import UA
 
 
 @dataclass(frozen=True)
@@ -22,6 +22,7 @@ class Entry:
     title: str
     url: str
     meta: str = ""
+    image: str = ""
 
 
 @dataclass(frozen=True)
@@ -99,8 +100,14 @@ def parse_cards(base_url: str, page_html: str, *, only_main: bool = False) -> li
             title = clean_text(headline.get_text(" ", strip=True) if headline else link.get_text(" ", strip=True))
         if not title or title in {"View All", "Next"}:
             continue
+        
+        img = link.select_one("img")
+        image_url = ""
+        if img:
+            image_url = img.get("data-src") or img.get("data-lazy-src") or img.get("src") or ""
+            
         seen.add(href)
-        entries.append(Entry(title=title, url=href))
+        entries.append(Entry(title=title, url=href, image=image_url))
     return entries
 
 
@@ -123,9 +130,15 @@ def parse_series(base_url: str, page_html: str) -> list[Entry]:
             if title_node else link.get_text(" ", strip=True)
         )
         meta = clean_text(label_node.get_text(" ", strip=True) if label_node else "")
+        
+        img = item.select_one("img")
+        image_url = ""
+        if img:
+            image_url = img.get("data-src") or img.get("data-lazy-src") or img.get("src") or ""
+            
         if title:
             seen.add(href)
-            items.append(Entry(title=title, url=href, meta=meta))
+            items.append(Entry(title=title, url=href, meta=meta, image=image_url))
     return items
 
 
@@ -311,8 +324,85 @@ class WordPressAnimeProvider:
         return [self._title_from_entry(entry) for entry in entries]
 
     def get_title(self, provider_id: str) -> dict | None:
-        title = provider_id.rstrip("/").rsplit("/", 1)[-1].replace("-", " ").title()
-        return self._title_from_entry(Entry(title=title, url=provider_id))
+        title_str = provider_id.rstrip("/").rsplit("/", 1)[-1].replace("-", " ").title()
+        title = self._title_from_entry(Entry(title=title_str, url=provider_id))
+
+        try:
+            html = self._fetch(provider_id)
+            if html:
+                import re
+                anilist_match = re.search(r'href=["\']https?://anilist\.co/anime/(\d+)["\']', html, re.IGNORECASE)
+                mal_match = re.search(r'href=["\']https?://myanimelist\.net/anime/(\d+)["\']', html, re.IGNORECASE)
+                if anilist_match:
+                    title["aniListId"] = int(anilist_match.group(1))
+                if mal_match:
+                    title["malId"] = int(mal_match.group(1))
+
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(html, "html.parser")
+                
+                desc_div = soup.find("div", {"itemprop": "description"})
+                if desc_div and not title.get("description"):
+                    paragraphs = []
+                    for p in desc_div.find_all("p", recursive=False):
+                        text = p.get_text(strip=True)
+                        if text.lower() == "indonesia":
+                            break
+                        if text.lower() == "english":
+                            continue
+                        paragraphs.append(text)
+                    if paragraphs:
+                        title["description"] = " ".join(paragraphs)
+                
+                spe_div = soup.find("div", class_="spe")
+                if spe_div:
+                    for span in spe_div.find_all("span"):
+                        text = span.get_text(strip=True)
+                        if text.startswith("Status:"):
+                            stat = text.split(":", 1)[1].strip().upper()
+                            if stat in ("ONGOING", "RELEASING"):
+                                title["status"] = "RELEASING"
+                            elif stat in ("COMPLETED", "FINISHED"):
+                                title["status"] = "FINISHED"
+                        elif text.startswith("Type:"):
+                            title["format"] = text.split(":", 1)[1].strip()
+                        elif text.startswith("Released:"):
+                            date_str = text.split(":", 1)[1].strip()
+                            if date_str and not title.get("startDate"):
+                                try:
+                                    from datetime import datetime
+                                    dt = datetime.strptime(date_str, "%b %d, %Y")
+                                    title["airedStart"] = {"year": dt.year, "month": dt.month, "day": dt.day}
+                                except Exception:
+                                    title["airedStart"] = date_str
+                        elif text.startswith("Episodes:"):
+                            ep_str = text.split(":", 1)[1].strip()
+                            nums = re.findall(r"\d+", ep_str)
+                            if nums:
+                                ep_count = int(nums[-1])
+                                if not title.get("availableEpisodes"):
+                                    title["availableEpisodes"] = {"sub": 0, "dub": 0, "raw": 0}
+                                if ep_count > title["availableEpisodes"].get("sub", 0):
+                                    title["availableEpisodes"]["sub"] = ep_count
+
+                last_ep_span = soup.find("span", class_="epcurlast")
+                if last_ep_span:
+                    nums = re.findall(r"\d+", last_ep_span.get_text(strip=True))
+                    if nums:
+                        latest_ep = int(nums[-1])
+                        if not title.get("availableEpisodes"):
+                            title["availableEpisodes"] = {"sub": 0, "dub": 0, "raw": 0}
+                        if latest_ep > title["availableEpisodes"].get("sub", 0):
+                            title["availableEpisodes"]["sub"] = latest_ep
+        except Exception:
+            pass
+
+        from .models import normalize_titles
+        return normalize_titles(
+            [title],
+            provider_id=self.id,
+            provider_name=self.name,
+        )[0]
 
     def episode_catalog(self, provider_id: str, ttype: str = "sub") -> dict:
         del ttype
@@ -397,5 +487,6 @@ class WordPressAnimeProvider:
             provider_name=self.name,
             provider_id=entry.url,
             name=entry.title,
+            thumbnail=entry.image,
             media_type="ONA",
         )

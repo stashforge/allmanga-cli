@@ -150,7 +150,7 @@ def airing_rows(shows, tab="today", now=None):
                 day_label = _airing_day_label(
                     _local_datetime(timestamp), _coerce_now(now)
                 )
-                rows.append((None, f"{DIM}{day_label}{RESET}"))
+                rows.append((None, f" {DIM}{day_label}{RESET}"))
         return rows
 
     rows = []

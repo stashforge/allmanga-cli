@@ -56,6 +56,8 @@ def get_key(descriptor):
         return "CTRL_D"
     if char == b"\x0e":
         return "CTRL_N"
+    if char == b"\x0f":
+        return "CTRL_O"
     if char == b"\x10":
         return "CTRL_P"
     if char == b"\x12":

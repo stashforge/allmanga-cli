@@ -7,7 +7,7 @@ import pkgutil
 from typing import Iterable
 
 
-_SKIPPED_MODULES = {"base", "models", "schema", "wordpress"}
+_SKIPPED_MODULES = {"shared"}
 _DEFAULT_PROVIDER_ID = "miruro"
 
 

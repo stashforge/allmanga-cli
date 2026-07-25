@@ -28,6 +28,7 @@ from ..core.api import (
 )
 from ..core.api import SearchFailure
 from ..services import anilist as anilist_service
+from ..services import normalize as anilist_normalize
 from ..services.http import anilist_urlopen
 from ..state import secrets as secret_state
 
@@ -160,12 +161,13 @@ def prompt_anilist_token():
 
 def fetch_anilist_media(token, media_id):
     try:
-        return anilist_service.fetch_media(
+        raw_media = anilist_service.fetch_one(
             anilist_urlopen,
             read_json_response,
             token,
-            media_id,
+            anilist_id=media_id,
         )
+        return raw_media or {}
     except Exception as e:
         debug_warn("Failed to refresh AniList media", e)
         return {}
@@ -190,7 +192,7 @@ def get_anilist_media_id(anime):
 
 
 def update_anime_from_anilist_media(anime, media):
-    return anilist_service.apply_media_update(anime, media)
+    return anilist_normalize.apply_media_update(anime, media)
 
 
 def fetch_anilist_list(token, status=None, force_refresh=False):
@@ -202,12 +204,19 @@ def fetch_anilist_list(token, status=None, force_refresh=False):
         return _anilist_list_cache[cache_key]
 
     try:
-        shows = anilist_service.fetch_list(
+        raw_shows = anilist_service.fetch(
             anilist_urlopen,
             read_json_response,
             token,
-            status,
+            user_list_status=status or "",
+            user_list=True if not status else False,
         )
+        shows = [
+            anilist_normalize.normalize_media(
+                raw, list_name=raw.pop("_list_name", None)
+            )
+            for raw in raw_shows
+        ]
         _anilist_list_cache[cache_key] = shows
         return shows
     except Exception as e:
@@ -224,12 +233,13 @@ def search_anilist(token, query, raise_errors=False):
         return _anilist_search_cache[cache_key]
 
     try:
-        shows = anilist_service.search(
+        raw_shows = anilist_service.fetch(
             anilist_urlopen,
             read_json_response,
             token,
-            query,
+            search=query,
         )
+        shows = [anilist_normalize.normalize_media(raw) for raw in raw_shows]
         _anilist_search_cache[cache_key] = shows
         return shows
     except SearchFailure as e:
@@ -250,13 +260,14 @@ def fetch_anilist_by_ids(token, anilist_ids=None, mal_ids=None, raise_errors=Fal
         
     # We could implement a cache here by exact IDs, but for now just pass through
     try:
-        shows = anilist_service.fetch_by_ids(
+        raw_shows = anilist_service.fetch(
             anilist_urlopen,
             read_json_response,
             token,
             anilist_ids=anilist_ids,
             mal_ids=mal_ids,
         )
+        shows = [anilist_normalize.normalize_media(raw) for raw in raw_shows]
         return shows
     except SearchFailure as e:
         debug_warn("AniList fetch_by_ids failed", e)
@@ -888,7 +899,13 @@ def refresh_history_anilist_airing_batch(history_entries):
     media_ids_to_fetch = list(set(media_ids_to_fetch))
 
     try:
-        batch_results = anilist_service.fetch_media_batch(anilist_urlopen, read_json_response, media_ids_to_fetch)
+        raw_shows = anilist_service.fetch(
+            anilist_urlopen,
+            read_json_response,
+            token="",
+            anilist_ids=media_ids_to_fetch,
+        )
+        batch_results = {str(media["id"]): media for media in raw_shows if "id" in media}
     except Exception as e:
         debug_warn("AniList batch fetch failed", e)
         return False

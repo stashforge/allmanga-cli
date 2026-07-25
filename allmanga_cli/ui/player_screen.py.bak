@@ -114,14 +114,6 @@ def activate(show: dict, current_ep: object, total_eps: int) -> None:
         "mpv_props": None,
         "_cleared_terminal_image": False,
         "_last_poster_key": None,
-        "_poster_manager": None,
-        "_ui": None,
-        # partial-render bookkeeping
-        "_cached_w": 0,
-        "_cached_h": 0,
-        "_row_state": None,
-        "_row_bar": None,
-        "_row_time": None,
     })
 
 
@@ -213,16 +205,6 @@ def render(
     if not s["active"]:
         return
 
-    # Fall back to cached poster_manager / ui if caller didn't pass them
-    if poster_manager is None:
-        poster_manager = s.get("_poster_manager")
-    else:
-        s["_poster_manager"] = poster_manager
-    if ui is None:
-        ui = s.get("_ui")
-    else:
-        s["_ui"] = ui
-
     if enter_alt_screen_fn is not None:
         enter_alt_screen_fn()
 
@@ -253,14 +235,6 @@ def render(
     props = s.get("mpv_props")
     is_playing = props is not None
 
-    # ── Check for terminal resize — invalidates cached row positions ──
-    try:
-        w, h = os.get_terminal_size(sys.stdin.fileno())
-    except Exception:
-        w, h = 80, 24
-    if w != s.get("_cached_w") or h != s.get("_cached_h"):
-        s["_row_state"] = None  # force full render
-
     content = []
 
     try:
@@ -290,17 +264,12 @@ def render(
         content.append("")
         content.append(f"{SECTION_LABEL}CURRENTLY PLAYING{RESET}")
         label = s.get("current_ep_label") or str(s["current_ep"])
-        from allmanga_cli.domain.episodes import episode_label
-        ep_str = episode_label(label)
-        content.append(f"\033[38;5;250m{ep_str}\033[0m")
+        content.append(f"\033[38;5;250mEpisode {label}\033[0m")
         if stream_str:
             content.append(f"\033[38;5;248m{stream_str}\033[0m")
         content.append("")
-        _idx_state = len(content)
         content.append(f"\033[1;36m{state_str}\033[0m")
-        _idx_bar = len(content)
         content.append(bar)
-        _idx_time = len(content)
         content.append(f"\033[38;5;250m{time_line}\033[0m")
         detail_lines = []
         genres = show.get("genres") if isinstance(show, dict) else None
@@ -365,8 +334,11 @@ def render(
 
     if poster_raw:
         for row in range(POSTER_HEIGHT):
-            line = poster_lines[row] if row < len(poster_lines) else ""
-            out.append(f"\033[2K{line}")
+            if poster_changed:
+                line = poster_lines[row] if row < len(poster_lines) else ""
+                out.append(f"\033[2K{line}")
+            else:
+                out.append("")
 
     for line in content:
         out.append(f"\033[2K{_fit_terminal_line(line, w)}")
@@ -383,61 +355,11 @@ def render(
         )
         sys.stdout.flush()
 
-    # ── Cache terminal size and dynamic row positions for partial render ──
-    s["_cached_w"] = w
-    s["_cached_h"] = h
-    if is_playing:
-        # +1: terminal rows are 1-based; poster rows come first
-        poster_row_count = POSTER_HEIGHT if poster_raw else 0
-        content_start = poster_row_count + 1
-        s["_row_state"] = content_start + _idx_state
-        s["_row_bar"]   = content_start + _idx_bar
-        s["_row_time"]  = content_start + _idx_time
-    else:
-        s["_row_state"] = None
-        s["_row_bar"]   = None
-        s["_row_time"]  = None
-
 
 def update_mpv_props(props: dict | None) -> None:
     """Store the latest mpv property snapshot and trigger a redraw.
 
     Called from the ``MpvIpc`` redraw callback.
     """
-    s = _player_ui_state
-    s["mpv_props"] = props
-
-    # ── Attempt a cheap partial render first ──────────────────────────
-    row_state = s.get("_row_state")
-    row_bar   = s.get("_row_bar")
-    row_time  = s.get("_row_time")
-    w         = s.get("_cached_w", 0)
-
-    if props is not None and row_state and row_bar and row_time and w:
-        # Check terminal hasn't been resized since the last full render
-        try:
-            cur_w, cur_h = os.get_terminal_size(sys.stdin.fileno())
-        except Exception:
-            cur_w, cur_h = w, s.get("_cached_h", 0)
-
-        if cur_w == w and cur_h == s.get("_cached_h", 0):
-            state_str = "\u258c\u258c Paused" if props.get("pause") else "\u25b6 Playing"
-            pt_sec  = props.get("playback-time", 0) or 0
-            dur_sec = props.get("duration", 0) or 0
-            rem_sec = dur_sec - pt_sec if dur_sec > 0 else 0
-            bar = _thin_progress_bar(pt_sec, dur_sec, w - 4)
-            time_line = f"{_fmt_time(pt_sec)} / {_fmt_time(dur_sec)}"
-            if dur_sec > 0:
-                time_line += f"  \u2022  -{_fmt_time(rem_sec)}"
-
-            sys.stdout.write(
-                f"\033[{row_state};1H\033[2K\033[1;36m{_fit_terminal_line(state_str, w)}\033[0m"
-                f"\033[{row_bar};1H\033[2K{_fit_terminal_line(bar, w)}"
-                f"\033[{row_time};1H\033[2K\033[38;5;250m{_fit_terminal_line(time_line, w)}\033[0m"
-                "\033[?25l"
-            )
-            sys.stdout.flush()
-            return
-
-    # Fall back to full render (resize, first tick, or no cached rows)
+    _player_ui_state["mpv_props"] = props
     render()

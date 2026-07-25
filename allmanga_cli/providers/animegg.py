@@ -7,8 +7,8 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
-from .base import Provider
-from .models import (
+from .shared.base import Provider
+from .shared.models import (
     normalize_episode_catalog,
     normalize_episode_sources,
     normalize_title,
@@ -54,25 +54,106 @@ class AnimeGG(Provider):
             slug = match.group(1)
             tag_content = match.group(2)
             
-            strong_match = re.search(r'<strong[^>]*>(.*?)</strong>', tag_content, re.IGNORECASE)
+            strong_match = re.search(r'<h2[^>]*>(.*?)</h2>|<strong[^>]*>(.*?)</strong>', tag_content, re.IGNORECASE)
             if strong_match:
-                title = re.sub(r'<[^>]+>', '', strong_match.group(1))
+                title = re.sub(r'<[^>]+>', '', strong_match.group(1) or strong_match.group(2)).strip()
             else:
                 title = slug.replace("-", " ")
                 
+            img_match = re.search(r'<img\b[^>]*src=["\']([^"\']+)["\']', tag_content, re.IGNORECASE)
+            thumbnail = img_match.group(1) if img_match else ""
+            if thumbnail and not thumbnail.startswith("http"):
+                thumbnail = f"{BASE_URL}{thumbnail}"
+                
+            status_match = re.search(r'Status\s*:\s*(.*?)</div>', tag_content, re.IGNORECASE)
+            status = re.sub(r'<[^>]+>', '', status_match.group(1)).strip() if status_match else ""
+            if status.lower() == "completed":
+                status = "FINISHED"
+            elif status.lower() == "ongoing":
+                status = "RELEASING"
+            
+            alt_match = re.search(r'Alt Titles\s*:\s*(.*?)</div>', tag_content, re.IGNORECASE)
+            alt_names = [x.strip() for x in alt_match.group(1).split(',')] if alt_match else []
+            
+            eps_match = re.search(r'Episodes\s*:\s*(\d+)', tag_content, re.IGNORECASE)
+            episode_count = int(eps_match.group(1)) if eps_match else None
+            
+            t_upper = title.upper()
+            if "OVA" in t_upper:
+                media_type = "OVA"
+            elif "MOVIE" in t_upper:
+                media_type = "MOVIE"
+            elif "SPECIAL" in t_upper:
+                media_type = "SPECIAL"
+            else:
+                media_type = "UNKNOWN"
+
             results.append({
                 "id": slug,
                 "name": title,
-                "type": "TV", # default assumption
+                "type": media_type,
+                "thumbnail": thumbnail,
+                "status": status,
+                "altNames": alt_names,
+                "episodeCount": episode_count
             })
             
         return normalize_titles(results, provider_id=self.id, provider_name=self.name, id_key="id")
 
     def get_title(self, provider_id: str) -> dict[str, Any] | None:
+        url = f"{BASE_URL}/series/{provider_id}"
+        html_content = self._fetch_html(url)
+        
+        # fallback defaults
         title_name = provider_id.replace("-", " ").title()
+        thumbnail = ""
+        description = ""
+        alt_names = []
+        status = ""
+        genres = []
+        
+        if html_content:
+            t_match = re.search(r'<div\b[^>]*class=["\']media-body["\'][^>]*>.*?<h1\b[^>]*>(.*?)</h1>', html_content, re.IGNORECASE | re.DOTALL)
+            if t_match:
+                title_name = re.sub(r'<[^>]+>', '', t_match.group(1)).strip()
+                
+            img_match = re.search(r'<img\b[^>]*src=["\']([^"\']+)["\'][^>]*class=["\']media-object', html_content, re.IGNORECASE)
+            if img_match:
+                thumbnail = img_match.group(1)
+                if not thumbnail.startswith("http"):
+                    thumbnail = f"{BASE_URL}{thumbnail}"
+                
+            alt_match = re.search(r'Alternate Titles:\s*(.*?)</span>', html_content, re.IGNORECASE | re.DOTALL)
+            if alt_match:
+                alt_names = [x.strip() for x in alt_match.group(1).split(",")]
+                
+            stat_match = re.search(r'Status:\s*(.*?)</span>', html_content, re.IGNORECASE | re.DOTALL)
+            if stat_match:
+                status = stat_match.group(1).strip()
+                if status.lower() == "completed":
+                    status = "FINISHED"
+                elif status.lower() == "ongoing":
+                    status = "RELEASING"
+                
+            tag_block = re.search(r'<ul\b[^>]*class=["\']tagscat["\'][^>]*>([\s\S]*?)</ul>', html_content, re.IGNORECASE | re.DOTALL)
+            if tag_block:
+                for a_match in re.finditer(r'<a\b[^>]*>(.*?)</a>', tag_block.group(1), re.IGNORECASE | re.DOTALL):
+                    genres.append(a_match.group(1).strip())
+                    
+            desc_match = re.search(r'<p\b[^>]*class=["\']ptext["\'][^>]*>(.*?)</p>', html_content, re.IGNORECASE | re.DOTALL)
+            if desc_match:
+                description = re.sub(r'<[^>]+>', '', desc_match.group(1)).strip()
+                if description.lower().startswith("plot summary:"):
+                    description = description[13:].strip()
+                    
         return normalize_title({
             "id": provider_id,
             "name": title_name,
+            "altNames": alt_names,
+            "thumbnail": thumbnail,
+            "description": description,
+            "status": status,
+            "genres": genres,
         }, provider_id=self.id, provider_name=self.name, id_key="id")
 
     def episode_catalog(self, provider_id: str, ttype: str = "sub") -> dict[str, Any]:

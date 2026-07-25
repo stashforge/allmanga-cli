@@ -359,7 +359,9 @@ class MpvIpc:
                                                     trigger_fetch(next_ord, "NEXT")
 
                                                 if self.prefetched_stream:
-                                                    ntitle = f"{ui_info.get('title', 'Anime')} - Episode {next_label}"
+                                                    from allmanga_cli.domain.episodes import episode_label
+                                                    ep_str = episode_label(next_label)
+                                                    ntitle = f"{ui_info.get('title', 'Anime')} - {ep_str}"
                                                     if rem_sec <= 30 and rem_sec > 5:
                                                         self.send_cmd("show-text", f"Next up\n{ntitle}\nStarts in 0:{int(rem_sec):02d}", 60000)
                                                         countdown_active = True

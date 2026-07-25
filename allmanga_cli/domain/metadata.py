@@ -254,7 +254,10 @@ def format_info_metadata_line(
     )
     media_status_label = anime_status_label(anime)
     if override_ep_str:
-        progress = f"\033[38;5;244mEP{DIM} {override_ep_str}"
+        if override_ep_str.lower() in ("movie", "full"):
+            progress = f"\033[38;5;244m{override_ep_str.title()}{DIM}"
+        else:
+            progress = f"\033[38;5;244mEP{DIM} {override_ep_str}"
     else:
         progress = format_progress(anime, local_only=local_only, ttype=ttype)
         if not progress:
@@ -262,12 +265,22 @@ def format_info_metadata_line(
 
     available = format_available_episodes(anime, ttype, local_only=local_only)
     next_airing = format_next_airing(anime, now)
-    anime_type = str(anime.get("type") or "TV").upper()
-    aired_start = anime.get("airedStart") or {}
-    aired_end = anime.get("airedEnd") or {}
+    anime_type = str(anime.get("type") or "UNKNOWN").upper()
+    if anime_type == "UNKNOWN":
+        anime_type = "UNKNOWN TYPE"
+    def _ext_year(val):
+        if isinstance(val, dict): return val.get("year")
+        if isinstance(val, str):
+            import re
+            m = re.search(r'\b(20\d{2}|19\d{2})\b', val)
+            return m.group(1) if m else val
+        return None
+
+    aired_start = anime.get("airedStart")
+    aired_end = anime.get("airedEnd")
     years = format_years(
-        aired_start.get("year"),
-        aired_end.get("year"),
+        _ext_year(aired_start),
+        _ext_year(aired_end),
         anime.get("status"),
     )
     score = anime.get("score")

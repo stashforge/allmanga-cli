@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 from ..domain.episodes import episode_id_at, episode_index_for_id, episode_progress_number, episode_label
 from ..domain.titles import get_show_display_title
 from ..domain.tracking import tracking_status_for_progress
-from ..providers.shared.models import title_provider_key
+from ..providers.models import title_provider_key
 from ..playback.rules import (
     playback_looks_complete,
     playback_updates_history,
@@ -220,7 +220,6 @@ def handle_episode_state(
             header_fn=_ep_hdr,
             tab_fn=_ep_tab_fn,
             reverse_fn=_ep_tab_fn,
-            info_fn=app_core.make_single_show_info_fn(ui.ui_show_ctx, ui),
             help_dict=hd6
         )
 
@@ -295,16 +294,12 @@ def handle_play_state(
         "stream_info": {},
         "mpv_props": None,
         "_cleared_terminal_image": False,
-        "_last_poster_key": None,
     })
 
     # Try to trigger the render function from ui module directly if we can't use globals
     try:
         from ..ui.player_screen import render as _render_player_screen
-        _render_player_screen(
-            poster_manager=getattr(app_core, "_poster_manager", None),
-            ui=ui,
-        )
+        _render_player_screen()
     except ImportError:
         pass
 
@@ -787,14 +782,11 @@ def handle_action_menu_state(
         flags, ui,
         "Select action", opts,
         header_fn=_action_hdr,
-        info_fn=app_core.make_single_show_info_fn(action_show, ui),
         hints=action_hints,
         help_dict=hd7
     )
 
     if idx in (-2, -3):
-        if ms.total_eps <= 1:
-            return ui.ep_prev_state
         return ui.action_prev_state
 
     def _execute_track_action():
@@ -866,8 +858,6 @@ def handle_action_menu_state(
         return "BROWSER_PLAY"
 
     elif a == "BACK":
-        if ms.total_eps <= 1:
-            return ui.ep_prev_state
         return ui.action_prev_state
 
     elif a == "QUIT":
@@ -982,7 +972,6 @@ def handle_mirrors_state(
         header=init_hdr,
         live_fn=_mirror_refresh,
         tab_fn=_tab_pref,
-        info_fn=app_core.make_single_show_info_fn(ui.ui_show_ctx, ui),
         help_dict=hd8
     )
 
@@ -1036,10 +1025,7 @@ def handle_browser_play_state(
         parts.append(f"\033[38;5;244m{_t('Enter/Right=select  ? = Help  Left/Esc=back')}\033[0m")
         return "\n".join(parts)
 
-    idx = tui_pick(
-        flags, ui, "Select link to open in browser", opts, header_fn=_browser_hdr,
-        info_fn=app_core.make_single_show_info_fn(ui.ui_show_ctx, ui)
-    )
+    idx = tui_pick(flags, ui, "Select link to open in browser", opts, header_fn=_browser_hdr)
     
     if idx < 0:
         return "ACTION_MENU"

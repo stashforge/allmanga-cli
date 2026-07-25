@@ -193,9 +193,10 @@ from allmanga_cli.services.http import (
     request_json as _req,
 )
 from allmanga_cli.providers import ALLANIME, get_provider, provider_key
-from allmanga_cli.providers.models import title_provider_id, title_provider_key
-from allmanga_cli.services import allanime as allanime_service
+from allmanga_cli.providers.shared.models import title_provider_id, title_provider_key
+from allmanga_cli.providers import allanime as allanime_service
 from allmanga_cli.services import anilist as anilist_service
+from allmanga_cli.services import normalize as anilist_normalize
 from allmanga_cli.context import FLAGS as runtime_flags
 from allmanga_cli.core import reporting
 from allmanga_cli.core import storage
@@ -399,6 +400,97 @@ def load_anilist_browse(token, status):
     )
 
 
+def enrich_show_if_missing(show: dict) -> None:
+    if not show:
+        return
+    if show.get("aniListId") or show.get("_anilist_score"):
+        return
+    
+    show_id = title_provider_id(show)
+    if not show_id:
+        return
+        
+    provider = _provider_for_title(show)
+    if provider.id not in ("anidbapp", "animexin", "lucifer", "animekhor", "animegg", "anizone"):
+        return
+        
+    get_title_fn = getattr(provider, "get_title", None)
+    if not get_title_fn:
+        return
+
+    try:
+        title_data = get_title_fn(show_id)
+        if title_data:
+            # Merge any newly scraped data (description, episodes, etc.) into the active show object
+            for k, v in title_data.items():
+                if v and not show.get(k):
+                    show[k] = v
+                elif k == "availableEpisodes" and isinstance(v, dict):
+                    show.setdefault(k, {})
+                    for ep_k, ep_v in v.items():
+                        if ep_v > show[k].get(ep_k, 0):
+                            show[k][ep_k] = ep_v
+
+            if title_data.get("aniListId"):
+                from allmanga_cli.core.anilist import fetch_anilist_by_ids
+                from allmanga_cli.core.enrichment import _merge_anilist_into_provider
+                from allmanga_cli.core.storage import load_config, get_title_sync
+                
+                # Check if sync is disabled globally or via flags
+                sync_allowed = True
+                if runtime_flags.sync_force_off:
+                    sync_allowed = False
+                elif not runtime_flags.sync_force_on:
+                    sync_allowed = get_title_sync(show)
+                    
+                token = load_config().get("anilist_token") if sync_allowed else None
+                al_data = fetch_anilist_by_ids(token, anilist_ids=[title_data["aniListId"]])
+                if al_data:
+                    _merge_anilist_into_provider(show, al_data[0])
+    except Exception as e:
+        debug_warn("Late enrichment failed", e)
+
+
+def make_info_fn(shows_getter, ui):
+    """Return an ``info_fn`` callback suitable for passing to ``tui_pick``.
+
+    *shows_getter* is a zero-argument callable that returns the current list
+    of show dicts (same list whose indices ``tui_pick`` returns).
+    *ui* is the current :class:`~allmanga_cli.context.UiState`.
+
+    When the user presses ``Ctrl+O`` on a highlighted item, the info screen
+    is shown for that show and control returns to the picker automatically.
+    """
+    def _info_fn(idx: int) -> None:
+        from allmanga_cli.ui.info_screen import show_info_screen
+        shows = shows_getter()
+        if not shows or not (0 <= idx < len(shows)):
+            return
+        with_loading("Fetching details...", enrich_show_if_missing, shows[idx])
+        show_info_screen(
+            shows[idx],
+            poster_manager=_poster_manager,
+            ui=ui,
+        )
+
+    return _info_fn
+
+
+def make_single_show_info_fn(show, ui):
+    """Return an ``info_fn`` for pickers bound to a single show (e.g. details, episodes)."""
+    def _info_fn(idx: int) -> None:
+        if not show:
+            return
+        with_loading("Fetching details...", enrich_show_if_missing, show)
+        from allmanga_cli.ui.info_screen import show_info_screen
+        show_info_screen(
+            show,
+            poster_manager=_poster_manager,
+            ui=ui,
+        )
+    return _info_fn
+
+
 def _exit_player_screen(close_alt=False):
     if close_alt:
         exit_alt_screen()
@@ -503,7 +595,9 @@ def render_player_screen():
         content.append("")
         content.append(f"{_C_SECTION}CURRENTLY PLAYING{_RST}")
         label = s.get("current_ep_label") or str(s["current_ep"])
-        content.append(f"\033[38;5;250mEpisode {label}\033[0m")
+        from allmanga_cli.domain.episodes import episode_label
+        ep_str = episode_label(label)
+        content.append(f"\033[38;5;250m{ep_str}\033[0m")
         if stream_str:
             content.append(f"\033[38;5;248m{stream_str}\033[0m")
         content.append("")
@@ -1265,7 +1359,7 @@ def match_allanime_show_to_anilist(flags, ui, allanime_show, token, manual_on_fa
             media = fetch_anilist_media(token, provider_al_id)
             if media:
                 allanime_show["_match_source"] = "id"
-                normalized_media = anilist_service.normalize_media(media)
+                normalized_media = anilist_normalize.normalize_media(media)
                 save_source_anilist_match(allanime_show, normalized_media)
                 return _merge_anilist_into_allanime(allanime_show, normalized_media)
         except Exception:
@@ -1494,20 +1588,7 @@ def ensure_episode_ids(show, ttype):
     show_id = title_provider_id(show)
     if show_id:
         # LATE ENRICHMENT: If search failed to enrich, try one last time via provider's get_title ID scraping
-        if not show.get("aniListId") and not show.get("_anilist_score"):
-            try:
-                title_data = _provider_for_title(show).get_title(show_id)
-                if title_data and title_data.get("aniListId"):
-                    from allmanga_cli.core.anilist import fetch_anilist_by_ids
-                    from allmanga_cli.core.enrichment import _merge_anilist_into_provider
-                    from allmanga_cli.core.storage import load_config
-                    
-                    token = load_config().get("anilist_token")
-                    al_data = fetch_anilist_by_ids(token, anilist_ids=[title_data["aniListId"]])
-                    if al_data:
-                        _merge_anilist_into_provider(show, al_data[0])
-            except Exception as e:
-                debug_warn("Late enrichment failed", e)
+        enrich_show_if_missing(show)
 
         catalog = _provider_for_title(show).episode_catalog(show_id, ttype)
     else:

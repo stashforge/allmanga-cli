@@ -104,6 +104,7 @@ def tui_pick(
     reverse_fn=None,
     delete_fn=None,
     right_fn=None,
+    info_fn=None,
     return_query_on_enter: bool = False,
     query_history=None,
     hide_separator: bool = False,
@@ -658,6 +659,11 @@ def tui_pick(
             elif key in ("DELETE", "CTRL_D"):
                 if delete_fn and filt:
                     pending_delete_index = filt[sel]
+            elif key == "CTRL_O":
+                if info_fn is not None and filt and sel < len(filt) and filt[sel] not in disabled_indices:
+                    info_fn(filt[sel])
+                    last_poster_key = None
+                    _needs_redraw = True
             elif key != "UNKNOWN":
                 if len(key) == 1 and key.isprintable():
                     if is_search:

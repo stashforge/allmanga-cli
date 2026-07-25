@@ -4,7 +4,7 @@ import re
 import urllib.request
 
 from ..core.terminal import sanitize_terminal_text
-from ..services.allanime import get_clock_links
+from ..providers.allanime import get_clock_links
 from ..services.http import (
     REFERER,
     SSL_CTX,

@@ -6,8 +6,8 @@ import urllib.error
 from typing import Any
 import logging
 
-from .base import Provider
-from .models import (
+from .shared.base import Provider
+from .shared.models import (
     normalize_title,
     normalize_titles,
     normalize_episode_catalog,

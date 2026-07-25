@@ -7,9 +7,9 @@ import re
 import urllib.parse
 import urllib.request
 
-from .models import normalize_episode_catalog, normalize_episode_sources, normalize_titles
-from .schema import build_title
-from .wordpress import WordPressAnimeProvider, fetch_html
+from .shared.models import normalize_episode_catalog, normalize_episode_sources, normalize_titles
+from .shared.schema import build_title
+from .shared.wordpress import WordPressAnimeProvider, fetch_html
 from ..services.http import UA
 
 
@@ -32,15 +32,7 @@ class AnimeXinProvider(WordPressAnimeProvider):
             provider_name=self.name,
         )
 
-    def get_title(self, provider_id: str) -> dict | None:
-        title = super().get_title(provider_id)
-        if not title:
-            return None
-        return normalize_titles(
-            [title],
-            provider_id=self.id,
-            provider_name=self.name,
-        )[0]
+
 
     def episode_catalog(self, provider_id: str, ttype: str = "sub") -> dict:
         return normalize_episode_catalog(

@@ -179,6 +179,7 @@ def handle_history_state(
         tab_fn=_hist_tab,
         delete_fn=_hist_delete,
         live_fn=lambda _query: (list(hopts), "", False),
+        info_fn=app_core.make_info_fn(lambda: [e.get("show", {}) for e in filtered_hist], ui),
         help_dict=picker_help(
             "Open details",
             "Search",
@@ -365,7 +366,8 @@ def handle_search_state(
             live_fn=live_fn,
             is_search=False,
             help_dict=hd2,
-            auto_select_single_when_done=ms.just_searched
+            auto_select_single_when_done=ms.just_searched,
+            info_fn=app_core.make_info_fn(get_results, ui),
         )
 
     shows = get_results()
