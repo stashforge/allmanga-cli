@@ -54,9 +54,16 @@ def _display_episode_label(show: dict, episode_id, ttype: str) -> str:
     return str(labels.get(str(episode_id)) or episode_id)
 
 def _fmt_ep(label):
-    if str(label).lower() in ("movie", "full", "ova", "special"):
-        return str(label).title()
-    return f"EP {label}"
+    label_str = str(label).strip()
+    if not label_str:
+        return "EP ?"
+    if label_str[0].isdigit():
+        return f"EP {label_str}"
+    if label_str.lower() == "ova":
+        return "OVA"
+    if label_str.lower().startswith("ova "):
+        return "OVA " + label_str[4:]
+    return label_str.title()
 
 
 def _clear_episode_source_state(ms: "MachineState") -> None:

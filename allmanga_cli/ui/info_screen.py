@@ -174,7 +174,9 @@ def _build_content(show: dict, w: int) -> list[str]:
         ep_parts.append(f"Available {avail_sub}")
     if total_eps:
         ep_parts.append(f"Total {total_eps}")
-    if ep_parts:
+        
+    fmt = str(show.get("format") or show.get("type") or "").upper()
+    if ep_parts and fmt != "MOVIE" and total_eps != 1:
         _section("EPISODES", "  ·  ".join(ep_parts), w, lines)
 
     # ── Next airing ───────────────────────────────────────────────────

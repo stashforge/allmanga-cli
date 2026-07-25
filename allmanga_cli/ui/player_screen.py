@@ -170,6 +170,14 @@ def get_player_poster(show: dict | None, ui: "UiState | None" = None) -> str:
 def _playback_episode_summary(show: dict | None, player_state: dict, ttype: str = "sub") -> str:
     if not isinstance(show, dict):
         return ""
+    
+    fmt = str(show.get("format") or show.get("type") or "").upper()
+    total = _positive_int(show.get("episodeCount"))
+    
+    # Hide episode count for movies or single-episode titles
+    if fmt == "MOVIE" or total == 1:
+        return ""
+
     available = None
     try:
         available = int((show.get("availableEpisodes") or {}).get(ttype))
@@ -182,7 +190,6 @@ def _playback_episode_summary(show: dict | None, player_state: dict, ttype: str 
     if available is None:
         available = _positive_int(player_state.get("total_eps"))
 
-    total = _positive_int(show.get("episodeCount"))
     if available is not None:
         return f"Episodes {available}/{total if total else '?'}"
     if total:
