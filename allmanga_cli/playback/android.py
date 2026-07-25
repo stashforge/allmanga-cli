@@ -80,8 +80,20 @@ def play_android(
     headers = proxy_filtered_headers(stream.get("headers", {}))
     package, activity = PLAYERS.get(player, PLAYERS["mpv"])
     from allmanga_cli.domain.episodes import episode_label
-    ep_str = episode_label(episode)
-    media_title = f"{title} - {ep_str}"
+    ep_str = str(episode_label(episode)).strip()
+    
+    if ep_str.lower() in ("movie", "full"):
+        media_title = f"{title}"
+    else:
+        if ep_str and ep_str[0].isdigit():
+            ep_str = f"EP {ep_str}"
+        elif ep_str.lower() == "ova":
+            ep_str = "OVA"
+        elif ep_str.lower().startswith("ova "):
+            ep_str = "OVA " + ep_str[4:]
+        else:
+            ep_str = ep_str.title()
+        media_title = f"{title} - {ep_str}"
     proxy_server = None
     intent_type = "video/*"
 

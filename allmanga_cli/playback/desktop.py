@@ -35,8 +35,20 @@ def play_desktop(
     headers = proxy_filtered_headers(stream.get("headers", {}))
     resolution = stream.get("resolution", "Adaptive")
     from allmanga_cli.domain.episodes import episode_label
-    ep_str = episode_label(episode)
-    media_title = f"{title} - {ep_str} ({resolution})"
+    ep_str = str(episode_label(episode)).strip()
+    
+    if ep_str.lower() in ("movie", "full"):
+        media_title = f"{title} ({resolution})"
+    else:
+        if ep_str and ep_str[0].isdigit():
+            ep_str = f"EP {ep_str}"
+        elif ep_str.lower() == "ova":
+            ep_str = "OVA"
+        elif ep_str.lower().startswith("ova "):
+            ep_str = "OVA " + ep_str[4:]
+        else:
+            ep_str = ep_str.title()
+        media_title = f"{title} - {ep_str} ({resolution})"
 
     start_time = get_resume_time(show_id, episode) if show_id else 0
     resume_message = (
