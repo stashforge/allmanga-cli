@@ -596,8 +596,9 @@ def render_player_screen():
         for tl in _wrap_title(clean, w - 4, 2).splitlines():
             content.append(f"\033[1;97m{tl}\033[0m")
         content.append("")
-        content.append(f"\033[38;5;248m{ep_str}\033[0m")
-        content.append("")
+        if ep_str:
+            content.append(f"\033[38;5;248m{ep_str}\033[0m")
+            content.append("")
         content.append(f"{_C_SECTION}CURRENTLY PLAYING{_RST}")
         label = s.get("current_ep_label") or str(s["current_ep"])
         from allmanga_cli.domain.episodes import episode_label
@@ -641,8 +642,9 @@ def render_player_screen():
         for tl in _wrap_title(clean, w - 4, 2).splitlines():
             content.append(f"\033[1;97m{tl}\033[0m")
         content.append("")
-        content.append(f"\033[38;5;248m{ep_str}\033[0m")
-        content.append("")
+        if ep_str:
+            content.append(f"\033[38;5;248m{ep_str}\033[0m")
+            content.append("")
         content.append(f"{_C_SECTION}STATUS{_RST}")
         content.append("\033[1;36mLoading stream...\033[0m")
         content.append("")
