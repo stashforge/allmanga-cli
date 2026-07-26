@@ -194,7 +194,7 @@ def start_bg_resolve(ep_data: dict, exclude_names: set) -> None:
 
     def worker() -> None:
         from .resolver import generate_source_passes
-        for src, failed_queue in generate_source_passes(sources, max_passes=3):
+        for src, failed_queue, is_retry in generate_source_passes(sources, max_passes=3):
             if not _generation_is_current(generation):
                 return
             sname = src.get("sourceName", "")
@@ -215,15 +215,23 @@ def start_bg_resolve(ep_data: dict, exclude_names: set) -> None:
                             found = True
                     if not found:
                         failed_queue.append(src)
+                        
+                # If a retry succeeds, we must deduct 1 from failed, since we are converting it to resolved!
+                d_fail = 0
+                if found and is_retry:
+                    d_fail = -1
+                elif not found and not is_retry:
+                    d_fail = 1
+                    
                 if not _update_bg_stats(
                     generation,
                     resolved=1 if found else 0,
-                    failed=0 if found else 1,
+                    failed=d_fail,
                 ):
                     return
             except Exception:
                 failed_queue.append(src)
-                if not _update_bg_stats(generation, failed=1):
+                if not _update_bg_stats(generation, failed=1 if not is_retry else 0):
                     return
         _update_bg_stats(generation, current="")
 

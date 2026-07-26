@@ -37,7 +37,7 @@ def generate_source_passes(sources, max_passes=3):
     for pass_idx in range(max_passes):
         failed = []
         for src in pending:
-            yield src, failed
+            yield src, failed, pass_idx > 0
         pending = failed
         if not pending:
             break
