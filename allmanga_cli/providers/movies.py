@@ -228,7 +228,7 @@ class MoviesProvider(MovieProvider):
         random.shuffle(pool)
 
         sources = []
-        target_sources = 7
+        target_sources = 12
         
         # dynamic Target-Filled Pool algorithm
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
