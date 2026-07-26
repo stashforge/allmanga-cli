@@ -214,36 +214,44 @@ class MoviesProvider(MovieProvider):
         import random
         import concurrent.futures
 
-        # Build massive pool of backup API tasks
-        pool = [
-            lambda: self._fetch_vidsrc(media_type, tmdb_id, s, e)
+        # 3 highly reliable Primary sources
+        primary_pool = [
+            lambda: self._fetch_vidsrc(media_type, tmdb_id, s, e),
+            lambda: self._fetch_vidnest_endpoint("moviebox", media_type, tmdb_id, s, e),
+            lambda: self._fetch_vidnest_endpoint("hollymoviehd", media_type, tmdb_id, s, e)
         ]
         
-        # 14 experimental/backup VidNest sub-servers (The target-filled pool will safely ignore the dead ones)
-        vidnest_endpoints = [
-            "moviebox", "hollymoviehd", "allmovies", "klikxxi", 
-            "vidsrc", "vidplay", "filemoon", "embed", 
-            "novaflow", "vidbinge", "smashystream", "mycloud", 
-            "upcloud", "superembed"
+        # 12 experimental Backup sources
+        vidnest_backups = [
+            "allmovies", "klikxxi", "vidsrc", "vidplay", 
+            "filemoon", "embed", "novaflow", "vidbinge", 
+            "smashystream", "mycloud", "upcloud", "superembed"
         ]
-        for endpoint in vidnest_endpoints:
-            pool.append(lambda ep=endpoint: self._fetch_vidnest_endpoint(ep, media_type, tmdb_id, s, e))
+        backup_pool = [
+            lambda ep=endpoint: self._fetch_vidnest_endpoint(ep, media_type, tmdb_id, s, e)
+            for endpoint in vidnest_backups
+        ]
             
-        # Shuffle the pool so we pull differently every time!
-        random.shuffle(pool)
+        # Shuffle backups randomly, but keep them behind the primary pool
+        random.shuffle(primary_pool)
+        random.shuffle(backup_pool)
+        pool = primary_pool + backup_pool
 
         sources = []
         successful_apis = 0
-        target_apis = 5  # Stop after we get streams from at least 5 distinct APIs
+        target_apis = 5  # We want at least 5 working APIs total
         
-        # dynamic Target-Filled Pool algorithm
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
             active_futures = set()
+            primary_futures = set()
             pool_idx = 0
             
             # fill pipeline initially up to 3 threads
             while pool_idx < len(pool) and len(active_futures) < 3:
-                active_futures.add(executor.submit(pool[pool_idx]))
+                future = executor.submit(pool[pool_idx])
+                active_futures.add(future)
+                if pool_idx < len(primary_pool):
+                    primary_futures.add(future)
                 pool_idx += 1
                 
             while active_futures:
@@ -252,6 +260,8 @@ class MoviesProvider(MovieProvider):
                 )
                 
                 for f in done:
+                    if f in primary_futures:
+                        primary_futures.remove(f)
                     try:
                         res = f.result()
                         if res:
@@ -260,14 +270,21 @@ class MoviesProvider(MovieProvider):
                     except Exception:
                         pass
                         
-                # If we successfully found streams from enough APIs, stop querying!
-                if successful_apis >= target_apis:
-                    break
-                    
                 # Fill the gap back up to 3 active threads
+                # ONLY launch backup tasks if we haven't reached our quota
                 while pool_idx < len(pool) and len(active_futures) < 3:
-                    active_futures.add(executor.submit(pool[pool_idx]))
+                    if successful_apis >= target_apis and pool_idx >= len(primary_pool):
+                        break  # Stop launching backup tasks!
+                        
+                    future = executor.submit(pool[pool_idx])
+                    active_futures.add(future)
+                    if pool_idx < len(primary_pool):
+                        primary_futures.add(future)
                     pool_idx += 1
+                    
+                # We stop querying IF we hit our target quota AND all primary sources have finished
+                if successful_apis >= target_apis and not primary_futures:
+                    break
                     
         # No cap on total mirrors! We return everything we scraped from the successful APIs.
         
