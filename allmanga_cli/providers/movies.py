@@ -154,12 +154,14 @@ class MoviesProvider(MovieProvider):
                         stream_url = stream.get("url")
                         if stream_url:
                             suffix = f" {idx+1}" if len(streams_list) > 1 else ""
+                            stream_headers = stream.get("headers", {})
+                            stream_headers.update(headers)
                             sources.append(build_direct_source(
                                 name=f"VidNest{suffix} ({srv.capitalize()})",
                                 stream_url=stream_url,
                                 stream_type="hls" if "hls" in stream.get("type", "").lower() or stream_url.endswith(".m3u8") else "mp4",
                                 resolution="Auto",
-                                headers=stream.get("headers", {})
+                                headers=stream_headers
                             ))
                             
                     # Moviebox format
@@ -172,7 +174,8 @@ class MoviesProvider(MovieProvider):
                                 name=f"VidNest{suffix} ({srv.capitalize()})",
                                 stream_url=stream_url,
                                 stream_type="mp4",
-                                resolution="Auto"
+                                resolution="Auto",
+                                headers=headers
                             ))
                     
                     # Klikxxi format
@@ -181,12 +184,14 @@ class MoviesProvider(MovieProvider):
                         stream_url = stream.get("url")
                         if stream_url:
                             suffix = f" {idx+1}" if len(src_list) > 1 else ""
+                            stream_headers = stream.get("headers", {})
+                            stream_headers.update(headers)
                             sources.append(build_direct_source(
                                 name=f"VidNest{suffix} ({srv.capitalize()})",
                                 stream_url=stream_url,
                                 stream_type="hls" if "hls" in stream.get("type", "").lower() or stream_url.endswith(".m3u8") else "mp4",
                                 resolution="Auto",
-                                headers=stream.get("headers", {})
+                                headers=stream_headers
                             ))
         except Exception:
             pass
