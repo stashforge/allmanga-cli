@@ -767,9 +767,9 @@ def handle_action_menu_state(
             tot = _bg_stats.get('total', r+f)
 
         if bg_alive:
-            mstat = f"{C_D}✔ {n} streams found • checking mirrors ({r+f}/{tot}){R}"
+            mstat = f"{C_D}✔ {n} streams found • checking sources ({r+f}/{tot}){R}"
         elif n > 0:
-            mstat = f"{C_D}✔ {n} streams ready • {tot}/{tot} mirrors checked{R}"
+            mstat = f"{C_D}✔ {n} streams ready • {tot}/{tot} sources checked{R}"
         else:
             mstat = ""
 
@@ -944,9 +944,9 @@ def handle_mirrors_state(
         except OSError: w = 80
 
         if alive:
-            plain_status = f"✔ {len(mopts)} streams found • checking mirrors ({r+f}/{tot})"
+            plain_status = f"✔ {len(mopts)} streams found • checking sources ({r+f}/{tot})"
         else:
-            plain_status = f"✔ {len(mopts)} streams ready • {tot}/{tot} mirrors checked"
+            plain_status = f"✔ {len(mopts)} streams ready • {tot}/{tot} sources checked"
 
         parts = []
         if ui.ui_show_ctx:
