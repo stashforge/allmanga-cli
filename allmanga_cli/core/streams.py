@@ -201,7 +201,7 @@ def fetch_episode_stream(show_id, ep_number, ttype="sub", quality="best", provid
         return source_priority(src)
 
     from ..media.resolver import generate_source_passes
-    for src, failed in generate_source_passes(sorted(sources, key=dynamic_prio), max_passes=3):
+    for src, failed, _ in generate_source_passes(sorted(sources, key=dynamic_prio), max_passes=3):
         streams = resolve_source(src)
         if streams:
             selected_stream = streams[0]
