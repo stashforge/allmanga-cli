@@ -216,9 +216,9 @@ class MoviesProvider(MovieProvider):
 
         # 3 highly reliable Primary sources
         primary_pool = [
-            lambda: self._fetch_vidsrc(media_type, tmdb_id, s, e),
+            lambda: self._fetch_vidnest_endpoint("hollymoviehd", media_type, tmdb_id, s, e),
             lambda: self._fetch_vidnest_endpoint("moviebox", media_type, tmdb_id, s, e),
-            lambda: self._fetch_vidnest_endpoint("hollymoviehd", media_type, tmdb_id, s, e)
+            lambda: self._fetch_vidsrc(media_type, tmdb_id, s, e)
         ]
         
         # 12 experimental Backup sources
