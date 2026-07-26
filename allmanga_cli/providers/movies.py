@@ -219,8 +219,13 @@ class MoviesProvider(MovieProvider):
             lambda: self._fetch_vidsrc(media_type, tmdb_id, s, e)
         ]
         
-        # 2 highly reliable VidNest sub-servers (Pruned 6 completely dead servers)
-        vidnest_endpoints = ["moviebox", "hollymoviehd"]
+        # 14 experimental/backup VidNest sub-servers (The target-filled pool will safely ignore the dead ones)
+        vidnest_endpoints = [
+            "moviebox", "hollymoviehd", "allmovies", "klikxxi", 
+            "vidsrc", "vidplay", "filemoon", "embed", 
+            "novaflow", "vidbinge", "smashystream", "mycloud", 
+            "upcloud", "superembed"
+        ]
         for endpoint in vidnest_endpoints:
             pool.append(lambda ep=endpoint: self._fetch_vidnest_endpoint(ep, media_type, tmdb_id, s, e))
             
