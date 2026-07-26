@@ -56,27 +56,33 @@ def download_episode(title, episode, stream, download_dir=""):
 
     print(f"\n{CYAN}[Download]{RESET} {filename}")
 
+    # Extract all headers
+    headers = stream.get("headers", {})
+    if referer and "Referer" not in headers:
+        headers["Referer"] = referer
+
     if audio_url:
         command = [
             "ffmpeg",
             "-nostdin",
-            "-y",
-            "-i",
-            url,
-            "-i",
-            audio_url,
-            "-map",
-            "0:v:0",
-            "-map",
-            "1:a:0",
-            "-c",
-            "copy",
-            filename,
+            "-y"
         ]
+        if headers:
+            header_str = "".join(f"{k}: {v}\r\n" for k, v in headers.items())
+            command.extend(["-headers", header_str])
+        
+        command.extend([
+            "-i", url,
+            "-i", audio_url,
+            "-map", "0:v:0",
+            "-map", "1:a:0",
+            "-c", "copy",
+            filename,
+        ])
     else:
         command = ["yt-dlp", url, "-o", filename]
-        if referer:
-            command.extend(["--add-header", f"Referer:{referer}"])
+        for k, v in headers.items():
+            command.extend(["--add-header", f"{k}:{v}"])
 
     try:
         subprocess.run(command, check=True)
