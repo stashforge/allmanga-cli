@@ -228,7 +228,8 @@ class MoviesProvider(MovieProvider):
         random.shuffle(pool)
 
         sources = []
-        target_sources = 12
+        successful_apis = 0
+        target_apis = 2  # Stop after we get streams from at least 2 distinct APIs
         
         # dynamic Target-Filled Pool algorithm
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
@@ -250,11 +251,12 @@ class MoviesProvider(MovieProvider):
                         res = f.result()
                         if res:
                             sources.extend(res)
+                            successful_apis += 1
                     except Exception:
                         pass
                         
-                # If we successfully found our target sources, we stop querying more APIs!
-                if len(sources) >= target_sources:
+                # If we successfully found streams from enough APIs, stop querying!
+                if successful_apis >= target_apis:
                     break
                     
                 # Fill the gap back up to 3 active threads
@@ -262,8 +264,8 @@ class MoviesProvider(MovieProvider):
                     active_futures.add(executor.submit(pool[pool_idx]))
                     pool_idx += 1
                     
-        # Cut exactly to 7 sources if it exceeded (since a task could return multiple streams)
-        sources = sources[:target_sources]
+        # Cut to a reasonable max total streams to prevent UI clutter
+        sources = sources[:15]
 
         if not sources:
             return None
