@@ -194,7 +194,7 @@ def start_bg_resolve(ep_data: dict, exclude_names: set) -> None:
 
     def worker() -> None:
         from .resolver import generate_source_passes
-        for src, failed_queue, is_retry in generate_source_passes(sources, max_passes=3):
+        for src, failed_queue, is_retry, is_final_pass in generate_source_passes(sources, max_passes=3):
             if not _generation_is_current(generation):
                 return
             sname = src.get("sourceName", "")
@@ -213,26 +213,27 @@ def start_bg_resolve(ep_data: dict, exclude_names: set) -> None:
                         if link not in seen_links and publish_stream(stream, generation):
                             seen_links.add(link)
                             found = True
-                    if not found:
+                            
+                if not found:
+                    if not is_final_pass:
                         failed_queue.append(src)
                         
-                # If a retry succeeds, we must deduct 1 from failed, since we are converting it to resolved!
-                d_fail = 0
-                if found and is_retry:
-                    d_fail = -1
-                elif not found and not is_retry:
-                    d_fail = 1
-                    
-                if not _update_bg_stats(
-                    generation,
-                    resolved=1 if found else 0,
-                    failed=d_fail,
-                ):
-                    return
+                inc_failed = 1 if not found and is_final_pass else 0
+                inc_resolved = 1 if found else 0
+                
+                if inc_resolved or inc_failed:
+                    if not _update_bg_stats(
+                        generation,
+                        resolved=inc_resolved,
+                        failed=inc_failed,
+                    ):
+                        return
             except Exception:
-                failed_queue.append(src)
-                if not _update_bg_stats(generation, failed=1 if not is_retry else 0):
-                    return
+                if not is_final_pass:
+                    failed_queue.append(src)
+                else:
+                    if not _update_bg_stats(generation, failed=1):
+                        return
         _update_bg_stats(generation, current="")
 
     with _bg_lock:
