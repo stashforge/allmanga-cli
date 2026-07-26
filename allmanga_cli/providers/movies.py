@@ -232,8 +232,8 @@ class MoviesProvider(MovieProvider):
             for endpoint in vidnest_backups
         ]
             
-        # Shuffle backups randomly, but keep them behind the primary pool
-        random.shuffle(primary_pool)
+        # Shuffle backups randomly, but DO NOT shuffle the primary pool! 
+        # The primary pool order dictates their strict UI display priority.
         random.shuffle(backup_pool)
         pool = primary_pool + backup_pool
 
@@ -244,12 +244,14 @@ class MoviesProvider(MovieProvider):
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
             active_futures = set()
             primary_futures = set()
+            future_indices = {}
             pool_idx = 0
             
             # fill pipeline initially up to 3 threads
             while pool_idx < len(pool) and len(active_futures) < 3:
                 future = executor.submit(pool[pool_idx])
                 active_futures.add(future)
+                future_indices[future] = pool_idx
                 if pool_idx < len(primary_pool):
                     primary_futures.add(future)
                 pool_idx += 1
@@ -265,6 +267,9 @@ class MoviesProvider(MovieProvider):
                     try:
                         res = f.result()
                         if res:
+                            # Attach strict UI display priority based on the API's rank in the pool
+                            for r in res:
+                                r["_priority"] = future_indices[f]
                             sources.extend(res)
                             successful_apis += 1
                     except Exception:
@@ -278,6 +283,7 @@ class MoviesProvider(MovieProvider):
                         
                     future = executor.submit(pool[pool_idx])
                     active_futures.add(future)
+                    future_indices[future] = pool_idx
                     if pool_idx < len(primary_pool):
                         primary_futures.add(future)
                     pool_idx += 1
@@ -290,6 +296,9 @@ class MoviesProvider(MovieProvider):
         
         if not sources:
             return None
+            
+        # Strictly sort the mirrors so that VidSrc (0) is ALWAYS above MovieBox (1) in the UI
+        sources.sort(key=lambda s: s.get("_priority", 999))
 
         # Format appropriately for allmanga_cli schema
         payload = {"episode": {"sourceUrls": sources}}
