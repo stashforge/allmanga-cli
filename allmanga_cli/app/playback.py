@@ -769,7 +769,7 @@ def handle_action_menu_state(
         if bg_alive and (r + f) < tot:
             from allmanga_cli.ui.spinner import spinner_frame, spinner_from_config
             spinner = spinner_frame(spinner_from_config(cfg))
-            mstat = f"{C_D}✔ {n} streams found • {spinner} checking sources ({r+f}/{tot}){R}"
+            mstat = f"{C_D}{spinner} {n} streams found • checking sources ({r+f}/{tot}){R}"
         elif n > 0:
             mstat = f"{C_D}✔ {n} streams ready • {tot}/{tot} sources checked{R}"
         else:
@@ -948,7 +948,7 @@ def handle_mirrors_state(
         if alive and (r + f) < tot:
             from allmanga_cli.ui.spinner import spinner_frame, spinner_from_config
             spinner = spinner_frame(spinner_from_config(cfg))
-            plain_status = f"✔ {len(mopts)} streams found • {spinner} checking sources ({r+f}/{tot})"
+            plain_status = f"{spinner} {len(mopts)} streams found • checking sources ({r+f}/{tot})"
         else:
             plain_status = f"✔ {len(mopts)} streams ready • {tot}/{tot} sources checked"
 
