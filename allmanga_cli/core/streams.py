@@ -148,7 +148,7 @@ def start_bg_resolve(ep_data, exclude_names: set):
 
     def worker():
         from ..media.resolver import generate_source_passes
-        for src, failed_queue in generate_source_passes(sources, max_passes=3):
+        for src, failed_queue, _ in generate_source_passes(sources, max_passes=3):
             if not _generation_is_current(generation):
                 return
             sname = src.get("sourceName", "")
