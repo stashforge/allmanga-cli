@@ -264,9 +264,8 @@ class MoviesProvider(MovieProvider):
                     active_futures.add(executor.submit(pool[pool_idx]))
                     pool_idx += 1
                     
-        # Cut to a reasonable max total streams to prevent UI clutter
-        sources = sources[:15]
-
+        # No cap on total mirrors! We return everything we scraped from the successful APIs.
+        
         if not sources:
             return None
 
