@@ -48,6 +48,8 @@ def read_json_response(response, max_bytes=MAX_API_JSON_BYTES):
 
 def search_failure_message(source, exc):
     source = sanitize_terminal_text(source or "Search")
+    if type(exc).__name__ == "TMDBError":
+        return str(exc)
     if isinstance(exc, urllib.error.HTTPError):
         if exc.code in (401, 403):
             return f"{source} authentication or access was rejected."

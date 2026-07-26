@@ -19,6 +19,10 @@ class TMDBClient:
 
     def __init__(self, token: str | None = None):
         if not token:
+            from allmanga_cli.state import secrets as secret_state
+            token = secret_state.get_secret(secret_state.TMDB_KEY)
+
+        if not token:
             cfg = load_config()
             token = cfg.get("tmdb_token", "").strip()
 
