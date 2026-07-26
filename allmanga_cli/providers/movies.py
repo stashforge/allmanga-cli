@@ -229,7 +229,7 @@ class MoviesProvider(MovieProvider):
 
         sources = []
         successful_apis = 0
-        target_apis = 2  # Stop after we get streams from at least 2 distinct APIs
+        target_apis = 5  # Stop after we get streams from at least 5 distinct APIs
         
         # dynamic Target-Filled Pool algorithm
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
