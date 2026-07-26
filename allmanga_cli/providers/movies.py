@@ -239,7 +239,7 @@ class MoviesProvider(MovieProvider):
 
         sources = []
         successful_apis = 0
-        target_apis = 5  # We want at least 5 working APIs total
+        target_apis = 7  # We want at least 7 working APIs total
         
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
             active_futures = set()
