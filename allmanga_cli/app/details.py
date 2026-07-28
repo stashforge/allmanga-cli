@@ -205,10 +205,11 @@ def handle_details_state(
     elif not s.get("_action_feedback"):
         app_core.set_action_feedback(s, app_core.episode_catalog_error(s))
 
-    if from_anilist_context and has_anilist_link:
-        opts.append("Change AllAnime Match")
-    elif show_link_action and s.get("_id") and not has_anilist_link:
-        opts.append("Link AniList")
+    if not getattr(ms, "_is_downloads", False):
+        if from_anilist_context and has_anilist_link:
+            opts.append("Change AllAnime Match")
+        elif show_link_action and s.get("_id") and not has_anilist_link:
+            opts.append("Link AniList")
 
     if show_anilist_actions:
         opts.append("Progress")

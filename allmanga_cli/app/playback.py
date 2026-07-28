@@ -362,7 +362,13 @@ def handle_play_state(
         app_core._clear_streams()
 
         _ipc_player = app_core._ipc_player
-        if _ipc_player.prefetched_ep == ms.current_ep and _ipc_player.prefetched_res:
+        if getattr(ms, "_is_downloads", False):
+            filepath = ms._download_files.get(str(ms.current_ep))
+            if filepath:
+                res = (filepath, "Local File", filepath, [])
+            else:
+                res = None
+        elif _ipc_player.prefetched_ep == ms.current_ep and _ipc_player.prefetched_res:
             res = _ipc_player.prefetched_res
             _ipc_player.prefetched_ep = None
             _ipc_player.prefetched_stream = None
@@ -759,8 +765,13 @@ def handle_action_menu_state(
         opts.append("Verify")
         acts.append("VERIFY")
 
-    opts += ["Browser", "Replay", "Mirror", "Back", "Quit"]
-    acts += ["BROWSER_PLAY", "REPLAY", "MIRRORS", "BACK", "QUIT"]
+    opts += ["Replay"]
+    acts += ["REPLAY"]
+    if not getattr(ms, "_is_downloads", False):
+        opts += ["Browser", "Mirror"]
+        acts += ["BROWSER_PLAY", "MIRRORS"]
+    opts += ["Back", "Quit"]
+    acts += ["BACK", "QUIT"]
 
     action_hints = {}
     from allmanga_cli.domain.episodes import anilist_progress_target_for_episode
