@@ -624,7 +624,8 @@ def handle_play_state(
         ):
             try:
                 from allmanga_cli.core.storage import update_offline_watch_status
-                if update_offline_watch_status(ms.show_title, ms.current_ep):
+                folder_name = ui.ui_show_ctx.get("_folder_name", ms.show_title)
+                if update_offline_watch_status(folder_name, ms.current_ep):
                     watched = ui.ui_show_ctx.get("watched_episodes", [])
                     if str(ms.current_ep) not in watched:
                         watched.append(str(ms.current_ep))
@@ -894,7 +895,8 @@ def handle_action_menu_state(
     def _execute_track_action():
         if getattr(ms, "_is_downloads", False):
             from allmanga_cli.core.storage import update_offline_watch_status
-            if update_offline_watch_status(ms.show_title, ms.current_ep):
+            folder_name = action_show.get("_folder_name", ms.show_title)
+            if update_offline_watch_status(folder_name, ms.current_ep):
                 watched = action_show.get("watched_episodes", [])
                 if str(ms.current_ep) not in watched:
                     watched.append(str(ms.current_ep))

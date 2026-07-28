@@ -123,6 +123,7 @@ def handle_downloads_state(flags, ui, ms, cfg, args, ttype, resolveTracking):
             title, data = valid_titles[si]
             show = data.get("metadata", {})
             show["watched_episodes"] = data.get("watched_episodes", [])
+            show["_folder_name"] = title
             build_info_panel(show, "sub", w, parts, local_only=True)
             
         line = f"Downloaded anime  │  {download_dir}  │  Enter=episodes  Del=delete title  Esc=quit"
@@ -197,6 +198,7 @@ def handle_downloads_state(flags, ui, ms, cfg, args, ttype, resolveTracking):
     show["availableEpisodesDetail"][ttype] = episodes_list
     show["availableEpisodes"] = {ttype: len(episodes_list)}
     show["episodeCount"] = len(episodes_list)
+    show["_folder_name"] = title
     
     # Force the episode catalog to match only what's downloaded
     # (Overrides any stale cache from previous auto-fetches)
