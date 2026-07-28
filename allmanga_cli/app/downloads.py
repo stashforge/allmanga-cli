@@ -221,5 +221,6 @@ def handle_downloads_state(flags, ui, ms, cfg, args, ttype, resolveTracking):
     ms.show_title = title
     ms.show_id = show.get("_id")
     set_ui_context(ui, show, ttype)
+    ui.search_prev_state = "DOWNLOADS"
     
     return "DETAILS"

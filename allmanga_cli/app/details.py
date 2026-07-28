@@ -247,7 +247,7 @@ def handle_details_state(
         try: w = os.get_terminal_size().columns
         except OSError: w = 80
         parts = []
-        app_core.build_info_panel(s, ttype_local, w, parts)
+        app_core.build_info_panel(s, ttype_local, w, parts, local_only=getattr(ms, "_is_downloads", False))
         direct_single = (
             ui.search_prev_state in ("SEARCH", "ANILIST_SEARCH")
             and len(ms.shows) <= 1
@@ -457,7 +457,7 @@ def handle_update_progress_state(
         try: w = os.get_terminal_size().columns
         except OSError: w = 80
         parts = []
-        app_core.build_info_panel(s, ttype_local, w, parts)
+        app_core.build_info_panel(s, ttype_local, w, parts, local_only=getattr(ms, "_is_downloads", False))
         parts.append(app_core._poster_footer_line(s, "Enter/Right=set progress  Ctrl+R=flip  ? = Help  Left/Esc=back", w))
         return "\n".join(parts)
 
@@ -542,7 +542,7 @@ def handle_update_status_state(
         try: w = os.get_terminal_size().columns
         except OSError: w = 80
         parts = []
-        app_core.build_info_panel(s, ttype_local, w, parts)
+        app_core.build_info_panel(s, ttype_local, w, parts, local_only=getattr(ms, "_is_downloads", False))
         parts.append(app_core._poster_footer_line(s, "Enter/Right=select  ? = Help  Left/Esc=back", w))
         return "\n".join(parts)
 
@@ -616,7 +616,7 @@ def handle_update_score_state(
         try: w = os.get_terminal_size().columns
         except OSError: w = 80
         parts = []
-        app_core.build_info_panel(s, ttype_local, w, parts)
+        app_core.build_info_panel(s, ttype_local, w, parts, local_only=getattr(ms, "_is_downloads", False))
         parts.append(app_core._poster_footer_line(s, "Enter/Right=select  ? = Help  Left/Esc=back", w))
         return "\n".join(parts)
 
