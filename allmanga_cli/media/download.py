@@ -101,7 +101,22 @@ def download_episode(title, episode, stream, download_dir="", downloader="auto",
         command.extend(extra_args)
 
     try:
-        subprocess.run(command, check=True)
+        import os
+        from allmanga_cli.app_core import register_subprocess, unregister_subprocess
+        
+        if os.name == 'posix':
+            proc = subprocess.Popen(command, preexec_fn=os.setsid)
+        else:
+            # CREATE_NEW_PROCESS_GROUP is 0x00000200
+            proc = subprocess.Popen(command, creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200))
+            
+        register_subprocess(proc)
+        try:
+            proc.wait()
+            if proc.returncode != 0:
+                raise subprocess.CalledProcessError(proc.returncode, command)
+        finally:
+            unregister_subprocess(proc)
         print(f"\n{GREEN}[Success]{RESET} Download complete.")
         return True
     except Exception as exc:

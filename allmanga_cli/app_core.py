@@ -1840,20 +1840,54 @@ def handle_config_command(args):
             cfg["download_dir"] = val
             save_config(cfg)
             print(f"Config updated: {key} = {val}")
-        else:
+        elif action == "set":
             cfg[key] = val
             save_config(cfg)
             print(f"Config updated: {key} = {val}")
 
-def main():
-    import signal, os, sys
-    def _force_exit(sig, frame):
+_active_subprocesses = []
+
+def register_subprocess(proc):
+    if proc not in _active_subprocesses:
+        _active_subprocesses.append(proc)
+
+def unregister_subprocess(proc):
+    if proc in _active_subprocesses:
+        _active_subprocesses.remove(proc)
+
+def kill_active_subprocesses():
+    import os, signal
+    for proc in _active_subprocesses:
         try:
-            sys.stdout.write("\033[?1049l\033[2J\033[H\033[?25h")
-            sys.stdout.flush()
+            if os.name == 'posix':
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            else:
+                proc.kill()
         except Exception:
             pass
-        os._exit(1)
+
+def main():
+    import signal, os, sys, time
+    
+    global _last_sigint_time
+    _last_sigint_time = 0
+    
+    def _force_exit(sig, frame):
+        global _last_sigint_time
+        now = time.time()
+        if now - _last_sigint_time < 3.0:
+            kill_active_subprocesses()
+            try:
+                sys.stdout.write("\033[?1049l\033[2J\033[H\033[?25h")
+                sys.stdout.flush()
+            except Exception:
+                pass
+            os._exit(1)
+        else:
+            _last_sigint_time = now
+            print("\n\033[93m[!] Press Ctrl+C again within 3 seconds to force quit.\033[0m")
+            sys.stdout.flush()
+            
     signal.signal(signal.SIGINT, _force_exit)
 
     args, pa = parse_cli_args()
