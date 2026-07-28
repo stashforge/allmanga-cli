@@ -82,6 +82,32 @@ def _configure_help_parser(parser):
         parser.color = False
     return parser
 
+class CLIParser(argparse.ArgumentParser):
+    def error(self, message):
+        import re, sys, difflib
+        if "invalid choice: " in message and "(choose from" in message:
+            m = re.search(r"invalid choice: '([^']+)'", message)
+            if m:
+                bad_cmd = m.group(1)
+                try:
+                    choices_str = message.split("(choose from ")[1].rstrip(")")
+                    choices = [c.strip("' ") for c in choices_str.split(",")]
+                    matches = difflib.get_close_matches(bad_cmd, choices, n=3, cutoff=0.2)
+                except Exception:
+                    matches = []
+                
+                print(f"\n\033[31mUnknown command:\033[0m {bad_cmd}\n")
+                if matches:
+                    print("Did you mean:")
+                    for match in matches:
+                        print(f"  {match}")
+                    print()
+                
+                print("Run 'allmanga-cli -h' to see all commands.")
+                print("Run 'allmanga-cli providers' to see available providers.\n")
+                sys.exit(2)
+        super().error(message)
+
 ANILIST_COMMAND_TARGETS = {
     "menu": "menu",
     "airing": "airing",
@@ -292,7 +318,7 @@ def _add_resume_options(parser):
     )
 
 def build_command_parser():
-    parser = _configure_help_parser(argparse.ArgumentParser(
+    parser = _configure_help_parser(CLIParser(
         prog="allmanga-cli",
         usage="allmanga-cli <command> [options]",
         description="Watch anime from multiple providers with optional AniList integration.",
@@ -591,7 +617,7 @@ def build_command_parser():
     return parser
 
 def build_anilist_search_parser():
-    parser = _configure_help_parser(argparse.ArgumentParser(
+    parser = _configure_help_parser(CLIParser(
         prog="allmanga-cli anilist search",
         usage="allmanga-cli anilist search <query> [options]",
         description="Search anime on AniList.",
