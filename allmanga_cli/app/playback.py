@@ -795,12 +795,40 @@ def handle_action_menu_state(
     next_ep_label = episode_labels.get(str(next_ep), str(next_ep)) if next_ep is not None else ""
     prev_ep_label = episode_labels.get(str(prev_ep), str(prev_ep)) if prev_ep is not None else ""
 
-    if not flags.incognito_mode:
-        if next_ep is not None:
-            opts.append("Mark & Next"); acts.append("TRACK_NEXT")
-        opts.append("Mark Watched"); acts.append("TRACK_ONLY")
+    is_watched = False
+    if getattr(ms, "_is_downloads", False):
+        watched_eps = action_show.get("watched_episodes", [])
+        is_watched = str(ms.current_ep) in watched_eps
+    else:
+        import decimal
+        from allmanga_cli.domain.episodes import episode_progress_number
+        try:
+            current_ep_num = decimal.Decimal(str(episode_progress_number(ms.current_ep)))
+            if action_show.get("_progress_authority") == "AL" or action_show.get("_sync_enabled") or action_show.get("_anilist_list"):
+                al_progress = action_show.get("_anilist_progress", 0)
+                try: al_progress = int(al_progress) if al_progress is not None else 0
+                except (ValueError, TypeError): al_progress = 0
+                is_watched = current_ep_num <= al_progress
+            else:
+                local_prog = action_show.get("_local_progress", 0)
+                try: local_prog = decimal.Decimal(str(local_prog)) if local_prog is not None else decimal.Decimal(0)
+                except (decimal.InvalidOperation, ValueError, TypeError): local_prog = decimal.Decimal(0)
+                is_watched = current_ep_num <= local_prog
+        except decimal.InvalidOperation:
+            is_watched = False
 
-    if next_ep is not None: opts.append("Next");    acts.append("NEXT")
+    if not flags.incognito_mode:
+        if not is_watched:
+            opts.append("Mark Watched"); acts.append("TRACK_ONLY")
+            if next_ep is not None:
+                opts.append("Next"); acts.append("TRACK_NEXT")
+        else:
+            if next_ep is not None:
+                opts.append("Next"); acts.append("NEXT")
+    else:
+        if next_ep is not None: 
+            opts.append("Next"); acts.append("NEXT")
+
     if prev_ep is not None: opts.append("Previous"); acts.append("PREV")
     if ms.total_eps > 1: opts.append("Episodes"); acts.append("EPISODES")
 
