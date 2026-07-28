@@ -1816,7 +1816,7 @@ def main():
         from allmanga_cli.providers import available_providers
         print("Available Streaming Providers:\n")
         for pid, p in sorted(available_providers().items()):
-            print(f"  {pid.ljust(15)} {p.name}")
+            print(f"  {pid}")
         return
 
     check_deps()
