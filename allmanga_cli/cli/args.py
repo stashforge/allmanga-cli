@@ -11,7 +11,7 @@ _ANSI_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
 COMMAND_NAMES = {
     "search", "download", "downloads", "anilist", "history", "continue",
-    "auth", "completion",
+    "auth", "providers", "completion",
 }
 
 COMPLETION_SHELLS = ("bash", "zsh", "fish")
