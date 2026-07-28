@@ -323,7 +323,9 @@ def handle_play_state(
 
     provider_id = title_provider_key(ui.ui_show_ctx)
     _cache_key = (ms.show_id, ms.current_ep, ttype, provider_id)
-    if _cache_key == ms.ep_cache_key and ms.ep_cache_data:
+    if getattr(ms, "_is_downloads", False):
+        ep_data = {"is_local": True}
+    elif _cache_key == ms.ep_cache_key and ms.ep_cache_data:
         ep_data = ms.ep_cache_data
     else:
         app_core.info(f"Loading {_fmt_ep(current_ep_label)} metadata...")
@@ -601,6 +603,7 @@ def handle_play_state(
 
         should_update_history = (
             not sync_enabled
+            and not getattr(ms, "_is_downloads", False)
             and playback_updates_history(
             result, percent, time_pos, duration, played_seconds
             )
@@ -750,7 +753,7 @@ def handle_action_menu_state(
     next_ep_label = episode_labels.get(str(next_ep), str(next_ep)) if next_ep is not None else ""
     prev_ep_label = episode_labels.get(str(prev_ep), str(prev_ep)) if prev_ep is not None else ""
 
-    if not flags.incognito_mode:
+    if not flags.incognito_mode and not getattr(ms, "_is_downloads", False):
         if next_ep is not None:
             opts.append("Mark & Next"); acts.append("TRACK_NEXT")
         opts.append("Mark Watched"); acts.append("TRACK_ONLY")

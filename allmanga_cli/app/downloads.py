@@ -37,11 +37,6 @@ def handle_downloads_state(flags, ui, ms, cfg, args, ttype, resolveTracking):
         if "_id" not in meta and "availableEpisodes" not in meta:
             # User requested not to auto-fetch metadata because title match is hard and causes delays
             meta["name"] = title
-            
-        # Force local ID for downloads so we don't accidentally trigger network fetches
-        # if the file was previously cached with a real ID
-        if meta.get("_id") != f"local:{title}":
-            meta["_id"] = f"local:{title}"
             data["metadata"] = meta
             dirty = True
                 
@@ -94,7 +89,7 @@ def handle_downloads_state(flags, ui, ms, cfg, args, ttype, resolveTracking):
                     episodes.append(m.group(1))
                     
             # Try to fetch real metadata for the discovered folder
-            metadata = {"name": folder_name, "_id": f"local:{folder_name}"}
+            metadata = {"name": folder_name}
             
             data = {"metadata": metadata, "episodes": sorted(episodes, key=lambda e: int(e))}
             shows[folder_name] = data
