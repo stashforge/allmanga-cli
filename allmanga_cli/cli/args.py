@@ -50,10 +50,7 @@ class MinimalHelpFormatter(argparse.RawDescriptionHelpFormatter):
     def _format_action_invocation(self, action):
         if not action.option_strings:
             return super()._format_action_invocation(action)
-        options = action.option_strings
-        if self._minimal_color:
-            options = [f"\033[32m{option}\033[0m" for option in options]
-        return ", ".join(options)
+        return ", ".join(action.option_strings)
 
     def _fill_text(self, text, width, indent):
         lines = []
