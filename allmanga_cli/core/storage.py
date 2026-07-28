@@ -730,3 +730,23 @@ def load_config():
 
 def save_config(cfg):
     return save_config_file(paths.CONFIG_PATH, cfg, disabled=is_incognito())
+
+def load_downloads_db():
+    from .io import load_json
+    try:
+        data = load_json(paths.DOWNLOADS_DB_PATH)
+        if not isinstance(data, dict):
+            return {"current_download_dir": "", "shows": {}}
+        if "shows" not in data:
+            data["shows"] = {}
+        return data
+    except Exception as e:
+        debug_warn(f"Failed to load downloads db: {e}")
+        return {"current_download_dir": "", "shows": {}}
+
+def save_downloads_db(db):
+    if is_incognito():
+        return
+    import os
+    os.makedirs(paths.STATE_DIR, exist_ok=True)
+    _atomic_write_json(paths.DOWNLOADS_DB_PATH, db, indent=2)

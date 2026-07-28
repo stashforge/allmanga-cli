@@ -1732,46 +1732,131 @@ def play_local_video(path, player="mpv"):
     )
 
 def browse_download_library(flags, ui, cfg, args):
+    from allmanga_cli.core.storage import load_downloads_db, save_downloads_db
+    import shutil, re
+    db = load_downloads_db()
+    
     download_dir = cfg.get("download_dir", "")
     if not download_dir:
         from allmanga_cli.core.storage import get_default_download_dir, load_config, save_config
         download_dir = get_default_download_dir()
-        # Persist the automatically resolved path to config
         live_cfg = load_config()
         live_cfg["download_dir"] = download_dir
         save_config(live_cfg)
-    base, library = scan_download_library(download_dir)
-    if not base:
-        err("Failed to scan directory.")
-        return
-    if not os.path.isdir(base):
-        err(f"Download folder does not exist: {base}")
-        return
-    if not library:
-        warn(f"No downloaded videos found in {base}.")
+        
+    download_dir = os.path.expanduser(download_dir)
+    shows = db.get("shows", {})
+    
+    dirty = False
+    valid_titles = []
+    for title, data in list(shows.items()):
+        folder_path = os.path.join(download_dir, title)
+        if not os.path.isdir(folder_path):
+            del shows[title]
+            dirty = True
+            continue
+            
+        try:
+            actual_files = os.listdir(folder_path)
+        except OSError:
+            actual_files = []
+            
+        valid_eps = []
+        for ep in data.get("episodes", []):
+            ep_pattern = re.compile(rf"(^|[^0-9]){ep}([^0-9]|$)")
+            if any(ep_pattern.search(f) for f in actual_files):
+                valid_eps.append(ep)
+                
+        if len(valid_eps) != len(data.get("episodes", [])):
+            data["episodes"] = valid_eps
+            dirty = True
+            
+        if not valid_eps:
+            del shows[title]
+            dirty = True
+            try:
+                os.rmdir(folder_path)
+            except OSError:
+                pass
+        else:
+            valid_titles.append((title, data))
+            
+    if dirty:
+        save_downloads_db(db)
+
+    if not valid_titles:
+        warn(f"No downloaded videos found in {download_dir}.")
         return
 
-    folder_opts = [f"{g['name']}  ({len(g['files'])})" for g in library]
+    def _build_folder_opts():
+        return [f"{title}  ({len(data.get('episodes', []))})" for title, data in valid_titles]
+
+    folder_opts = _build_folder_opts()
 
     def _folders_hdr(si):
         try:
             w = os.get_terminal_size().columns
         except OSError:
             w = 80
-        line = f"Downloaded anime  │  {base}  │  Enter=episodes  Esc=quit"
-        return f"{_C_HINT}{_truncate_display(line, max(1, w - 1))}{_RST}"
+        parts = []
+        if 0 <= si < len(valid_titles):
+            title, data = valid_titles[si]
+            show = data.get("metadata", {})
+            build_info_panel(show, "sub", w, parts, local_only=True, main_title=title)
+            
+        line = f"Downloaded anime  │  {download_dir}  │  Enter=episodes  Del=delete title  Esc=quit"
+        parts.append(f"{_C_HINT}{_truncate_display(line, max(1, w - 1))}{_RST}")
+        return "\n".join(parts)
+        
+    def _folders_top_hdr(si):
+        if 0 <= si < len(valid_titles):
+            title, data = valid_titles[si]
+            show = data.get("metadata", {})
+            ui.hovered_show_id = show.get("_id")
+            ui.hovered_show_obj = show
+            globals()["_hovered_show_id"] = ui.hovered_show_id
+            poster = _get_poster(show)
+            if poster:
+                return poster
+        return ""
+        
+    def _delete_title(si):
+        nonlocal valid_titles, folder_opts, db
+        if 0 <= si < len(valid_titles):
+            title, data = valid_titles[si]
+            folder_path = os.path.join(download_dir, title)
+            if os.path.isdir(folder_path):
+                shutil.rmtree(folder_path, ignore_errors=True)
+            if title in db["shows"]:
+                del db["shows"][title]
+            save_downloads_db(db)
+            valid_titles.pop(si)
+            folder_opts = _build_folder_opts()
+        return folder_opts, _folders_hdr(0)
 
     while True:
         folder_idx = tui_pick(
             flags, ui, "Downloads", folder_opts,
             header_fn=_folders_hdr,
-            help_dict=picker_help("Open episodes", "Quit", "Quit")
+            top_header_fn=_folders_top_hdr,
+            delete_fn=_delete_title,
+            help_dict=picker_help("Open episodes", "Quit", "Quit", delete_label="Delete title")
         )
         if folder_idx < 0:
             return
 
-        group = library[folder_idx]
-        files = group["files"]
+        title, data = valid_titles[folder_idx]
+        folder_path = os.path.join(download_dir, title)
+        try:
+            raw_files = os.listdir(folder_path)
+            files = [os.path.join(folder_path, f) for f in raw_files if f.endswith(('.mp4', '.mkv', '.avi', '.ts'))]
+            files.sort()
+        except OSError:
+            files = []
+            
+        if not files:
+            continue
+            
         file_opts = [os.path.basename(p) for p in files]
 
         def _files_hdr(si):
@@ -1781,17 +1866,51 @@ def browse_download_library(flags, ui, cfg, args):
                 w = 80
             selected = file_opts[si] if 0 <= si < len(file_opts) else ""
             parts = [
-                f"{BOLD}{_truncate_display(group['name'], max(1, w - 1))}{RESET}",
+                f"{BOLD}{_truncate_display(title, max(1, w - 1))}{RESET}",
                 f"{_C_HINT}{_truncate_display(selected, max(1, w - 1))}{_RST}" if selected else "",
-                f"{_C_HINT}{len(files)} file(s)  │  Enter=play  Left/Esc=back{_RST}",
+                f"{_C_HINT}{len(files)} file(s)  │  Enter=play  Del=delete ep  Left/Esc=back{_RST}",
             ]
             return "\n".join(p for p in parts if p)
+            
+        def _delete_ep(si):
+            nonlocal files, file_opts
+            if 0 <= si < len(files):
+                fpath = files[si]
+                if os.path.isfile(fpath):
+                    try:
+                        os.remove(fpath)
+                    except OSError:
+                        pass
+                files.pop(si)
+                file_opts.pop(si)
+            return file_opts, _files_hdr(0)
 
         file_idx = tui_pick(
             flags, ui, "Downloaded Episodes", file_opts,
             header_fn=_files_hdr,
-            help_dict=picker_help("Play file", "Back to folders", "Back to folders")
+            delete_fn=_delete_ep,
+            help_dict=picker_help("Play file", "Back to folders", "Back to folders", delete_label="Delete episode")
         )
+        
+        # Sync DB on exit from episode view
+        actual_files = [os.path.basename(f) for f in files]
+        valid_eps = []
+        for ep in data.get("episodes", []):
+            ep_pattern = re.compile(rf"(^|[^0-9]){ep}([^0-9]|$)")
+            if any(ep_pattern.search(f) for f in actual_files):
+                valid_eps.append(ep)
+        data["episodes"] = valid_eps
+        db["shows"][title] = data
+        if not valid_eps:
+            if title in db["shows"]: del db["shows"][title]
+            try: os.rmdir(folder_path)
+            except OSError: pass
+        save_downloads_db(db)
+        # Re-sync lists
+        if not valid_eps:
+            valid_titles.pop(folder_idx)
+        folder_opts = _build_folder_opts()
+        
         if file_idx < 0:
             continue
         play_local_video(files[file_idx], args.player or cfg.get("player", "mpv"))
@@ -1800,6 +1919,37 @@ def browse_download_library(flags, ui, cfg, args):
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 fetch_episode_stream = streams.fetch_episode_stream
+
+def trigger_migration(old_dir_full, new_dir):
+    from allmanga_cli.core.storage import load_downloads_db
+    import shutil, os
+    db = load_downloads_db()
+    
+    if os.path.isdir(old_dir_full) and os.path.abspath(old_dir_full) != os.path.abspath(new_dir):
+        ans = input(f"Move existing downloads from {old_dir_full} to {new_dir}? [y/N]: ").strip().lower()
+        if ans == "y":
+            print(f"Moving downloads to {new_dir}...")
+            try:
+                os.makedirs(new_dir, exist_ok=True)
+                moved_anything = False
+                shows = db.get("shows", {})
+                for title in shows.keys():
+                    s = os.path.join(old_dir_full, title)
+                    d = os.path.join(new_dir, title)
+                    if os.path.isdir(s):
+                        shutil.move(s, d)
+                        moved_anything = True
+                
+                if moved_anything and os.path.basename(old_dir_full.rstrip(os.sep)) == "allmanga-cli":
+                    try:
+                        os.rmdir(old_dir_full)
+                        print(f"Cleaned up empty folder: {old_dir_full}")
+                    except OSError:
+                        pass
+                        
+                print("Migration complete!")
+            except Exception as e:
+                err(f"Failed to migrate files: {e}")
 
 def handle_config_command(args):
     from allmanga_cli.core.storage import load_config, save_config
@@ -1830,32 +1980,13 @@ def handle_config_command(args):
             else:
                 old_dir_full = os.path.expanduser(old_dir)
                 
-            if os.path.isdir(old_dir_full) and os.path.abspath(old_dir_full) != os.path.abspath(new_dir):
-                ans = input(f"Move existing downloads from {old_dir_full} to {new_dir}? [y/N]: ").strip().lower()
-                if ans == "y":
-                    print(f"Moving downloads to {new_dir}...")
-                    try:
-                        os.makedirs(new_dir, exist_ok=True)
-                        moved_anything = False
-                        for item in os.listdir(old_dir_full):
-                            s = os.path.join(old_dir_full, item)
-                            d = os.path.join(new_dir, item)
-                            if os.path.isdir(s):
-                                shutil.move(s, d)
-                                moved_anything = True
-                        
-                        if moved_anything and os.path.basename(old_dir_full.rstrip(os.sep)) == "allmanga-cli":
-                            try:
-                                os.rmdir(old_dir_full)
-                                print(f"Cleaned up empty folder: {old_dir_full}")
-                            except OSError:
-                                pass
-                                
-                        print("Migration complete!")
-                    except Exception as e:
-                        err(f"Failed to migrate files: {e}")
+            trigger_migration(old_dir_full, new_dir)
             cfg["download_dir"] = val
             save_config(cfg)
+            from allmanga_cli.core.storage import load_downloads_db, save_downloads_db
+            db = load_downloads_db()
+            db["current_download_dir"] = new_dir
+            save_downloads_db(db)
             print(f"Config updated: {key} = {val}")
         else:
             cfg[key] = val
@@ -1911,6 +2042,24 @@ def main():
     signal.signal(signal.SIGINT, _force_exit)
 
     args, pa = parse_cli_args()
+    
+    if not getattr(args, "config_action", None):
+        from allmanga_cli.core.storage import load_downloads_db, save_downloads_db, load_config
+        cfg = load_config()
+        db = load_downloads_db()
+        current_cfg_dir = cfg.get("download_dir", "")
+        if current_cfg_dir:
+            current_cfg_dir_full = os.path.expanduser(current_cfg_dir)
+            db_dir_full = db.get("current_download_dir", "")
+            if db_dir_full and os.path.abspath(db_dir_full) != os.path.abspath(current_cfg_dir_full):
+                print(f"\n\033[93m[!] Detected download directory change in config from {db_dir_full} to {current_cfg_dir_full}\033[0m")
+                globals()["SUPPRESS_FINAL_CURSOR_RESTORE"] = True
+                trigger_migration(db_dir_full, current_cfg_dir_full)
+            
+            if db.get("current_download_dir") != current_cfg_dir_full:
+                db["current_download_dir"] = current_cfg_dir_full
+                save_downloads_db(db)
+                
     if getattr(args, "completion_shell", None):
         globals()["SUPPRESS_FINAL_CURSOR_RESTORE"] = True
         if getattr(args, "completion_install", False):

@@ -425,6 +425,18 @@ def handle_play_state(
                 extra_args=extra_args
             )
             if download_ok:
+                try:
+                    from allmanga_cli.core.storage import load_downloads_db, save_downloads_db
+                    db = load_downloads_db()
+                    title = ms.show_title
+                    if title not in db["shows"]:
+                        db["shows"][title] = {"metadata": ms.show, "episodes": []}
+                    ep_str = str(ms.current_ep)
+                    if ep_str not in db["shows"][title]["episodes"]:
+                        db["shows"][title]["episodes"].append(ep_str)
+                    save_downloads_db(db)
+                except Exception as e:
+                    pass
                 break
             
             exclude_sources.add(first_source_name)
