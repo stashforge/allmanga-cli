@@ -376,13 +376,16 @@ def build_command_parser():
     for provider_id, provider in sorted(available_providers().items()):
         provider_parser = commands.add_parser(
             provider_id,
-            help=argparse.SUPPRESS,
-            usage=f"allmanga-cli {provider_id} search <query> [options]",
+            help=f"==SUPPRESS==",
+            usage=f"allmanga-cli {provider_id} <command> <query> [options]",
             description=f"Search and watch anime from {provider.name}.",
             epilog=(
+                "Commands:\n"
+                "  search          Search and stream anime\n"
+                "  download        Download anime episodes\n\n"
                 "Examples:\n"
                 f"  allmanga-cli {provider_id} search renegade\n"
-                f"  allmanga-cli {provider_id} search renegade -e 3"
+                f"  allmanga-cli {provider_id} download renegade -e 3"
             ),
             add_help=False,
             formatter_class=MinimalHelpFormatter,
@@ -391,8 +394,8 @@ def build_command_parser():
         provider_parser._positionals.title = "Arguments"
         provider_parser.add_argument(
             "provider_action",
-            choices=["search"],
-            metavar="<action>",
+            choices=["search", "download"],
+            metavar="<command>",
             help=argparse.SUPPRESS,
         )
         provider_parser.add_argument("query", nargs="*", help="Anime title to search")
@@ -688,8 +691,7 @@ def parse_cli_args(argv=None):
             args.completion_shell = values[0]
         del args.completion_args
     elif args.command in _provider_command_names():
-        if args.provider_action != "search":
-            parser.error(f"{args.command} only supports search for now")
-        args.command = "search"
+        args.download = (args.provider_action == "download")
+        args.command = args.provider_action
         del args.provider_action
     return args, parser
