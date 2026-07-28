@@ -819,9 +819,9 @@ def handle_action_menu_state(
 
     if not flags.incognito_mode:
         if not is_watched:
-            opts.append("Mark Watched"); acts.append("TRACK_ONLY")
             if next_ep is not None:
                 opts.append("Next"); acts.append("TRACK_NEXT")
+            opts.append("Mark Watched"); acts.append("TRACK_ONLY")
         else:
             if next_ep is not None:
                 opts.append("Next"); acts.append("NEXT")
