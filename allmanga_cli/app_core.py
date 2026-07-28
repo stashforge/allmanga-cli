@@ -1818,29 +1818,46 @@ def handle_config_command(args):
                 err("download_dir requires a value.")
                 return
                 
+            if not new_dir.endswith("allmanga-cli"):
+                ans_append = input(f"Create 'allmanga-cli' subfolder in {new_dir}? [Y/n]: ").strip().lower()
+                if ans_append != 'n':
+                    new_dir = os.path.join(new_dir, "allmanga-cli")
+                    val = os.path.join(str(val or "").strip(), "allmanga-cli")
+            
             if not old_dir:
                 from allmanga_cli.core.storage import get_default_download_dir
                 old_dir_full = get_default_download_dir()
             else:
                 old_dir_full = os.path.expanduser(old_dir)
-            if os.path.isdir(old_dir_full) and old_dir_full != new_dir:
+                
+            if os.path.isdir(old_dir_full) and os.path.abspath(old_dir_full) != os.path.abspath(new_dir):
                 ans = input(f"Move existing downloads from {old_dir_full} to {new_dir}? [y/N]: ").strip().lower()
                 if ans == "y":
                     print(f"Moving downloads to {new_dir}...")
                     try:
                         os.makedirs(new_dir, exist_ok=True)
+                        moved_anything = False
                         for item in os.listdir(old_dir_full):
                             s = os.path.join(old_dir_full, item)
                             d = os.path.join(new_dir, item)
                             if os.path.isdir(s):
                                 shutil.move(s, d)
+                                moved_anything = True
+                        
+                        if moved_anything and os.path.basename(old_dir_full.rstrip(os.sep)) == "allmanga-cli":
+                            try:
+                                os.rmdir(old_dir_full)
+                                print(f"Cleaned up empty folder: {old_dir_full}")
+                            except OSError:
+                                pass
+                                
                         print("Migration complete!")
                     except Exception as e:
                         err(f"Failed to migrate files: {e}")
             cfg["download_dir"] = val
             save_config(cfg)
             print(f"Config updated: {key} = {val}")
-        elif action == "set":
+        else:
             cfg[key] = val
             save_config(cfg)
             print(f"Config updated: {key} = {val}")
