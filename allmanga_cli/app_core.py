@@ -1939,25 +1939,12 @@ def browse_download_library(flags, ui, cfg, args):
             
             show = data.get("metadata", {})
             parts = []
-            selected_ep = ""
-            if 0 <= si < len(file_opts):
-                m = re.search(r'\d+', file_opts[si])
-                if m:
-                    selected_ep = m.group(0)
-                    
-            build_info_panel(show, "sub", w, parts, local_only=True, main_title=title, override_ep_str=selected_ep)
+            
+            build_info_panel(show, "sub", w, parts, local_only=True, main_title=title)
             
             line = f"{len(files)} file(s)  │  Enter=play  Del=delete ep  Left/Esc=back"
             parts.append(f"{_C_HINT}{_truncate_display(line, max(1, w - 1))}{_RST}")
             return "\n".join(parts)
-            
-        def _files_top_hdr(si):
-            show = data.get("metadata", {})
-            ui.hovered_show_id = show.get("_id")
-            ui.hovered_show_obj = show
-            globals()["_hovered_show_id"] = ui.hovered_show_id
-            poster = _get_poster(show)
-            return poster if poster else ""
             
         def _delete_ep(si):
             nonlocal files, file_opts
@@ -1975,7 +1962,6 @@ def browse_download_library(flags, ui, cfg, args):
         file_idx = tui_pick(
             flags, ui, "Downloaded Episodes", file_opts,
             header_fn=_files_hdr,
-            top_header_fn=_files_top_hdr,
             delete_fn=_delete_ep,
             help_dict=picker_help("Play file", "Back to folders", "Back to folders", delete_label="Delete episode")
         )
