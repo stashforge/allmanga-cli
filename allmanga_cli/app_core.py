@@ -1756,13 +1756,20 @@ def browse_download_library(flags, ui, cfg, args):
             dirty = True
             continue
             
-        # Upgrade stubs to rich metadata
         meta = data.get("metadata", {})
         if "_id" not in meta and "availableEpisodes" not in meta:
             try:
-                from allmanga_cli.app_core import search_anime
+                from allmanga_cli.app_core import search_anime, search_anilist, enrich_provider_results
                 results = search_anime(title, "sub")
+                if not results and " " in title:
+                    results = search_anime(title.split()[0], "sub")
                 if results:
+                    cfg = load_config()
+                    token = cfg.get("anilist_token")
+                    al_shows = search_anilist(token, title) if token else None
+                    if not al_shows and token and " " in title:
+                        al_shows = search_anilist(token, title.split()[0])
+                    results = enrich_provider_results(results, token, al_shows)
                     data["metadata"] = results[0]
                     dirty = True
             except Exception:
@@ -1819,9 +1826,17 @@ def browse_download_library(flags, ui, cfg, args):
             # Try to fetch real metadata for the discovered folder
             metadata = {"name": folder_name}
             try:
-                from allmanga_cli.app_core import search_anime
+                from allmanga_cli.app_core import search_anime, search_anilist, enrich_provider_results
                 results = search_anime(folder_name, "sub")
+                if not results and " " in folder_name:
+                    results = search_anime(folder_name.split()[0], "sub")
                 if results:
+                    cfg = load_config()
+                    token = cfg.get("anilist_token")
+                    al_shows = search_anilist(token, folder_name) if token else None
+                    if not al_shows and token and " " in folder_name:
+                        al_shows = search_anilist(token, folder_name.split()[0])
+                    results = enrich_provider_results(results, token, al_shows)
                     metadata = results[0]
             except Exception:
                 pass
