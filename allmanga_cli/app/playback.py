@@ -412,7 +412,7 @@ def handle_play_state(
         
         exclude_sources = set()
         download_ok = False
-        downloader_choice = args.downloader if getattr(args, "downloader", "auto") != "auto" else cfg.get("downloader", "auto")
+        downloader_choice = getattr(args, "downloader", cfg.get("downloader", "auto"))
         
         while True:
             download_ok = app_core.download_episode(

@@ -264,7 +264,7 @@ def _add_download_options(parser):
     download.add_argument(
         "--downloader",
         choices=["auto", "yt-dlp", "ffmpeg"],
-        default="auto",
+        default=argparse.SUPPRESS,
         help="Downloader to use: auto (default), yt-dlp, ffmpeg",
     )
     output = parser.add_argument_group("Output options")
