@@ -1732,7 +1732,9 @@ def play_local_video(path, player="mpv"):
     )
 
 def browse_download_library(flags, ui, cfg, args):
-    download_dir = cfg.get("download_dir", "") or os.getcwd()
+    download_dir = cfg.get("download_dir", "")
+    if not download_dir:
+        download_dir = os.path.join(os.getcwd(), "allmanga-cli")
     base, library = scan_download_library(download_dir)
     if not base:
         err("Failed to scan directory.")
@@ -1811,22 +1813,21 @@ def handle_config_command(args):
                 err("download_dir requires a value.")
                 return
                 
-            if old_dir:
-                old_dir_full = os.path.expanduser(old_dir)
-                if os.path.isdir(old_dir_full) and old_dir_full != new_dir:
-                    ans = input(f"Move existing downloads from {old_dir_full} to {new_dir}? [y/N]: ").strip().lower()
-                    if ans == "y":
-                        print(f"Moving downloads to {new_dir}...")
-                        try:
-                            os.makedirs(new_dir, exist_ok=True)
-                            for item in os.listdir(old_dir_full):
-                                s = os.path.join(old_dir_full, item)
-                                d = os.path.join(new_dir, item)
-                                if os.path.isdir(s):
-                                    shutil.move(s, d)
-                            print("Migration complete!")
-                        except Exception as e:
-                            err(f"Failed to migrate files: {e}")
+            old_dir_full = os.path.expanduser(old_dir) if old_dir else os.path.join(os.getcwd(), "allmanga-cli")
+            if os.path.isdir(old_dir_full) and old_dir_full != new_dir:
+                ans = input(f"Move existing downloads from {old_dir_full} to {new_dir}? [y/N]: ").strip().lower()
+                if ans == "y":
+                    print(f"Moving downloads to {new_dir}...")
+                    try:
+                        os.makedirs(new_dir, exist_ok=True)
+                        for item in os.listdir(old_dir_full):
+                            s = os.path.join(old_dir_full, item)
+                            d = os.path.join(new_dir, item)
+                            if os.path.isdir(s):
+                                shutil.move(s, d)
+                        print("Migration complete!")
+                    except Exception as e:
+                        err(f"Failed to migrate files: {e}")
             cfg["download_dir"] = val
             save_config(cfg)
             print(f"Config updated: {key} = {val}")

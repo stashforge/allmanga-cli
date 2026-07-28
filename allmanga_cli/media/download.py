@@ -44,8 +44,12 @@ def download_episode(title, episode, stream, download_dir="", downloader="auto",
     ).strip()
     filename = f"{safe_title} - Episode {episode}.mp4"
     
-    # Always create an anime-specific folder, even if download_dir is empty (fallback to cwd)
-    download_dir = os.path.expanduser(str(download_dir or os.getcwd()).strip())
+    # Always create an anime-specific folder, even if download_dir is empty
+    if not download_dir:
+        download_dir = os.path.join(os.getcwd(), "allmanga-cli")
+    else:
+        download_dir = os.path.expanduser(str(download_dir).strip())
+
     target_dir = os.path.join(download_dir, safe_title)
     try:
         os.makedirs(target_dir, exist_ok=True)
