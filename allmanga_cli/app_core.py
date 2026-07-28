@@ -1760,8 +1760,8 @@ def browse_download_library(flags, ui, cfg, args):
         meta = data.get("metadata", {})
         if "_id" not in meta and "availableEpisodes" not in meta:
             try:
-                from allmanga_cli.app_core import make_provider_oneshot_search
-                results = make_provider_oneshot_search(title, "sub")
+                from allmanga_cli.app_core import search_anime
+                results = search_anime(title, "sub")
                 if results:
                     data["metadata"] = results[0]
                     dirty = True
@@ -1819,8 +1819,8 @@ def browse_download_library(flags, ui, cfg, args):
             # Try to fetch real metadata for the discovered folder
             metadata = {"name": folder_name}
             try:
-                from allmanga_cli.app_core import make_provider_oneshot_search
-                results = make_provider_oneshot_search(folder_name, "sub")
+                from allmanga_cli.app_core import search_anime
+                results = search_anime(folder_name, "sub")
                 if results:
                     metadata = results[0]
             except Exception:
