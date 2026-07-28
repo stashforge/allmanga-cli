@@ -59,7 +59,7 @@ class MinimalHelpFormatter(argparse.RawDescriptionHelpFormatter):
             ending = line[len(plain):]
             if (
                 self._minimal_color
-                and plain in ("Lists:", "Actions:", "Examples:")
+                and plain in ("Lists:", "Actions:", "Examples:", "Commands:")
             ):
                 line = f"\033[1;34m{plain}\033[0m{ending}"
             lines.append(indent + line)
@@ -381,11 +381,13 @@ def build_command_parser():
             provider_id,
             help=f"==SUPPRESS==",
             usage=f"allmanga-cli {provider_id} <command> <query> [options]",
-            description=f"Search and watch anime from {provider.name}.",
-            epilog=(
+            description=(
+                f"Search and watch anime from {provider.name}.\n\n"
                 "Commands:\n"
                 "  search          Search and stream anime\n"
-                "  download        Download anime episodes\n\n"
+                "  download        Download anime episodes"
+            ),
+            epilog=(
                 "Examples:\n"
                 f"  allmanga-cli {provider_id} search renegade\n"
                 f"  allmanga-cli {provider_id} download renegade -e 3"
