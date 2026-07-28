@@ -740,7 +740,13 @@ def prepare_show_display_state(show, ttype="sub", sync_enabled=None):
     if "watched_episodes" in show:
         watched_count = len(show["watched_episodes"])
         show["_local_progress"] = watched_count
-        show["_local_episode_label"] = str(watched_count)
+        if watched_count > 0:
+            def safe_num(x):
+                try: return float(x)
+                except ValueError: return -1
+            show["_local_episode_label"] = max(show["watched_episodes"], key=safe_num)
+        else:
+            show["_local_episode_label"] = "0"
     else:
         show["_local_progress"] = get_local_progress(show, ttype)
         show["_local_episode_label"] = get_local_episode_label(show, ttype)

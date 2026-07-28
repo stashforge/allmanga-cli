@@ -94,8 +94,7 @@ def handle_details_state(
         s.pop("_sync_conflict", None)
 
     app_core.prepare_show_display_state(s, ttype_local, use_anilist)
-
-    local_before = app_core.get_local_progress(s, ttype_local)
+    local_before = s.get("_local_progress")
     try:
         remote_before = int(s.get("_anilist_progress") or 0)
     except (TypeError, ValueError):
@@ -104,7 +103,7 @@ def handle_details_state(
 
 
     app_core.prepare_show_display_state(s, ttype_local, use_anilist)
-    local_progress = app_core.get_local_progress(s, ttype_local)
+    local_progress = s.get("_local_progress")
     try:
         al_progress = int(s.get("_anilist_progress") or 0)
     except (TypeError, ValueError):
