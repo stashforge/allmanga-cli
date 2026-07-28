@@ -732,9 +732,12 @@ def save_config(cfg):
     return save_config_file(paths.CONFIG_PATH, cfg, disabled=is_incognito())
 
 def load_downloads_db():
-    from .io import load_json
+    import json
+    if not os.path.exists(paths.DOWNLOADS_DB_PATH):
+        return {"current_download_dir": "", "shows": {}}
     try:
-        data = load_json(paths.DOWNLOADS_DB_PATH)
+        with open(paths.DOWNLOADS_DB_PATH) as f:
+            data = json.load(f)
         if not isinstance(data, dict):
             return {"current_download_dir": "", "shows": {}}
         if "shows" not in data:
