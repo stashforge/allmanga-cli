@@ -45,7 +45,6 @@ def handle_downloads_state(flags, ui, ms, cfg, args, ttype, resolveTracking):
         except OSError:
             actual_files = []
             
-        import re
         EP_NUM_RE = re.compile(r"Episode\s+(\d+(?:\.\d+)?)", re.IGNORECASE)
         discovered_eps = set()
         for f in actual_files:
