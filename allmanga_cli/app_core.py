@@ -1996,7 +1996,7 @@ def main():
         if hist:
             h = hist[0]
             show = h.get("show", {})
-            prepare_show_display_state(flags, show, h.get("translation_type", ttype))
+            prepare_show_display_state(show, h.get("translation_type", ttype))
             ms.show_id = show.get("_id")
             ms.show_title = get_show_display_title(show)
             _hist_ttype = h.get("translation_type", ttype)
