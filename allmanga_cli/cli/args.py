@@ -362,7 +362,7 @@ def build_command_parser():
     )
     _configure_help_parser(search)
     search._positionals.title = "Arguments"
-    search.add_argument("query", nargs="+", help="Anime title to search")
+    search.add_argument("query", nargs="*", help="Anime title to search")
     _add_search_options(search)
 
     for provider_id, provider in sorted(available_providers().items()):
@@ -387,7 +387,7 @@ def build_command_parser():
             metavar="<action>",
             help=argparse.SUPPRESS,
         )
-        provider_parser.add_argument("query", nargs="+", help="Anime title to search")
+        provider_parser.add_argument("query", nargs="*", help="Anime title to search")
         _add_search_options(provider_parser)
         provider_parser.set_defaults(provider=provider_id)
 
@@ -406,7 +406,7 @@ def build_command_parser():
     )
     _configure_help_parser(download)
     download._positionals.title = "Arguments"
-    download.add_argument("query", nargs="+", help="Anime title to search")
+    download.add_argument("query", nargs="*", help="Anime title to search")
     _add_download_options(download)
 
     downloads = commands.add_parser(
@@ -631,7 +631,7 @@ def build_anilist_search_parser():
     ))
     _set_cli_defaults(parser)
     parser._positionals.title = "Arguments"
-    parser.add_argument("query", nargs="+", help="Anime title to search")
+    parser.add_argument("query", nargs="*", help="Anime title to search")
     _add_anilist_options(parser, search=True)
     parser.set_defaults(command="anilist", anilist="search")
     return parser
