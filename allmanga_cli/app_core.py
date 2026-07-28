@@ -1756,6 +1756,18 @@ def browse_download_library(flags, ui, cfg, args):
             dirty = True
             continue
             
+        # Upgrade stubs to rich metadata
+        meta = data.get("metadata", {})
+        if "_id" not in meta and "availableEpisodes" not in meta:
+            try:
+                from allmanga_cli.app_core import make_provider_oneshot_search
+                results = make_provider_oneshot_search(title, "sub")
+                if results:
+                    data["metadata"] = results[0]
+                    dirty = True
+            except Exception:
+                pass
+                
         try:
             actual_files = os.listdir(folder_path)
         except OSError:
@@ -1803,7 +1815,18 @@ def browse_download_library(flags, ui, cfg, args):
                 m = EP_NUM_RE.search(f)
                 if m:
                     episodes.append(m.group(1))
-            data = {"metadata": {"name": folder_name}, "episodes": sorted(episodes, key=lambda e: int(e))}
+                    
+            # Try to fetch real metadata for the discovered folder
+            metadata = {"name": folder_name}
+            try:
+                from allmanga_cli.app_core import make_provider_oneshot_search
+                results = make_provider_oneshot_search(folder_name, "sub")
+                if results:
+                    metadata = results[0]
+            except Exception:
+                pass
+                
+            data = {"metadata": metadata, "episodes": sorted(episodes, key=lambda e: int(e))}
             shows[folder_name] = data
             valid_titles.append((folder_name, data))
             dirty = True
