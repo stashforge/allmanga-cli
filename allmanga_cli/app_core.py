@@ -2001,7 +2001,24 @@ def browse_download_library(flags, ui, cfg, args):
         
         if file_idx < 0:
             continue
-        play_local_video(files[file_idx], args.player or cfg.get("player", "mpv"))
+            
+        while True:
+            action_opts = ["Play episode", "External player", "Delete episode"]
+            action_idx = tui_pick(
+                flags, ui, "Episode Action", action_opts,
+                help_dict=picker_help("Select action", "Cancel", "Cancel")
+            )
+            if action_idx < 0:
+                break
+                
+            action = action_opts[action_idx]
+            if action == "Play episode" or action == "External player":
+                player = cfg.get("player", "mpv") if action == "Play episode" else "xdg-open"
+                play_local_video(files[file_idx], args.player or player)
+                break
+            elif action == "Delete episode":
+                _delete_ep(file_idx)
+                break
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
