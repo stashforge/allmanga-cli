@@ -195,6 +195,12 @@ def handle_downloads_state(flags, ui, ms, cfg, args, ttype, resolveTracking):
     show["availableEpisodesDetail"][ttype] = episodes_list
     show["availableEpisodes"] = {ttype: len(episodes_list)}
     
+    # Force the episode catalog to match only what's downloaded
+    # (Overrides any stale cache from previous auto-fetches)
+    show["_episode_ids"] = episodes_list
+    show["_episode_ids_ttype"] = ttype
+    show["_episode_catalog_state"] = "loaded"
+    
     # Setup state machine variables for the selected offline anime
     ms._is_downloads = True
     ms._download_dir = folder_path

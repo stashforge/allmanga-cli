@@ -194,7 +194,7 @@ def handle_episode_state(
         except OSError: w = 80
         parts = []
         if show:
-            app_core.build_info_panel(show, ttype, w, parts)
+            app_core.build_info_panel(show, ttype, w, parts, local_only=getattr(ms, "_is_downloads", False))
 
         _t = lambda s: _truncate_display(s, max(1, w - 1))
         direct_single = ui.ep_prev_state == "SEARCH" and len(ms.shows) <= 1 and ms.just_searched
@@ -837,7 +837,7 @@ def handle_action_menu_state(
         feedback_msg = action_show.get("_action_feedback", "")
 
         ep_str = current_ep_label
-        app_core.build_info_panel(action_show, ttype, w, parts, override_ep_str=ep_str)
+        app_core.build_info_panel(action_show, ttype, w, parts, override_ep_str=ep_str, local_only=getattr(ms, "_is_downloads", False))
 
         if has_feedback and len(parts) >= 4:
             parts[3] = f"\033[32m✔ {feedback_msg}\033[0m"
@@ -1011,7 +1011,7 @@ def handle_mirrors_state(
         parts = []
         if ui.ui_show_ctx:
             ep_str = _display_episode_label(ui.ui_show_ctx, ms.current_ep, ttype)
-            app_core.build_info_panel(ui.ui_show_ctx, ttype, w, parts, override_ep_str=ep_str)
+            app_core.build_info_panel(ui.ui_show_ctx, ttype, w, parts, override_ep_str=ep_str, local_only=getattr(ms, "_is_downloads", False))
 
         toast = ui.pref_toast
         toast_time = ui.pref_toast_time
@@ -1103,7 +1103,7 @@ def handle_browser_play_state(
         except OSError: w = 80
         parts = []
         ep_str = _display_episode_label(ui.ui_show_ctx, ms.current_ep, ttype)
-        app_core.build_info_panel(ui.ui_show_ctx, ttype, w, parts, override_ep_str=ep_str)
+        app_core.build_info_panel(ui.ui_show_ctx, ttype, w, parts, override_ep_str=ep_str, local_only=getattr(ms, "_is_downloads", False))
         _t = lambda s: _truncate_display(s, max(1, w - 1))
         parts.append(f"\033[38;5;244m{_t('Enter/Right=select  ? = Help  Left/Esc=back')}\033[0m")
         return "\n".join(parts)
