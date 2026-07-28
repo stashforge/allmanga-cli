@@ -445,7 +445,7 @@ def handle_play_state(
                         meta = {}
                         keys_to_keep = [
                             "id", "name", "englishName", "nativeName", "altNames",
-                            "thumbnail", "banner", "description", "type", "format",
+                            "thumbnail", "description", "type", "format",
                             "status", "season", "airedStart", "airedEnd", "startDate",
                             "endDate", "score", "genres", "tags", "aniListId", "malId",
                             "_display_name", "_display_english_name", "_anilist_list",
