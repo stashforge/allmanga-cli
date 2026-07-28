@@ -692,6 +692,27 @@ def sanitize_token(token):
     return value
 
 
+def get_default_download_dir():
+    import platform
+    # Termux Android storage
+    termux_storage = os.path.expanduser("~/storage/downloads")
+    if os.path.isdir(termux_storage):
+        return os.path.join(termux_storage, "allmanga-cli")
+        
+    # Windows native
+    if platform.system() == "Windows":
+        win_path = os.path.join(os.environ.get("USERPROFILE", os.path.expanduser("~")), "Downloads")
+        if os.path.isdir(win_path):
+            return os.path.join(win_path, "allmanga-cli")
+            
+    # Standard macOS/Linux
+    unix_path = os.path.expanduser("~/Downloads")
+    if os.path.isdir(unix_path):
+        return os.path.join(unix_path, "allmanga-cli")
+        
+    # Absolute fallback
+    return os.path.join(os.getcwd(), "allmanga-cli")
+
 def load_config():
     cfg = load_config_file(
         paths.CONFIG_PATH,

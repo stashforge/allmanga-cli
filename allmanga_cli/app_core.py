@@ -1734,8 +1734,8 @@ def play_local_video(path, player="mpv"):
 def browse_download_library(flags, ui, cfg, args):
     download_dir = cfg.get("download_dir", "")
     if not download_dir:
-        downloads_path = os.path.join(os.path.expanduser("~"), "Downloads")
-        download_dir = os.path.join(downloads_path, "allmanga-cli") if os.path.isdir(downloads_path) else os.path.join(os.getcwd(), "allmanga-cli")
+        from allmanga_cli.core.storage import get_default_download_dir
+        download_dir = get_default_download_dir()
     base, library = scan_download_library(download_dir)
     if not base:
         err("Failed to scan directory.")
@@ -1815,8 +1815,8 @@ def handle_config_command(args):
                 return
                 
             if not old_dir:
-                downloads_path = os.path.join(os.path.expanduser("~"), "Downloads")
-                old_dir_full = os.path.join(downloads_path, "allmanga-cli") if os.path.isdir(downloads_path) else os.path.join(os.getcwd(), "allmanga-cli")
+                from allmanga_cli.core.storage import get_default_download_dir
+                old_dir_full = get_default_download_dir()
             else:
                 old_dir_full = os.path.expanduser(old_dir)
             if os.path.isdir(old_dir_full) and old_dir_full != new_dir:
