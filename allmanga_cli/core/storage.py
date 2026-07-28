@@ -753,3 +753,17 @@ def save_downloads_db(db):
     import os
     os.makedirs(paths.STATE_DIR, exist_ok=True)
     _atomic_write_json(paths.DOWNLOADS_DB_PATH, db, indent=2)
+
+def update_offline_watch_status(title, episode):
+    db = load_downloads_db()
+    if title not in db.get("shows", {}):
+        return False
+    show_data = db["shows"][title]
+    watched = show_data.get("watched_episodes", [])
+    ep_str = str(episode)
+    if ep_str not in watched:
+        watched.append(ep_str)
+        show_data["watched_episodes"] = watched
+        save_downloads_db(db)
+        return True
+    return False

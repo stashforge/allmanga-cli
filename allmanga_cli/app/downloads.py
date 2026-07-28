@@ -55,6 +55,12 @@ def handle_downloads_state(flags, ui, ms, cfg, args, ttype, resolveTracking):
             data["episodes"] = valid_eps
             dirty = True
             
+        meta = data.get("metadata", {})
+        if meta.get("episodeCount") != len(valid_eps):
+            meta["episodeCount"] = len(valid_eps)
+            data["metadata"] = meta
+            dirty = True
+            
         if not valid_eps:
             del shows[title]
             dirty = True
@@ -89,7 +95,7 @@ def handle_downloads_state(flags, ui, ms, cfg, args, ttype, resolveTracking):
                     episodes.append(m.group(1))
                     
             # Try to fetch real metadata for the discovered folder
-            metadata = {"name": folder_name}
+            metadata = {"name": folder_name, "episodeCount": len(episodes)}
             
             data = {"metadata": metadata, "episodes": sorted(episodes, key=lambda e: int(e))}
             shows[folder_name] = data
@@ -116,6 +122,7 @@ def handle_downloads_state(flags, ui, ms, cfg, args, ttype, resolveTracking):
         if 0 <= si < len(valid_titles):
             title, data = valid_titles[si]
             show = data.get("metadata", {})
+            show["watched_episodes"] = data.get("watched_episodes", [])
             build_info_panel(show, "sub", w, parts, local_only=True)
             
         line = f"Downloaded anime  │  {download_dir}  │  Enter=episodes  Del=delete title  Esc=quit"
@@ -189,6 +196,7 @@ def handle_downloads_state(flags, ui, ms, cfg, args, ttype, resolveTracking):
         
     show["availableEpisodesDetail"][ttype] = episodes_list
     show["availableEpisodes"] = {ttype: len(episodes_list)}
+    show["episodeCount"] = len(episodes_list)
     
     # Force the episode catalog to match only what's downloaded
     # (Overrides any stale cache from previous auto-fetches)

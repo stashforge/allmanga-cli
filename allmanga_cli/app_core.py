@@ -736,8 +736,14 @@ def prepare_show_display_state(show, ttype="sub", sync_enabled=None):
     elif sync_enabled is None:
         sync_enabled = get_title_sync(show)
     show["_sync_enabled"] = bool(sync_enabled)
-    show["_local_progress"] = get_local_progress(show, ttype)
-    show["_local_episode_label"] = get_local_episode_label(show, ttype)
+    
+    if "watched_episodes" in show:
+        watched_count = len(show["watched_episodes"])
+        show["_local_progress"] = watched_count
+        show["_local_episode_label"] = str(watched_count)
+    else:
+        show["_local_progress"] = get_local_progress(show, ttype)
+        show["_local_episode_label"] = get_local_episode_label(show, ttype)
     if not show.get("_progress_authority"):
         show["_progress_authority"] = "AL" if sync_enabled else "LOCAL"
     return show

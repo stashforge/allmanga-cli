@@ -618,6 +618,19 @@ def handle_play_state(
         )
         if should_update_history:
             app_core.save_history(ui.ui_show_ctx, ms.current_ep, ttype)
+            
+        if getattr(ms, "_is_downloads", False) and playback_updates_history(
+            result, percent, time_pos, duration, played_seconds
+        ):
+            try:
+                from allmanga_cli.core.storage import update_offline_watch_status
+                if update_offline_watch_status(ms.show_title, ms.current_ep):
+                    watched = ui.ui_show_ctx.get("watched_episodes", [])
+                    if str(ms.current_ep) not in watched:
+                        watched.append(str(ms.current_ep))
+                    ui.ui_show_ctx["watched_episodes"] = watched
+            except Exception:
+                pass
 
         if auto_scrobbled:
             app_core.save_resume_time(ms.show_id, ms.current_ep, 0)
@@ -761,7 +774,7 @@ def handle_action_menu_state(
     next_ep_label = episode_labels.get(str(next_ep), str(next_ep)) if next_ep is not None else ""
     prev_ep_label = episode_labels.get(str(prev_ep), str(prev_ep)) if prev_ep is not None else ""
 
-    if not flags.incognito_mode and not getattr(ms, "_is_downloads", False):
+    if not flags.incognito_mode:
         if next_ep is not None:
             opts.append("Mark & Next"); acts.append("TRACK_NEXT")
         opts.append("Mark Watched"); acts.append("TRACK_ONLY")
@@ -879,6 +892,19 @@ def handle_action_menu_state(
         return ui.action_prev_state
 
     def _execute_track_action():
+        if getattr(ms, "_is_downloads", False):
+            from allmanga_cli.core.storage import update_offline_watch_status
+            if update_offline_watch_status(ms.show_title, ms.current_ep):
+                watched = action_show.get("watched_episodes", [])
+                if str(ms.current_ep) not in watched:
+                    watched.append(str(ms.current_ep))
+                action_show["watched_episodes"] = watched
+                # Recompute display state for the current screen
+                app_core.prepare_show_display_state(action_show, ttype, False)
+            app_core.set_action_feedback(action_show, f"Marked {_fmt_ep(current_ep_label)} as watched locally.")
+            app_core.save_resume_time(ms.show_id, ms.current_ep, 0)
+            return False
+            
         tkn = cfg.get("anilist_token")
         synced = False
         if tkn and resolve_tracking_fn(ui.search_prev_state, args, cfg, action_show):
