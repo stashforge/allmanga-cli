@@ -45,11 +45,19 @@ def handle_downloads_state(flags, ui, ms, cfg, args, ttype, resolveTracking):
         except OSError:
             actual_files = []
             
-        valid_eps = []
-        for ep in data.get("episodes", []):
-            ep_pattern = re.compile(rf"(^|[^0-9]){ep}([^0-9]|$)")
-            if any(ep_pattern.search(f) for f in actual_files):
-                valid_eps.append(ep)
+        import re
+        EP_NUM_RE = re.compile(r"Episode\s+(\d+(?:\.\d+)?)", re.IGNORECASE)
+        discovered_eps = set()
+        for f in actual_files:
+            m = EP_NUM_RE.search(f)
+            if m:
+                discovered_eps.add(m.group(1))
+                
+        def safe_float(x):
+            try: return float(x)
+            except ValueError: return 0
+            
+        valid_eps = sorted(list(discovered_eps), key=safe_float)
                 
         if len(valid_eps) != len(data.get("episodes", [])):
             data["episodes"] = valid_eps

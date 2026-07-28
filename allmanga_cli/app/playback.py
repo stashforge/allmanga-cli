@@ -439,7 +439,27 @@ def handle_play_state(
                     title = ms.show_title
                     if title not in db["shows"]:
                         db["shows"][title] = {"episodes": []}
-                    db["shows"][title]["metadata"] = s_ctx
+                    
+                    # Build clean metadata for offline tracking
+                    def build_offline_metadata(s):
+                        meta = {}
+                        keys_to_keep = [
+                            "id", "name", "englishName", "nativeName", "altNames",
+                            "thumbnail", "banner", "description", "type", "format",
+                            "status", "season", "airedStart", "airedEnd", "startDate",
+                            "endDate", "score", "genres", "tags", "aniListId", "malId",
+                            "_display_name", "_display_english_name", "_anilist_list",
+                            "_anilist_progress", "_anilist_score", "anilistMatch",
+                            "originalEpisodeCount"
+                        ]
+                        for k in keys_to_keep:
+                            if k in s:
+                                meta[k] = s[k]
+                        if "originalEpisodeCount" not in meta and "episodeCount" in s:
+                            meta["originalEpisodeCount"] = s["episodeCount"]
+                        return meta
+                        
+                    db["shows"][title]["metadata"] = build_offline_metadata(s_ctx)
                     ep_str = str(ms.current_ep)
                     if ep_str not in db["shows"][title]["episodes"]:
                         db["shows"][title]["episodes"].append(ep_str)
