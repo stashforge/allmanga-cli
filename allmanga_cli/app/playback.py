@@ -964,6 +964,7 @@ def handle_action_menu_state(
 
     elif a == "REPLAY":
         _clear_episode_source_state(ms)
+        app_core.save_resume_time(ms.show_id, ms.current_ep, 0)
         return "PLAY"
 
     elif a == "MIRRORS":
