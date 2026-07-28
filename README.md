@@ -7,9 +7,23 @@ A robust, lightweight Python CLI tool for scraping and streaming anime directly 
 - **Unified Metadata Enrichment**: Seamlessly merges disparate provider search results with rich, unified metadata direct from AniList, including exact episode counts, scores, formats, and alternative titles.
 - **Robust Language Classifier**: Features a custom density-based NLP tokenizer to automatically identify and prioritize the most accurate English, Romaji, and Native titles for display.
 - **Advanced Fallback Priority**: Includes a smart stream-ranking system. When a provider returns multiple mirrors, `allmanga-cli` automatically ranks them, prioritizing the fastest, most reliable servers (like `ok.ru` and `pewe`) and seamlessly skipping failing/obfuscated embeds.
+- **Offline Library Integration**: Download episodes using the built-in batch downloader, and access them natively via `allmanga-cli downloads`. The offline UI seamlessly mirrors the streaming UI with built-in watch progress tracking and unified AniList metadata.
 - **Direct MPV Integration**: Pipes raw `.m3u8` playlists and `.mp4` files straight to `mpv` for a native playback experience.
 - **Built-in Background Resolver**: Uses background threads to resolve multiple streams simultaneously to prevent CLI blocking.
 - **Browser Playback Fallback**: If scrapers fail or you want a provider's native auto-next functionality, a built-in action menu lets you extract the raw embed/watch URL and instantly open it in your desktop or Android browser.
+
+## Usage
+
+Run the CLI directly in your terminal:
+```bash
+allmanga-cli [query...] [flags]
+```
+
+### Key Commands
+- **Stream/Search**: `allmanga-cli [query]` - Search and stream an anime.
+- **Offline Library**: `allmanga-cli downloads` - Open the offline library to browse and play downloaded episodes locally without an internet connection.
+- **Configuration**: `allmanga-cli config` - Interactively manage your settings (e.g., set default download directory).
+- **AniList Sync**: `allmanga-cli --login` - Link your AniList account to enable automatic watch history tracking.
 
 ## Installation
 
