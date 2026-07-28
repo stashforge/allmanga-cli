@@ -106,11 +106,13 @@ class CLIParser(argparse.ArgumentParser):
                 print("Run 'allmanga-cli -h' to see all commands.")
                 print("Run 'allmanga-cli providers' to see available providers.\n")
                 sys.exit(2)
-        elif "the following arguments are required: <action>" in message or "the following arguments are required: provider_action" in message:
+        elif "the following arguments are required: <action>" in message or "the following arguments are required: provider_action" in message or "the following arguments are required: <command>" in message:
             provider = self.prog.split()[-1]
+            if provider == "allmanga-cli":
+                super().error(message)
             print("\n\033[31mNo action specified.\033[0m\n")
             print("Usage:")
-            print(f"  allmanga-cli {provider} search <query>\n")
+            print(f"  allmanga-cli {provider} <command> <query>\n")
             print("Run:")
             print(f"  allmanga-cli {provider} -h\n")
             sys.exit(2)
