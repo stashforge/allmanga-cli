@@ -1846,10 +1846,11 @@ def handle_config_command(args):
             print(f"Config updated: {key} = {val}")
 
 def main():
-    import signal, os
+    import signal, os, sys
     def _force_exit(sig, frame):
         try:
-            _exit_player_screen()
+            sys.stdout.write("\033[?1049l\033[2J\033[H\033[?25h")
+            sys.stdout.flush()
         except Exception:
             pass
         os._exit(1)
