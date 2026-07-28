@@ -1784,6 +1784,32 @@ def browse_download_library(flags, ui, cfg, args):
     if dirty:
         save_downloads_db(db)
 
+    # Discovery scan: auto-import folders on disk that aren't tracked in the DB
+    VIDEO_EXTS = ('.mp4', '.mkv', '.avi', '.ts')
+    EP_NUM_RE = re.compile(r'Episode\s+(\d+)', re.IGNORECASE)
+    if os.path.isdir(download_dir):
+        for folder_name in os.listdir(download_dir):
+            folder_path = os.path.join(download_dir, folder_name)
+            if not os.path.isdir(folder_path) or folder_name in shows:
+                continue
+            try:
+                files = [f for f in os.listdir(folder_path) if f.endswith(VIDEO_EXTS)]
+            except OSError:
+                continue
+            if not files:
+                continue
+            episodes = []
+            for f in files:
+                m = EP_NUM_RE.search(f)
+                if m:
+                    episodes.append(m.group(1))
+            data = {"metadata": {"name": folder_name}, "episodes": sorted(episodes, key=lambda e: int(e))}
+            shows[folder_name] = data
+            valid_titles.append((folder_name, data))
+            dirty = True
+        if dirty:
+            save_downloads_db(db)
+
     if not valid_titles:
         warn(f"No downloaded videos found in {download_dir}.")
         return
