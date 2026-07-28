@@ -1593,6 +1593,10 @@ def ensure_episode_ids(show, ttype):
             return legacy_ids
 
     show_id = title_provider_id(show)
+    if show_id and str(show_id).startswith("local:"):
+        eps = show.get("availableEpisodesDetail", {}).get(ttype, [])
+        return _normalize_episode_ids(eps)
+
     if show_id:
         # LATE ENRICHMENT: If search failed to enrich, try one last time via provider's get_title ID scraping
         enrich_show_if_missing(show)

@@ -35,21 +35,15 @@ def handle_downloads_state(flags, ui, ms, cfg, args, ttype, resolveTracking):
             
         meta = data.get("metadata", {})
         if "_id" not in meta and "availableEpisodes" not in meta:
-            try:
-                from ..app_core import search_anime, search_anilist, enrich_provider_results
-                results = search_anime(title, "sub")
-                if not results and " " in title:
-                    results = search_anime(title.split()[0], "sub")
-                if results:
-                    token = cfg.get("anilist_token")
-                    al_shows = search_anilist(token, title) if token else None
-                    if not al_shows and token and " " in title:
-                        al_shows = search_anilist(token, title.split()[0])
-                    results = enrich_provider_results(results, token, al_shows)
-                    data["metadata"] = results[0]
-                    dirty = True
-            except Exception:
-                pass
+            # User requested not to auto-fetch metadata because title match is hard and causes delays
+            meta["name"] = title
+            
+        # Force local ID for downloads so we don't accidentally trigger network fetches
+        # if the file was previously cached with a real ID
+        if meta.get("_id") != f"local:{title}":
+            meta["_id"] = f"local:{title}"
+            data["metadata"] = meta
+            dirty = True
                 
         try:
             actual_files = os.listdir(folder_path)
@@ -100,22 +94,8 @@ def handle_downloads_state(flags, ui, ms, cfg, args, ttype, resolveTracking):
                     episodes.append(m.group(1))
                     
             # Try to fetch real metadata for the discovered folder
-            metadata = {"name": folder_name}
-            try:
-                from ..app_core import search_anime, search_anilist, enrich_provider_results
-                results = search_anime(folder_name, "sub")
-                if not results and " " in folder_name:
-                    results = search_anime(folder_name.split()[0], "sub")
-                if results:
-                    token = cfg.get("anilist_token")
-                    al_shows = search_anilist(token, folder_name) if token else None
-                    if not al_shows and token and " " in folder_name:
-                        al_shows = search_anilist(token, folder_name.split()[0])
-                    results = enrich_provider_results(results, token, al_shows)
-                    metadata = results[0]
-            except Exception:
-                pass
-                
+            metadata = {"name": folder_name, "_id": f"local:{folder_name}"}
+            
             data = {"metadata": metadata, "episodes": sorted(episodes, key=lambda e: int(e))}
             shows[folder_name] = data
             valid_titles.append((folder_name, data))
@@ -141,7 +121,7 @@ def handle_downloads_state(flags, ui, ms, cfg, args, ttype, resolveTracking):
         if 0 <= si < len(valid_titles):
             title, data = valid_titles[si]
             show = data.get("metadata", {})
-            build_info_panel(show, "sub", w, parts, local_only=True, main_title=title)
+            build_info_panel(show, "sub", w, parts, local_only=True)
             
         line = f"Downloaded anime  │  {download_dir}  │  Enter=episodes  Del=delete title  Esc=quit"
         parts.append(f"{_C_HINT}{_truncate_display(line, max(1, w - 1))}{_RST}")
