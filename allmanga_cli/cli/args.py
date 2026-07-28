@@ -532,7 +532,7 @@ def build_command_parser():
         description="List available streaming providers.",
         add_help=False,
         epilog=(
-            "Usage:\n"
+            "Examples:\n"
             "  You can search a specific provider directly by using its ID as a command:\n"
             "    allmanga-cli allanime search frieren\n"
             "    allmanga-cli miruro search \"one piece\"\n\n"
