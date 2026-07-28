@@ -15,7 +15,10 @@ def validate_http_url(url):
 
 
 def validate_stream_url(url):
-    """Accept only credential-free HTTP(S) media and extractor destinations."""
+    """Accept only credential-free HTTP(S) media and extractor destinations, or absolute local file paths."""
+    import os
+    if isinstance(url, str) and os.path.isabs(url):
+        return url
     return validate_http_url(url)
 
 
