@@ -1007,7 +1007,6 @@ def handle_action_menu_state(
         return "PLAY"
 
     elif a == "EPISODES":
-        ui.ep_prev_state = "ACTION_MENU"
         return "EPISODE"
 
     elif a == "VERIFY":
