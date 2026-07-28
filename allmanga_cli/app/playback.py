@@ -430,7 +430,7 @@ def handle_play_state(
                     db = load_downloads_db()
                     title = ms.show_title
                     if title not in db["shows"]:
-                        db["shows"][title] = {"metadata": ms.show, "episodes": []}
+                        db["shows"][title] = {"metadata": s_ctx, "episodes": []}
                     ep_str = str(ms.current_ep)
                     if ep_str not in db["shows"][title]["episodes"]:
                         db["shows"][title]["episodes"].append(ep_str)

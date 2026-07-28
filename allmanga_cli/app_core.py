@@ -2261,7 +2261,8 @@ def main():
     ms = MachineState(
         query_str=" ".join(args.query) if args.query else "",
         just_searched=bool(args.query),
-        anilist_search_parent="QUIT"
+        anilist_search_parent="QUIT",
+        download_batch_end=globals().get("_download_batch_end")
     )
 
     state = "SEARCH"
