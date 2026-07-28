@@ -17,18 +17,16 @@ def _error(message):
     print(f"{RED}[ERR]{RESET} {message}")
 
 
-def download_episode(title, episode, stream, download_dir=""):
+def download_episode(title, episode, stream, download_dir="", downloader="auto"):
     audio_url = stream.get("audio_url", "")
-    downloader = "ffmpeg" if audio_url else "yt-dlp"
+    if downloader == "auto":
+        downloader = "ffmpeg" if audio_url else "yt-dlp"
+
     if not shutil.which(downloader):
-        if audio_url:
-            _error(
-                "ffmpeg is required to download separate DASH video and audio."
-            )
+        if downloader == "ffmpeg":
+            _error("ffmpeg is not installed or not in PATH.")
         else:
-            _error(
-                "yt-dlp is not installed. Install it to download episodes."
-            )
+            _error("yt-dlp is not installed or not in PATH.")
         return False
 
     try:
@@ -61,7 +59,7 @@ def download_episode(title, episode, stream, download_dir=""):
     if referer and "Referer" not in headers:
         headers["Referer"] = referer
 
-    if audio_url:
+    if downloader == "ffmpeg":
         command = [
             "ffmpeg",
             "-nostdin",
@@ -71,14 +69,11 @@ def download_episode(title, episode, stream, download_dir=""):
             header_str = "".join(f"{k}: {v}\r\n" for k, v in headers.items())
             command.extend(["-headers", header_str])
         
-        command.extend([
-            "-i", url,
-            "-i", audio_url,
-            "-map", "0:v:0",
-            "-map", "1:a:0",
-            "-c", "copy",
-            filename,
-        ])
+        command.extend(["-i", url])
+        if audio_url:
+            command.extend(["-i", audio_url, "-map", "0:v:0", "-map", "1:a:0"])
+        
+        command.extend(["-c", "copy", filename])
     else:
         command = ["yt-dlp", url, "-o", filename]
         for k, v in headers.items():

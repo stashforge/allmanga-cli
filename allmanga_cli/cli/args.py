@@ -261,6 +261,12 @@ def _add_download_options(parser):
         "-s", "--sources", action="store_true",
         help="Choose a mirror before downloading",
     )
+    download.add_argument(
+        "--downloader",
+        choices=["auto", "yt-dlp", "ffmpeg"],
+        default="auto",
+        help="Downloader to use: auto (default), yt-dlp, ffmpeg",
+    )
     output = parser.add_argument_group("Output options")
     output.add_argument("--cover", action="store_true", help="Show cover images")
     _add_provider_option(output)

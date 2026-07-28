@@ -409,10 +409,37 @@ def handle_play_state(
 
     if getattr(args, 'download', False):
         app_core._exit_player_screen(close_alt=True)
-        download_ok = app_core.download_episode(ms.show_title, ms.current_ep, ms.selected_stream, cfg.get("download_dir", ""))
+        
+        exclude_sources = set()
+        download_ok = False
+        downloader_choice = getattr(args, "downloader", "auto")
+        
+        while True:
+            download_ok = app_core.download_episode(
+                ms.show_title, ms.current_ep, ms.selected_stream, 
+                cfg.get("download_dir", ""), downloader=downloader_choice
+            )
+            if download_ok:
+                break
+            
+            exclude_sources.add(first_source_name)
+            print(f"{YELLOW}Download failed on mirror '{first_source_name}'. Trying next mirror...{RESET}")
+            
+            res = app_core.fetch_episode_stream(
+                ms.show_id,
+                ms.current_ep,
+                ttype,
+                cfg.get("quality", "best"),
+                provider_id=provider_id,
+                exclude_sources=exclude_sources
+            )
+            if not res:
+                break
+            ms.selected_stream, first_source_name, _, streams = res
+            app_core._extend_streams(streams)
+
         if not download_ok:
-            print(f"\n{YELLOW}Download stopped at EP {ms.current_ep}.{RESET}")
-            return "QUIT"
+            print(f"\n{RED}All mirrors failed for EP {ms.current_ep}. Skipping to next episode...{RESET}")
 
         download_batch_end = ms.download_batch_end if ms.download_batch_end is not None else ms.current_ep
         if int(float(str(download_batch_end))) > int(float(str(ms.current_ep))) and ms.current_ep_index + 1 < ms.total_eps:

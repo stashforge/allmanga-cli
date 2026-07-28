@@ -195,7 +195,7 @@ def start_bg_resolve(ep_data, exclude_names: set):
         _bg_thread.start()
 
 
-def fetch_episode_stream(show_id, ep_number, ttype="sub", quality="best", provider_id=None):
+def fetch_episode_stream(show_id, ep_number, ttype="sub", quality="best", provider_id=None, exclude_sources=None):
     ep_data = _episode_data_fn(show_id, ep_number, ttype, provider_id=provider_id)
     if not ep_data:
         return None
@@ -212,7 +212,9 @@ def fetch_episode_stream(show_id, ep_number, ttype="sub", quality="best", provid
         return source_priority(src)
 
     from ..media.resolver import generate_source_passes
-    for src, failed, _, _ in generate_source_passes(sorted(sources, key=dynamic_prio), max_passes=3):
+    exclude_sources = exclude_sources or set()
+    valid_sources = [s for s in sources if s.get("sourceName", "") not in exclude_sources]
+    for src, failed, _, _ in generate_source_passes(sorted(valid_sources, key=dynamic_prio), max_passes=3):
         streams = resolve_source(src)
         if streams:
             selected_stream = streams[0]
