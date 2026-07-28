@@ -73,6 +73,7 @@ class CommandHelpFormatter(MinimalHelpFormatter):
             return "".join(
                 line[2:] if line.startswith("    ") else line
                 for line in lines
+                if "==SUPPRESS==" not in line
             )
         return text
 
@@ -294,21 +295,24 @@ def build_command_parser():
     parser = _configure_help_parser(argparse.ArgumentParser(
         prog="allmanga-cli",
         usage="allmanga-cli <command> [options]",
-        description="Watch anime from Anime Providers.",
+        description="Watch anime from multiple providers with optional AniList integration.",
         add_help=False,
         epilog=(
+            "Quick start:\n"
+            "  allmanga-cli search frieren\n"
+            "  allmanga-cli continue\n"
+            "  allmanga-cli download frieren\n"
+            "  allmanga-cli anilist watching\n\n"
+            "Run 'allmanga-cli <command> --help' for command-specific help.\n\n"
             "Examples:\n"
-            "  allmanga-cli search slime\n"
-            "  allmanga-cli search slime -e 3 -q 1080p\n"
-            "  allmanga-cli download slime -e 3\n"
-            "  allmanga-cli anilist watching\n"
-            "  allmanga-cli completion bash\n\n"
-            "Run 'allmanga-cli <command> --help' for command-specific options."
+            "  allmanga-cli search --help\n"
+            "  allmanga-cli download --help\n"
+            "  allmanga-cli anilist --help"
         ),
         formatter_class=CommandHelpFormatter,
     ))
     _set_cli_defaults(parser)
-    commands = parser.add_subparsers(dest="command", metavar="<command>", title="Commands")
+    commands = parser.add_subparsers(dest="command", metavar="<command>", title="Main commands")
     global_options = parser.add_argument_group("Global options")
     global_options.add_argument(
         "-h", "--help", action="help", help="Show this help message and exit"
@@ -338,7 +342,7 @@ def build_command_parser():
     for provider_id, provider in sorted(available_providers().items()):
         provider_parser = commands.add_parser(
             provider_id,
-            help=f"Search {provider.name}",
+            help=argparse.SUPPRESS,
             usage=f"allmanga-cli {provider_id} search <query> [options]",
             description=f"Search and watch anime from {provider.name}.",
             epilog=(
@@ -521,6 +525,15 @@ def build_command_parser():
     global_options.add_argument(
         "-h", "--help", action="help", help="Show this help message and exit"
     )
+
+    providers = commands.add_parser(
+        "providers",
+        help="List available providers",
+        description="List available streaming providers.",
+        formatter_class=MinimalHelpFormatter,
+    )
+    _configure_help_parser(providers)
+    providers.set_defaults(list_providers=True)
 
     completion = commands.add_parser(
         "completion",

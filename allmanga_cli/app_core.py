@@ -1811,6 +1811,14 @@ def main():
         print(generate_completion(args.completion_shell), end="")
         return
 
+    if getattr(args, "list_providers", False):
+        globals()["SUPPRESS_FINAL_CURSOR_RESTORE"] = True
+        from allmanga_cli.providers import available_providers
+        print("Available Streaming Providers:\n")
+        for pid, p in sorted(available_providers().items()):
+            print(f"  {pid.ljust(15)} {p.name}")
+        return
+
     check_deps()
     cfg = load_config()
     from allmanga_cli.providers import _DEFAULT_PROVIDER_ID
