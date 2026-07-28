@@ -486,9 +486,17 @@ def handle_play_state(
             ep_idx = episode_index_for_id(episode_ids, ep_num)
         if ep_idx is None:
             return None
+            
+        target_ep = episode_id_at(episode_ids, ep_idx)
+        if getattr(ms, "_is_downloads", False):
+            filepath = ms._download_files.get(str(target_ep))
+            if filepath:
+                return ({"link": filepath, "resolution": "Local"}, "Local File", filepath, [])
+            return None
+            
         return app_core.fetch_episode_stream(
             ms.show_id,
-            episode_id_at(episode_ids, ep_idx),
+            target_ep,
             ttype,
             cfg.get("quality", "best"),
             provider_id=provider_id,
