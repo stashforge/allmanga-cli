@@ -17,7 +17,8 @@ def _error(message):
     print(f"{RED}[ERR]{RESET} {message}")
 
 
-def download_episode(title, episode, stream, download_dir="", downloader="auto"):
+def download_episode(title, episode, stream, download_dir="", downloader="auto", extra_args=None):
+    extra_args = extra_args or []
     audio_url = stream.get("audio_url", "")
     if downloader == "auto":
         downloader = "ffmpeg" if audio_url else "yt-dlp"
@@ -42,15 +43,16 @@ def download_episode(title, episode, stream, download_dir="", downloader="auto")
         char for char in title if char.isalnum() or char in " -_"
     ).strip()
     filename = f"{safe_title} - Episode {episode}.mp4"
-    download_dir = os.path.expanduser(str(download_dir or "").strip())
-    if download_dir:
-        target_dir = os.path.join(download_dir, safe_title)
-        try:
-            os.makedirs(target_dir, exist_ok=True)
-        except Exception as exc:
-            _error(f"Could not create download folder: {exc}")
-            return False
-        filename = os.path.join(target_dir, filename)
+    
+    # Always create an anime-specific folder, even if download_dir is empty (fallback to cwd)
+    download_dir = os.path.expanduser(str(download_dir or os.getcwd()).strip())
+    target_dir = os.path.join(download_dir, safe_title)
+    try:
+        os.makedirs(target_dir, exist_ok=True)
+    except Exception as exc:
+        _error(f"Could not create download folder: {exc}")
+        return False
+    filename = os.path.join(target_dir, filename)
 
     print(f"\n{CYAN}[Download]{RESET} {filename}")
 
@@ -76,8 +78,19 @@ def download_episode(title, episode, stream, download_dir="", downloader="auto")
         command.extend(["-c", "copy", filename])
     else:
         command = ["yt-dlp", url, "-o", filename]
+        
+        # Auto-inject aria2c if available and user didn't manually override it
+        if shutil.which("aria2c") and not any(arg in extra_args for arg in ("--downloader", "--external-downloader")):
+            command.extend([
+                "--downloader", "aria2c",
+                "--downloader-args", "aria2c:-x 16 -s 16 -k 1M"
+            ])
+            
         for k, v in headers.items():
             command.extend(["--add-header", f"{k}:{v}"])
+
+    if extra_args:
+        command.extend(extra_args)
 
     try:
         subprocess.run(command, check=True)

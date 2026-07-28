@@ -11,7 +11,7 @@ _ANSI_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
 COMMAND_NAMES = {
     "search", "download", "downloads", "anilist", "history", "continue",
-    "auth", "providers", "completion",
+    "auth", "providers", "completion", "config",
 }
 
 COMPLETION_SHELLS = ("bash", "zsh", "fish")
@@ -266,6 +266,10 @@ def _add_download_options(parser):
         choices=["auto", "yt-dlp", "ffmpeg"],
         default=argparse.SUPPRESS,
         help="Downloader to use: auto (default), yt-dlp, ffmpeg",
+    )
+    download.add_argument(
+        "extra_args", nargs=argparse.REMAINDER,
+        help="Extra arguments to pass directly to the downloader (use after --)"
     )
     output = parser.add_argument_group("Output options")
     output.add_argument("--cover", action="store_true", help="Show cover images")
@@ -639,6 +643,34 @@ def build_command_parser():
         "-h", "--help", action="help", help="Show this help message and exit"
     )
 
+    # config command
+    config = commands.add_parser(
+        "config",
+        help="Manage CLI configuration",
+        description="Manage configuration settings (e.g., set default download directory).",
+        usage="allmanga-cli config <action> [key] [value]",
+        add_help=False,
+        formatter_class=MinimalHelpFormatter,
+    )
+    config.add_argument(
+        "action",
+        choices=["set"],
+        metavar="<action>",
+        help="Action to perform (e.g., set)",
+    )
+    config.add_argument(
+        "key",
+        metavar="<key>",
+        help="Configuration key (e.g., download_dir)",
+    )
+    config.add_argument(
+        "value",
+        metavar="<value>",
+        nargs="?",
+        help="Configuration value",
+    )
+    _configure_help_parser(config)
+
     return parser
 
 def build_anilist_search_parser():
@@ -691,6 +723,11 @@ def parse_cli_args(argv=None):
         args.auth_token_raw = bool(args.raw)
         if args.raw and args.action != "token":
             parser.error("auth --raw is only valid with auth token")
+        del args.action
+    elif args.command == "config":
+        args.config_action = args.action
+        args.config_key = args.key
+        args.config_value = getattr(args, "value", None)
         del args.action
     elif args.command == "completion":
         values = list(args.completion_args)

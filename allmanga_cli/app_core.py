@@ -1732,9 +1732,10 @@ def play_local_video(path, player="mpv"):
     )
 
 def browse_download_library(flags, ui, cfg, args):
-    base, library = scan_download_library(cfg.get("download_dir", ""))
+    download_dir = cfg.get("download_dir", "") or os.getcwd()
+    base, library = scan_download_library(download_dir)
     if not base:
-        err("download_dir is not set. Add it to config before using --downloads.")
+        err("Failed to scan directory.")
         return
     if not os.path.isdir(base):
         err(f"Download folder does not exist: {base}")
@@ -1793,6 +1794,47 @@ def browse_download_library(flags, ui, cfg, args):
 
 fetch_episode_stream = streams.fetch_episode_stream
 
+def handle_config_command(args):
+    from allmanga_cli.core.storage import load_config, save_config
+    import shutil
+    cfg = load_config()
+    
+    if args.config_action == "set":
+        key = args.config_key
+        val = args.config_value
+        
+        if key == "download_dir":
+            old_dir = cfg.get("download_dir", "")
+            new_dir = os.path.expanduser(str(val or "").strip())
+            
+            if not new_dir:
+                err("download_dir requires a value.")
+                return
+                
+            if old_dir:
+                old_dir_full = os.path.expanduser(old_dir)
+                if os.path.isdir(old_dir_full) and old_dir_full != new_dir:
+                    ans = input(f"Move existing downloads from {old_dir_full} to {new_dir}? [y/N]: ").strip().lower()
+                    if ans == "y":
+                        print(f"Moving downloads to {new_dir}...")
+                        try:
+                            os.makedirs(new_dir, exist_ok=True)
+                            for item in os.listdir(old_dir_full):
+                                s = os.path.join(old_dir_full, item)
+                                d = os.path.join(new_dir, item)
+                                if os.path.isdir(s):
+                                    shutil.move(s, d)
+                            print("Migration complete!")
+                        except Exception as e:
+                            err(f"Failed to migrate files: {e}")
+            cfg["download_dir"] = val
+            save_config(cfg)
+            print(f"Config updated: {key} = {val}")
+        else:
+            cfg[key] = val
+            save_config(cfg)
+            print(f"Config updated: {key} = {val}")
+
 def main():
     args, pa = parse_cli_args()
     if getattr(args, "completion_shell", None):
@@ -1809,6 +1851,11 @@ def main():
                 print("Restart fish, or run: exec fish")
             return
         print(generate_completion(args.completion_shell), end="")
+        return
+
+    if getattr(args, "config_action", None):
+        globals()["SUPPRESS_FINAL_CURSOR_RESTORE"] = True
+        handle_config_command(args)
         return
 
     if getattr(args, "list_providers", False):

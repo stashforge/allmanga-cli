@@ -414,10 +414,15 @@ def handle_play_state(
         download_ok = False
         downloader_choice = getattr(args, "downloader", cfg.get("downloader", "auto"))
         
+        extra_args = getattr(args, "extra_args", [])
+        if extra_args and extra_args[0] == "--":
+            extra_args = extra_args[1:]
+        
         while True:
             download_ok = app_core.download_episode(
                 ms.show_title, ms.current_ep, ms.selected_stream, 
-                cfg.get("download_dir", ""), downloader=downloader_choice
+                cfg.get("download_dir", ""), downloader=downloader_choice,
+                extra_args=extra_args
             )
             if download_ok:
                 break
