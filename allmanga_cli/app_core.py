@@ -1846,6 +1846,15 @@ def handle_config_command(args):
             print(f"Config updated: {key} = {val}")
 
 def main():
+    import signal, os
+    def _force_exit(sig, frame):
+        try:
+            _exit_player_screen()
+        except Exception:
+            pass
+        os._exit(1)
+    signal.signal(signal.SIGINT, _force_exit)
+
     args, pa = parse_cli_args()
     if getattr(args, "completion_shell", None):
         globals()["SUPPRESS_FINAL_CURSOR_RESTORE"] = True
