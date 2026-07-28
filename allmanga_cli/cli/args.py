@@ -177,11 +177,11 @@ def _set_cli_defaults(parser):
     )
 
 
-def _add_provider_option(group):
+def _add_provider_option(group, suppress=False):
     group.add_argument(
         "-P", "--provider",
         metavar="PROVIDER",
-        help=_provider_help(),
+        help=argparse.SUPPRESS if suppress else _provider_help(),
     )
 
 
@@ -230,7 +230,10 @@ def _add_search_options(parser):
     output = parser.add_argument_group("Output options")
     output.add_argument("--cover", action="store_true", help="Show cover images")
     output.add_argument("--json", action="store_true", help="Print search results as JSON")
-    _add_provider_option(output)
+    if not getattr(parser, "_is_provider_parser", False):
+        _add_provider_option(output)
+    else:
+        _add_provider_option(output, suppress=True)
 
     global_options = parser.add_argument_group("Global options")
     global_options.add_argument(
@@ -399,6 +402,7 @@ def build_command_parser():
             help=argparse.SUPPRESS,
         )
         provider_parser.add_argument("query", nargs="*", help="Anime title to search")
+        provider_parser._is_provider_parser = True
         _add_search_options(provider_parser)
         provider_parser.set_defaults(provider=provider_id)
 
