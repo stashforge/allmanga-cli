@@ -1885,8 +1885,11 @@ def main():
             os._exit(1)
         else:
             _last_sigint_time = now
-            print("\n\033[93m[!] Press Ctrl+C again within 3 seconds to force quit.\033[0m")
-            sys.stdout.flush()
+            if _player_ui_state.get("active"):
+                _add_status("[!] Press Ctrl+C again within 3 seconds to force quit.", color="\033[93m")
+            else:
+                print("\n\033[93m[!] Press Ctrl+C again within 3 seconds to force quit.\033[0m")
+                sys.stdout.flush()
             
     signal.signal(signal.SIGINT, _force_exit)
 
