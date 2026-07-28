@@ -1734,8 +1734,12 @@ def play_local_video(path, player="mpv"):
 def browse_download_library(flags, ui, cfg, args):
     download_dir = cfg.get("download_dir", "")
     if not download_dir:
-        from allmanga_cli.core.storage import get_default_download_dir
+        from allmanga_cli.core.storage import get_default_download_dir, load_config, save_config
         download_dir = get_default_download_dir()
+        # Persist the automatically resolved path to config
+        live_cfg = load_config()
+        live_cfg["download_dir"] = download_dir
+        save_config(live_cfg)
     base, library = scan_download_library(download_dir)
     if not base:
         err("Failed to scan directory.")

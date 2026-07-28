@@ -46,8 +46,11 @@ def download_episode(title, episode, stream, download_dir="", downloader="auto",
     
     # Always create an anime-specific folder, even if download_dir is empty
     if not download_dir:
-        from allmanga_cli.core.storage import get_default_download_dir
+        from allmanga_cli.core.storage import get_default_download_dir, load_config, save_config
         download_dir = get_default_download_dir()
+        live_cfg = load_config()
+        live_cfg["download_dir"] = download_dir
+        save_config(live_cfg)
     else:
         download_dir = os.path.expanduser(str(download_dir).strip())
 
