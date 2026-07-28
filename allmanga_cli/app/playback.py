@@ -367,7 +367,7 @@ def handle_play_state(
         if getattr(ms, "_is_downloads", False):
             filepath = ms._download_files.get(str(ms.current_ep))
             if filepath:
-                res = (filepath, "Local File", filepath, [])
+                res = ({"link": filepath, "resolution": "Local"}, "Local File", filepath, [])
             else:
                 res = None
         elif _ipc_player.prefetched_ep == ms.current_ep and _ipc_player.prefetched_res:
