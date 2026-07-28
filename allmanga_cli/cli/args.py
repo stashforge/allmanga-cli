@@ -108,7 +108,7 @@ class CLIParser(argparse.ArgumentParser):
                 sys.exit(2)
         elif "the following arguments are required: <action>" in message or "the following arguments are required: provider_action" in message or "the following arguments are required: <command>" in message:
             provider = self.prog.split()[-1]
-            if provider == "allmanga-cli":
+            if provider == "allmanga-cli" or provider not in _provider_command_names():
                 super().error(message)
             print("\n\033[31mNo action specified.\033[0m\n")
             print("Usage:")
@@ -668,6 +668,9 @@ def build_command_parser():
         metavar="<value>",
         nargs="?",
         help="Configuration value",
+    )
+    config.add_argument(
+        "-h", "--help", action="help", help="Show this help message and exit"
     )
     _configure_help_parser(config)
 
