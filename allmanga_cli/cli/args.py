@@ -267,10 +267,6 @@ def _add_download_options(parser):
         default=argparse.SUPPRESS,
         help="Downloader to use: auto (default), yt-dlp, ffmpeg",
     )
-    download.add_argument(
-        "extra_args", nargs=argparse.REMAINDER,
-        help="Extra arguments to pass directly to the downloader (use after --)"
-    )
     output = parser.add_argument_group("Output options")
     output.add_argument("--cover", action="store_true", help="Show cover images")
     _add_provider_option(output)
@@ -707,7 +703,13 @@ def parse_cli_args(argv=None):
         parser = build_anilist_search_parser()
         return parser.parse_args(nested_argv), parser
     parser = build_command_parser()
-    args = parser.parse_args(argv)
+    args, extra = parser.parse_known_args(argv)
+
+    if extra:
+        if args.command == "download" or (args.command in _provider_command_names() and getattr(args, "provider_action", "") == "download"):
+            args.extra_args = extra
+        else:
+            parser.error(f"unrecognized arguments: {' '.join(extra)}")
 
     if args.command is None:
         parser.print_help()
