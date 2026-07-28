@@ -595,36 +595,6 @@ def build_anilist_search_parser():
     parser.set_defaults(command="anilist", anilist="search")
     return parser
 
-def build_legacy_parser():
-    parser = _configure_help_parser(argparse.ArgumentParser(
-        description="Watch anime from Anime Providers.",
-        formatter_class=MinimalHelpFormatter,
-    ))
-    _set_cli_defaults(parser)
-    parser.add_argument("query", nargs="*")
-    parser.add_argument("-e", "--episode", type=str)
-    parser.add_argument("-q", "--quality", choices=["best", "1080p", "720p", "480p"])
-    parser.add_argument("--dub", action="store_true")
-    parser.add_argument("-b", "--binge", action="store_true")
-    parser.add_argument("-p", "--player", choices=["mpv", "mpvex", "vlc", "next"])
-    parser.add_argument("-s", "--sources", action="store_true", help="Fetch and select mirrors on first episode")
-    parser.add_argument("-d", "--download", action="store_true", help="Download episode(s) locally instead of streaming")
-    parser.add_argument("--downloads", action="store_true", help="Browse and play downloaded episodes from download_dir")
-    parser.add_argument("-t", "--sync", dest="sync", action="store_true", help="Enable and remember AniList sync for this title")
-    parser.add_argument("--no-sync", dest="no_sync", action="store_true", help="Disable AniList sync for this run")
-    parser.add_argument("--login", action="store_true", help="Login to AniList")
-    parser.add_argument("--logout", action="store_true", help="Logout of AniList")
-    parser.add_argument("--print-url", action="store_true")
-    parser.add_argument("-H", "--history", action="store_true", help="Browse watch history")
-    parser.add_argument("-a", "--anilist", nargs="?", const="menu", default=None, help="Browse AniList (e.g., CURRENT, PLANNING)")
-    parser.add_argument("-c", "--continue-last", action="store_true", dest="cont", help="Resume last watched")
-    parser.add_argument("--cover", action="store_true", help="Show image cover in search results")
-    parser.add_argument("--provider", default=None, help="Streaming provider to search")
-    parser.add_argument("--incognito", action="store_true", help="Do not save local playback data or update AniList")
-    _add_debug_option(parser)
-    parser.add_argument("--json", action="store_true", help="Print search results as JSON and exit")
-    return parser
-
 def parse_cli_args(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     meaningful = [arg for arg in argv if arg != "--debug"]
@@ -635,18 +605,8 @@ def parse_cli_args(argv=None):
             nested_argv.append("--debug")
         parser = build_anilist_search_parser()
         return parser.parse_args(nested_argv), parser
-    use_commands = bool(
-        meaningful
-        and (
-            meaningful[0] in COMMAND_NAMES
-            or meaningful[0] in _provider_command_names()
-            or meaningful[0] in ("-h", "--help")
-        )
-    )
-    parser = build_command_parser() if use_commands else build_legacy_parser()
+    parser = build_command_parser()
     args = parser.parse_args(argv)
-    if not use_commands:
-        return args, parser
 
     if args.command is None:
         parser.print_help()

@@ -22,7 +22,7 @@ from allmanga_cli.core.api import (
 from allmanga_cli.cli.args import (
     build_anilist_search_parser,
     build_command_parser,
-    build_legacy_parser,
+
     parse_cli_args,
 )
 from allmanga_cli.cli.completion import generate_completion, install_completion
