@@ -530,10 +530,17 @@ def build_command_parser():
         "providers",
         help="List available providers",
         description="List available streaming providers.",
+        add_help=False,
         formatter_class=MinimalHelpFormatter,
     )
     _configure_help_parser(providers)
     providers.set_defaults(list_providers=True)
+    
+    global_options = providers.add_argument_group("Global options")
+    global_options.add_argument(
+        "-h", "--help", action="help", help="Show this help message and exit"
+    )
+    _add_debug_option(global_options)
 
     completion = commands.add_parser(
         "completion",
