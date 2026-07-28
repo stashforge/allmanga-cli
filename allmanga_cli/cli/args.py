@@ -108,7 +108,7 @@ class CLIParser(argparse.ArgumentParser):
                 sys.exit(2)
         elif "the following arguments are required: <action>" in message or "the following arguments are required: provider_action" in message:
             provider = self.prog.split()[-1]
-            print(f"\n\033[31mNo action specified for provider '{provider}'.\033[0m\n")
+            print("\n\033[31mNo action specified.\033[0m\n")
             print("Usage:")
             print(f"  allmanga-cli {provider} search <query>\n")
             print("Run:")
