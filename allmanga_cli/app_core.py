@@ -1813,10 +1813,19 @@ def main():
 
     if getattr(args, "list_providers", False):
         globals()["SUPPRESS_FINAL_CURSOR_RESTORE"] = True
-        from allmanga_cli.providers import available_providers
-        print("Available Streaming Providers:\n")
-        for pid, p in sorted(available_providers().items()):
-            print(f"  {pid}")
+        from allmanga_cli.providers import available_providers, _DEFAULT_PROVIDER_ID
+        cfg = load_config()
+        default_pid = cfg.get("provider", _DEFAULT_PROVIDER_ID)
+        
+        CYAN, GREEN, BOLD, RESET = "\033[36m", "\033[32m", "\033[1m", "\033[0m"
+        
+        print(f"\n{BOLD}Available Streaming Providers:{RESET}\n")
+        for pid in sorted(available_providers().keys()):
+            if pid == default_pid:
+                print(f"  {GREEN}▸ {pid} (default){RESET}")
+            else:
+                print(f"  {CYAN}▸ {pid}{RESET}")
+        print()
         return
 
     check_deps()
