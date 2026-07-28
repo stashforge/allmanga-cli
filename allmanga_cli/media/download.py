@@ -101,7 +101,6 @@ def download_episode(title, episode, stream, download_dir="", downloader="auto",
         command.extend(extra_args)
 
     try:
-        import os
         from allmanga_cli.app_core import register_subprocess, unregister_subprocess
         
         if os.name == 'posix':
