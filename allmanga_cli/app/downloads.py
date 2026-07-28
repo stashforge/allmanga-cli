@@ -56,6 +56,8 @@ def handle_downloads_state(flags, ui, ms, cfg, args, ttype, resolveTracking):
             dirty = True
             
         meta = data.get("metadata", {})
+        if "originalEpisodeCount" not in meta and "episodeCount" in meta:
+            meta["originalEpisodeCount"] = meta["episodeCount"]
         if meta.get("episodeCount") != len(valid_eps):
             meta["episodeCount"] = len(valid_eps)
             data["metadata"] = meta
@@ -197,6 +199,8 @@ def handle_downloads_state(flags, ui, ms, cfg, args, ttype, resolveTracking):
         
     show["availableEpisodesDetail"][ttype] = episodes_list
     show["availableEpisodes"] = {ttype: len(episodes_list)}
+    if "originalEpisodeCount" not in show and "episodeCount" in show:
+        show["originalEpisodeCount"] = show["episodeCount"]
     show["episodeCount"] = len(episodes_list)
     show["_folder_name"] = title
     

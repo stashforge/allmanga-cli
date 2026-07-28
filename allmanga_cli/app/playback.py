@@ -862,7 +862,8 @@ def handle_action_menu_state(
         feedback_msg = action_show.get("_action_feedback", "")
 
         ep_str = current_ep_label
-        app_core.build_info_panel(action_show, ttype, w, parts, override_ep_str=ep_str, local_only=getattr(ms, "_is_downloads", False))
+        is_offline = getattr(ms, "_is_downloads", False)
+        app_core.build_info_panel(action_show, ttype, w, parts, override_ep_str=None if is_offline else ep_str, local_only=is_offline)
 
         if has_feedback and len(parts) >= 4:
             parts[3] = f"\033[32m✔ {feedback_msg}\033[0m"

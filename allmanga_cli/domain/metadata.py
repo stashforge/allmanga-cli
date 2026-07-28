@@ -262,6 +262,13 @@ def format_info_metadata_line(
         progress = format_progress(anime, local_only=local_only, ttype=ttype)
         if not progress:
             progress = format_total_episodes(anime)
+            
+        # For downloads, if we show Watched X/Y where Y is downloaded count,
+        # also show the anime's actual total episodes if available.
+        if local_only and "originalEpisodeCount" in anime:
+            original_total = positive_int(anime.get("originalEpisodeCount"))
+            if original_total:
+                progress = f"{progress} • \033[38;5;244mEP{DIM} {original_total}"
 
     available = format_available_episodes(anime, ttype, local_only=local_only)
     next_airing = format_next_airing(anime, now)
