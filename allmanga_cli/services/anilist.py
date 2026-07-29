@@ -5,8 +5,12 @@ Response shaping (normalize_media, apply_media_update) lives in normalize.py.
 
 import json
 import urllib.request
+import urllib.error
+import time
 
 from ..core.api import SearchFailure
+
+_ban_until = 0
 
 
 API_URL = "https://graphql.anilist.co"
@@ -67,11 +71,25 @@ def _request(token=""):
 
 
 def _post(urlopen, read_json, query, variables=None, token=""):
+    global _ban_until
+    if time.time() < _ban_until:
+        raise urllib.error.HTTPError(
+            API_URL, 429, "Too Many Requests (Local Cooldown)", {}, None
+        )
+
     payload = {"query": query}
     if variables is not None:
         payload["variables"] = variables
-    with urlopen(_request(token), json.dumps(payload).encode()) as response:
-        return read_json(response)
+        
+    try:
+        with urlopen(_request(token), json.dumps(payload).encode()) as response:
+            return read_json(response)
+    except urllib.error.HTTPError as e:
+        if e.code == 429:
+            retry_after = e.headers.get("Retry-After") if hasattr(e, "headers") else None
+            wait_time = int(retry_after) if retry_after and retry_after.isdigit() else 60
+            _ban_until = time.time() + wait_time
+        raise e
 
 
 def _run(urlopen, read_json, token, query, variables):
