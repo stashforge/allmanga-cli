@@ -25,7 +25,7 @@ def _extract_ani_id(data) -> int | None:
 
 def _fetch_jikan_fallback(query: str) -> tuple[bool, dict]:
     logging.getLogger(__name__).debug("Using Jikan fallback for search")
-    jikan_url = f"https://api.jikan.moe/v4/anime?q={urllib.parse.quote(query)}&sfw=true&limit=10"
+    jikan_url = f"https://api.tenrai.org/v1/anime?q={urllib.parse.quote(query)}&sfw=true&limit=10"
     req = urllib.request.Request(jikan_url, headers={"User-Agent": "allmanga-cli"})
     try:
         with urllib.request.urlopen(req, timeout=10) as response:
