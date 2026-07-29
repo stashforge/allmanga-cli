@@ -6,36 +6,7 @@ import urllib.parse
 import urllib.error
 import logging
 
-from ..state.paths import ANILIST_COOLDOWN_PATH
-
-COOLDOWN_SECONDS = 3600  # 1 hour
 ANILIST_URL = "https://graphql.anilist.co"
-
-def _is_in_cooldown() -> bool:
-    if not os.path.exists(ANILIST_COOLDOWN_PATH):
-        return False
-    try:
-        with open(ANILIST_COOLDOWN_PATH, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            if time.time() < data.get("expires_at", 0):
-                return True
-    except Exception:
-        pass
-    return False
-
-def _set_cooldown():
-    try:
-        with open(ANILIST_COOLDOWN_PATH, "w", encoding="utf-8") as f:
-            json.dump({"expires_at": time.time() + COOLDOWN_SECONDS}, f)
-    except Exception as e:
-        logging.getLogger(__name__).debug(f"Failed to set Anilist cooldown: {e}")
-
-def _reset_cooldown():
-    try:
-        if os.path.exists(ANILIST_COOLDOWN_PATH):
-            os.remove(ANILIST_COOLDOWN_PATH)
-    except Exception:
-        pass
 
 def _extract_ani_id(data) -> int | None:
     if isinstance(data, dict):
@@ -132,12 +103,6 @@ def _fetch_jikan_fallback(query: str) -> tuple[bool, dict]:
     return True, {"data": {"Page": {"media": media_list}}}
 
 def search_anilist_with_fallback(query: str, raw_gql_query: str, variables: dict) -> dict:
-    if _is_in_cooldown():
-        success, fallback_data = _fetch_jikan_fallback(query)
-        if not success:
-            _reset_cooldown()
-        return fallback_data
-        
     req_data = json.dumps({
         "query": raw_gql_query,
         "variables": variables
@@ -167,10 +132,8 @@ def search_anilist_with_fallback(query: str, raw_gql_query: str, variables: dict
             should_fallback = True
             
         if should_fallback:
-            logging.getLogger(__name__).debug("AniList search failed, entering cooldown. Using Jikan fallback.")
+            logging.getLogger(__name__).debug("AniList search failed, using Jikan fallback.")
             success, fallback_data = _fetch_jikan_fallback(query)
-            if success:
-                _set_cooldown()
             return fallback_data
         
         return {"data": {"Page": {"media": []}}}
