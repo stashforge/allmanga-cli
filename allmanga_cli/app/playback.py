@@ -487,10 +487,15 @@ def handle_play_state(
             app_core._extend_streams(streams)
 
         if not download_ok:
-            print(f"\n{RED}All mirrors failed for EP {ms.current_ep}. Skipping to next episode...{RESET}")
+            print(f"\n{RED}All mirrors failed for EP {current_ep_label}. Skipping to next episode...{RESET}")
 
-        download_batch_end = ms.download_batch_end if ms.download_batch_end is not None else ms.current_ep
-        if int(float(str(download_batch_end))) > int(float(str(ms.current_ep))) and ms.current_ep_index + 1 < ms.total_eps:
+        download_batch_end = ms.download_batch_end if ms.download_batch_end is not None else current_ep_label
+        try:
+            is_less = int(float(str(download_batch_end))) > int(float(str(current_ep_label)))
+        except ValueError:
+            is_less = ms.current_ep_index < (ms.total_eps - 1)
+
+        if is_less and ms.current_ep_index + 1 < ms.total_eps:
             ms.current_ep_index += 1
             ms.current_ep = episode_id_at(episode_ids, ms.current_ep_index)
             ms.selected_stream = None
