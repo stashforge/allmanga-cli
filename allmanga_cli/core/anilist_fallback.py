@@ -134,6 +134,9 @@ def search_anilist_with_fallback(query: str, raw_gql_query: str, variables: dict
         if should_fallback:
             logging.getLogger(__name__).debug("AniList search failed, using Jikan fallback.")
             success, fallback_data = _fetch_jikan_fallback(query)
+            if not success:
+                from .api import SearchFailure
+                raise SearchFailure("API Error: Both AniList and Jikan are currently down or rate-limited.")
             return fallback_data
         
         return {"data": {"Page": {"media": []}}}
