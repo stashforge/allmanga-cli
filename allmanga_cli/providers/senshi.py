@@ -46,27 +46,8 @@ class Senshi(Provider):
           }
         }
         """
-        req_data = json.dumps({
-            "query": graphql_query,
-            "variables": {"search": query}
-        }).encode('utf-8')
-
-        req = urllib.request.Request(
-            "https://graphql.anilist.co",
-            data=req_data,
-            headers={
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-                "User-Agent": HEADERS["User-Agent"]
-            }
-        )
-
-        try:
-            with urllib.request.urlopen(req, timeout=10) as response:
-                data = json.loads(response.read().decode('utf-8'))
-        except Exception as e:
-            logging.getLogger(__name__).debug(f"Senshi search failed: {e}")
-            return []
+        from ..core.anilist_fallback import search_anilist_with_fallback
+        data = search_anilist_with_fallback(query, graphql_query, {"search": query})
 
         media_list = data.get("data", {}).get("Page", {}).get("media", [])
         

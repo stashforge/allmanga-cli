@@ -147,9 +147,8 @@ class MiruroProvider:
             }
         }
         """
-        body = {"query": gql, "variables": {"search": query, "page": 1, "perPage": 20}}
-        body_bytes = json.dumps(body).encode()
-        res = self._request_json(ANILIST_URL, data=body_bytes)
+        from ..core.anilist_fallback import search_anilist_with_fallback
+        res = search_anilist_with_fallback(query, gql, {"search": query, "page": 1, "perPage": 20})
         media_list = res.get("data", {}).get("Page", {}).get("media", [])
         
         results = []
