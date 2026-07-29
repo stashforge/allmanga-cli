@@ -430,7 +430,7 @@ def handle_play_state(
         
         while True:
             download_ok = app_core.download_episode(
-                ms.show_title, ms.current_ep, ms.selected_stream, 
+                ms.show_title, current_ep_label, ms.selected_stream, 
                 cfg.get("download_dir", ""), downloader=downloader_choice,
                 extra_args=extra_args
             )
