@@ -21,7 +21,7 @@ def is_contiguous_legacy_catalog(episode_ids):
     ]
 
 
-def episode_index_for_id(episode_ids, episode_id):
+def episode_index_for_id(episode_ids, episode_id, labels=None):
     episode_string = str(episode_id)
     if episode_string in episode_ids:
         return episode_ids.index(episode_string)
@@ -33,12 +33,24 @@ def episode_index_for_id(episode_ids, episode_id):
 
     matches = []
     for index, candidate in enumerate(episode_ids):
+        if labels and candidate in labels:
+            try:
+                if decimal.Decimal(str(labels[candidate])) == numeric:
+                    matches.append(index)
+                    continue
+            except decimal.InvalidOperation:
+                pass
+
         try:
             if decimal.Decimal(str(candidate)) == numeric:
                 matches.append(index)
         except decimal.InvalidOperation:
             continue
-    return matches[0] if len(matches) == 1 else None
+
+    if len(matches) == 1:
+        return matches[0]
+
+    return None
 
 
 def episode_id_at(episode_ids, index):

@@ -285,7 +285,9 @@ def handle_play_state(
         return "DETAILS"
 
     ms.total_eps = len(episode_ids) or ms.total_eps
-    ms.current_ep_index = episode_index_for_id(episode_ids, ms.current_ep)
+    ms.current_ep_index = episode_index_for_id(
+        episode_ids, ms.current_ep, labels=ui.ui_show_ctx.get("_episode_labels")
+    )
 
     if ms.current_ep_index is None:
         app_core._exit_player_screen()
@@ -503,7 +505,9 @@ def handle_play_state(
         if isinstance(ep_num, int) and 1 <= ep_num <= len(episode_ids):
             ep_idx = ep_num - 1
         else:
-            ep_idx = episode_index_for_id(episode_ids, ep_num)
+            ep_idx = episode_index_for_id(
+                episode_ids, ep_num, labels=ui.ui_show_ctx.get("_episode_labels")
+            )
         if ep_idx is None:
             return None
             
@@ -782,7 +786,9 @@ def handle_action_menu_state(
         return "DETAILS"
 
     ms.total_eps = len(episode_ids) or ms.total_eps
-    ms.current_ep_index = episode_index_for_id(episode_ids, ms.current_ep)
+    ms.current_ep_index = episode_index_for_id(
+        episode_ids, ms.current_ep, labels=ui.ui_show_ctx.get("_episode_labels")
+    )
 
     if ms.current_ep_index is None:
         app_core.err(f"EP {ms.current_ep} is not present in the provider catalog.")

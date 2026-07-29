@@ -425,7 +425,9 @@ def handle_search_state(
         requested_episode_missing = False
         if args.episode:
             requested_ep = str(args.episode)
-            requested_idx = episode_index_for_id(episode_ids, requested_ep)
+            requested_idx = episode_index_for_id(
+                episode_ids, requested_ep, labels=s.get("_episode_labels")
+            )
             args.episode = None
             if requested_idx is not None:
                 ms.current_ep_index = requested_idx

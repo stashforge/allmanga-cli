@@ -179,7 +179,9 @@ def _open_anilist_show_from_picker(
 
     if args.episode:
         ms.current_ep = str(args.episode)
-        ms.current_ep_index = episode_index_for_id(episode_ids, ms.current_ep)
+        ms.current_ep_index = episode_index_for_id(
+            episode_ids, ms.current_ep, labels=ui.ui_show_ctx.get("_episode_labels") if ui.ui_show_ctx else None
+        )
         args.episode = None
         if not episode_ids:
             app_core.err(app_core.episode_catalog_error(matched))
@@ -450,7 +452,9 @@ def handle_anilist_browse_state(
 
         if args.episode:
             ms.current_ep = str(args.episode)
-            ms.current_ep_index = episode_index_for_id(episode_ids, ms.current_ep)
+            ms.current_ep_index = episode_index_for_id(
+                episode_ids, ms.current_ep, labels=ui.ui_show_ctx.get("_episode_labels") if ui.ui_show_ctx else None
+            )
             args.episode = None
             if not episode_ids:
                 app_core.err(app_core.episode_catalog_error(matched))
@@ -688,7 +692,13 @@ def handle_anilist_search_state(
                 app_core.episode_id_for_progress(matched, ttype, al_progress)
                 if al_progress > 0 else None
             )
-            current_idx = episode_index_for_id(episode_ids, current_label) if current_label else None
+            current_idx = (
+                episode_index_for_id(
+                    episode_ids, current_label, labels=ui.ui_show_ctx.get("_episode_labels") if ui.ui_show_ctx else None
+                )
+                if current_label
+                else None
+            )
             if current_idx is not None and current_idx + 1 < len(episode_ids):
                 ms.current_ep = episode_id_at(episode_ids, current_idx + 1)
             elif current_idx is not None:
@@ -696,7 +706,9 @@ def handle_anilist_search_state(
             else:
                 ms.current_ep = episode_id_at(episode_ids, 0)
 
-            ms.current_ep_index = episode_index_for_id(episode_ids, ms.current_ep)
+            ms.current_ep_index = episode_index_for_id(
+                episode_ids, ms.current_ep, labels=ui.ui_show_ctx.get("_episode_labels") if ui.ui_show_ctx else None
+            )
             if episode_ids and ms.current_ep_index is not None:
                 ms.current_ep = episode_id_at(episode_ids, ms.current_ep_index)
             elif episode_ids:

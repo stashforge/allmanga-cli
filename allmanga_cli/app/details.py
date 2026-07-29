@@ -60,7 +60,9 @@ def handle_details_state(
     if _just_entered and s.get("_id"):
         app_core.patch_history_entry_show(s.get("_id"), ttype_local, s)
 
-    ms.current_ep_index = episode_index_for_id(episode_ids, ms.current_ep)
+    ms.current_ep_index = episode_index_for_id(
+        episode_ids, ms.current_ep, labels=ui.ui_show_ctx.get("_episode_labels")
+    )
     if ms.current_ep_index is None:
         ms.current_ep_index = 0
         if episode_ids:
@@ -153,7 +155,13 @@ def handle_details_state(
         current_ep_label = app_core.episode_id_for_progress(s, ttype_local, al_progress) if al_progress > 0 else "0"
     else:
         current_ep_label = s.get("_local_episode_label") or "0"
-    _current_idx = episode_index_for_id(episode_ids, current_ep_label) if episode_ids else None
+    _current_idx = (
+        episode_index_for_id(
+            episode_ids, current_ep_label, labels=ui.ui_show_ctx.get("_episode_labels")
+        )
+        if episode_ids
+        else None
+    )
     if _current_idx is not None and _current_idx + 1 < len(episode_ids):
         detail_next_ep = episode_ids[_current_idx + 1]
     else:
@@ -348,7 +356,9 @@ def handle_details_state(
                         ms.current_ep = app_core.playback_ep_from_history_entry(h, ttype_local)
                     else:
                         ms.current_ep = episode_id_at(episode_ids, 0)
-                    ms.current_ep_index = episode_index_for_id(episode_ids, ms.current_ep)
+                    ms.current_ep_index = episode_index_for_id(
+                        episode_ids, ms.current_ep, labels=ui.ui_show_ctx.get("_episode_labels")
+                    )
                     if ms.current_ep_index is None:
                         ms.current_ep_index = 0
                     ms.current_ep = episode_id_at(episode_ids, ms.current_ep_index)
