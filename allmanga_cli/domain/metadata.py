@@ -58,7 +58,9 @@ def format_ep_progress(label, progress, total, local_only=False):
         # Display as int when whole, preserve decimal string otherwise
         progress = int(p) if p == p.to_integral_value() else str(p.normalize())
     except (_dec.InvalidOperation, TypeError, ValueError):
-        return ""
+        progress = str(progress).strip()
+        if not progress or progress.lower() == "none":
+            return ""
     prefix = f"\033[38;5;244mWatched{DIM}"
     return f"{prefix} {progress}/{total}" if total else f"{prefix} {progress}"
 
@@ -90,7 +92,14 @@ def format_progress(anime, local_only=False, ttype="sub"):
     try:
         local_num = decimal.Decimal(str(local_label))
     except decimal.InvalidOperation:
-        local_num = decimal.Decimal(0)
+        if local_progress is not None and str(local_progress) != "0":
+            local_label = local_progress
+            try:
+                local_num = decimal.Decimal(str(local_label))
+            except decimal.InvalidOperation:
+                local_num = decimal.Decimal(0)
+        else:
+            local_num = decimal.Decimal(0)
 
     if total is not None:
         try:
@@ -106,10 +115,25 @@ def format_progress(anime, local_only=False, ttype="sub"):
         authority = anime.get("_progress_authority")
         if anime.get("_sync_conflict") and local_progress is not None:
             return format_ep_progress("LOCAL", local_label, total, local_only)
-        anilist_context = bool(anime.get("_anilist_context") or anime.get("_anilist_list"))
+        anilist_num = 0
+        if anilist_progress is not None:
+            try:
+                anilist_num = int(float(str(anilist_progress)))
+            except (ValueError, TypeError):
+                pass
+                
+        is_al_tracked = bool(anime.get("_anilist_list"))
+        if not is_al_tracked and local_progress is None and anilist_num <= 0:
+            return ""
+            
+        anilist_context = bool(anime.get("_anilist_context") or is_al_tracked)
         if (sync_enabled or anilist_context) and anilist_progress is not None:
+            if local_num > anilist_num:
+                return format_ep_progress("LOCAL", local_label, total, local_only)
             return format_ep_progress("AL", anilist_progress, total, local_only)
         if authority == "AL" and anilist_progress is not None:
+            if local_num > anilist_num:
+                return format_ep_progress("LOCAL", local_label, total, local_only)
             return format_ep_progress("AL", anilist_progress, total, local_only)
     if local_progress is not None:
         return format_ep_progress("LOCAL", local_label, total, local_only)

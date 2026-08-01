@@ -211,3 +211,29 @@ def choose_confident_match(reference, candidates):
 def best_allanime_match(anilist_show, allmanga_shows):
     """Return only an unambiguous, title-supported AllAnime match."""
     return choose_confident_match(anilist_show, allmanga_shows)
+
+
+def is_same_show(show1, show2):
+    """Robustly determine if two show dicts represent the same title."""
+    if not show1 or not show2:
+        return False
+        
+    id1 = str(show1.get("_id") or "")
+    id2 = str(show2.get("_id") or "")
+    if id1 and id1 == id2:
+        return True
+        
+    al1 = str(show1.get("aniListId") or show1.get("_anilist_id") or "")
+    al2 = str(show2.get("aniListId") or show2.get("_anilist_id") or "")
+    if al1 and al1 == al2:
+        return True
+        
+    mal1 = str(show1.get("malId") or show1.get("myanimelist_id") or "")
+    mal2 = str(show2.get("malId") or show2.get("myanimelist_id") or "")
+    if mal1 and mal1 == mal2:
+        return True
+        
+    # Fallback to exact title match
+    t1, t2 = _cached_match_titles(show1), _cached_match_titles(show2)
+    score, exact = title_match_score(t1, t2)
+    return bool(exact)

@@ -18,6 +18,7 @@ from ..domain.episodes import episode_id_at, episode_index_for_id
 from ..domain.titles import get_show_display_title
 from ..ui.help import picker_help, search_input_help
 from ..ui import picker as _picker_mod
+from ..ui.spinner import spinner_frame, spinner_from_config
 from ..ui.picker_render import loading_frame as _loading_frame
 from ..core.terminal import fit_terminal_line as _fit_terminal_line
 from ..core.terminal import sanitize_terminal_text as _sanitize_terminal_text
@@ -75,7 +76,7 @@ def handle_history_state(
         filtered_hist = app_core.filter_history_entries(hist, history_mode)
         hopts = [app_core.format_history_entry(entry) for entry in filtered_hist]
 
-    history_refresh_status["BATCH"] = "Updating AniList airing info..."
+    history_refresh_status["BATCH"] = "Checking for new episodes..."
     def _batch_refresh_worker():
         try:
             if app_core.refresh_history_anilist_airing_batch(hist):
@@ -141,7 +142,8 @@ def handle_history_state(
         status_msg = history_refresh_status.get("BATCH")
 
         if status_msg:
-            parts.append(f"\033[36m{status_msg}\033[0m")
+            spinner = spinner_frame(spinner_from_config(cfg))
+            parts.append(f"\033[36m{spinner} {status_msg}\033[0m")
         else:
             parts.append(_history_footer(selected_entry, w))
 
@@ -189,7 +191,8 @@ def handle_history_state(
             "Remove from history",
         ),
         keep_cursor_hidden_on_select=True,
-        count_total=lambda: len(hist)
+        count_total=lambda: len(hist),
+        tick_fn=lambda: history_refresh_status.get("BATCH") is not None
     )
     if hidx == -2:
         return "QUIT"
@@ -204,7 +207,9 @@ def handle_history_state(
         ms.show_title = get_show_display_title(show)
         ms.total_eps = show.get("availableEpisodes", {}).get(ttype_hist, 1)
         ms.current_ep = app_core.playback_ep_from_history_entry(h, ttype_hist)
-        episode_ids = app_core.ensure_episode_ids(show, ttype_hist)
+        # Force fetching fresh episodes from provider when opened from history
+        show.pop("_episode_catalog_state", None)
+        episode_ids = app_core.load_episode_ids_for_selection(show, ttype_hist)
         ms.total_eps = len(episode_ids) or ms.total_eps
         ms.current_ep_index = episode_index_for_id(episode_ids, ms.current_ep)
         if episode_ids and ms.current_ep_index is not None:
@@ -267,7 +272,7 @@ def handle_search_state(
             return ""
         return _hdr
 
-    def _search_result_header(provider_name, base_query, ttype_local, get_results_fn, get_loading_fn, esc_action="quit"):
+    def _search_result_header(provider_name, base_query, ttype_local, get_results_fn, get_loading_fn, esc_action="quit", get_error_fn=None):
         def _hdr(si):
             C_K = "\033[38;5;244m"
             R = "\033[0m"
@@ -309,7 +314,11 @@ def handle_search_state(
                 )
                 parts.append(app_core._poster_footer_line(selected_show, footer, w))
             else:
-                parts.append(f'{C_K}No results for "{safe_query}"  │  Left=new search  Esc={esc_action}{R}')
+                err_msg = get_error_fn() if get_error_fn else ""
+                if err_msg:
+                    parts.append(f'\033[38;5;196m{err_msg}{R}  │  Left=new search  Esc={esc_action}')
+                else:
+                    parts.append(f'{C_K}No results for "{safe_query}"  │  Left=new search  Esc={esc_action}{R}')
             return "\n".join(parts)
         return _hdr
 
@@ -361,7 +370,7 @@ def handle_search_state(
         idx = tui_pick(
             flags, ui,
             "Search Anime", initial_opts,
-            header_fn=_search_result_header(provider_name, ms.query_str, ttype, get_results, get_loading),
+            header_fn=_search_result_header(provider_name, ms.query_str, ttype, get_results, get_loading, get_error_fn=get_error),
             top_header_fn=_search_cover_header(get_results),
             live_fn=live_fn,
             is_search=False,
@@ -446,7 +455,7 @@ def handle_search_state(
             ms.current_ep_index = 0
             ms.current_ep = episode_id_at(episode_ids, 0) if episode_ids else requested_ep
             requested_episode_missing = True
-        elif (h := next((x for x in app_core.load_history() if x.get("show", {}).get("_id") == ms.show_id and x.get("translation_type") == ttype), None)):
+        elif (h := app_core.get_history_entry(s, ttype)):
             ms.current_ep = app_core.playback_ep_from_history_entry(h, ttype)
         else:
             ms.current_ep = episode_id_at(episode_ids, 0)
@@ -464,6 +473,17 @@ def handle_search_state(
 
         if requested_episode_missing:
             return "EPISODE"
-        if sync_enabled:
+            
+        if getattr(flags, "incognito_mode", False):
+            return "EPISODE"
+            
+        has_progress = False
+        if sync_enabled and (s.get("_anilist_list") or s.get("_anilist_progress")):
+            has_progress = True
+        elif (app_core.get_local_progress(s, ttype) or 0) > 0:
+            has_progress = True
+            
+        if has_progress:
             return "DETAILS"
+            
         return "EPISODE"

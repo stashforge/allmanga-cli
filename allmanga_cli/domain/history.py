@@ -39,10 +39,11 @@ def local_progress(entries, show, translation_type="sub"):
     show_id = str(show.get("_id") or "")
     if not show_id:
         return None
+    from .matching import is_same_show
     for entry in entries:
         entry_show = entry.get("show", {})
         if (
-            str(entry_show.get("_id") or "") != show_id
+            not is_same_show(entry_show, show)
             or entry.get("translation_type", "sub") != translation_type
         ):
             continue

@@ -195,17 +195,16 @@ def handle_details_state(
 
     if episode_ids and (playback_status == "COMPLETED" or (total and current_num >= total)):
         opts.append("Start Rewatch")
-        if total != 1 and isDesktop: opts.append("Binge")
     elif episode_ids and prog == 0:
         opts.append("Play")
-        if total != 1 and isDesktop: opts.append("Binge")
+        if len(episode_ids) > 1 and isDesktop: opts.append("Binge")
     elif episode_ids and detail_next_ep is not None:
         opts.append("Play Next")
         if _current_idx is not None and _current_idx + 2 < len(episode_ids) and isDesktop:
             opts.append("Binge")
     elif (episode_ids and detail_next_ep is None and current_ep_label == str(episode_ids[-1])
             and api_status == "RELEASING"):
-        if isDesktop: opts.append("Binge")
+        pass
 
     if episode_ids:
         opts.append("Episodes")
@@ -235,11 +234,28 @@ def handle_details_state(
     else:
         prog_hint = local_p_str
 
+    def clean_ep_label(ep_id, fallback_idx=None):
+        if not ep_id: return ""
+        labels = s.get("_episode_labels", {})
+        if str(ep_id) in labels:
+            return labels[str(ep_id)]
+        try:
+            decimal.Decimal(str(ep_id))
+            return str(ep_id)
+        except decimal.InvalidOperation:
+            if fallback_idx is not None:
+                return str(fallback_idx + 1)
+            return str(ep_id)
+
+    play_label = clean_ep_label(detail_play_ep, 0)
+    next_label = clean_ep_label(detail_next_ep, (_current_idx + 1) if _current_idx is not None else None)
+    binge_label = next_label if 'Play Next' in opts else play_label
+
     hints = {
-        "Play": f"EP {detail_play_ep}",
-        "Play Next": f"EP {detail_next_ep} \u2022 {gap_str}" if gap_str else f"EP {detail_next_ep}",
-        "Binge": f"from EP {detail_next_ep if 'Play Next' in opts else detail_play_ep}",
-        "Start Rewatch": f"replay from EP {detail_play_ep}",
+        "Play": f"EP {play_label}",
+        "Play Next": f"EP {next_label} \u2022 {gap_str}" if gap_str else f"EP {next_label}",
+        "Binge": f"from EP {binge_label}",
+        "Start Rewatch": f"replay from EP {play_label}",
         "Episodes": "browse all",
         "Change AllAnime Match": "link a different streaming title",
         "Link AniList": "link a different tracking title",
@@ -351,7 +367,7 @@ def handle_details_state(
                     ms.current_ep_index = 0
                     ms.current_ep = episode_id_at(episode_ids, ms.current_ep_index)
                 else:
-                    h = next((x for x in app_core.load_history() if str(x.get("show", {}).get("_id")) == str(s.get("_id")) and x.get("translation_type") == ttype_local), None)
+                    h = app_core.get_history_entry(s, ttype_local)
                     if h:
                         ms.current_ep = app_core.playback_ep_from_history_entry(h, ttype_local)
                     else:

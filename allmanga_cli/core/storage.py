@@ -349,6 +349,8 @@ HISTORY_SHOW_STRIP_KEYS = ANILIST_HISTORY_STRIP_KEYS | {
     "_poster_status_time",
     "_poster_failed",
     "availableEpisodesDetail",
+    "_episode_catalog_state",
+    "_allanime_checked_at",
 }
 
 
@@ -393,9 +395,10 @@ def get_history_entry(show, ttype="sub"):
     show_id = str((show or {}).get("_id") or "")
     if not show_id:
         return None
+    from allmanga_cli.domain.matching import is_same_show
     return next((
         entry for entry in load_history()
-        if str(entry.get("show", {}).get("_id") or "") == show_id
+        if is_same_show(entry.get("show", {}), show)
         and entry.get("translation_type", "sub") == ttype
     ), None)
 
@@ -491,10 +494,11 @@ def write_history_progress(show, progress, ttype, *, last_synced=None, touch=Fal
         entry["last_synced_progress"] = old["last_synced_progress"]
     elif last_synced is not None:
         entry["last_synced_progress"] = max(0, int(last_synced))
+    from allmanga_cli.domain.matching import is_same_show
     history = [
         item for item in history
         if not (
-            str(item.get("show", {}).get("_id") or "") == str(show.get("_id") or "")
+            is_same_show(item.get("show", {}), show)
             and item.get("translation_type", "sub") == ttype
         )
     ]
