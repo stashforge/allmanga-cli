@@ -116,6 +116,7 @@ def tui_pick(
     count_total=None,
     disabled_indices=None,
     reverse_items=True,
+    tick_fn=None,
 ):
     """Bottom-anchored alt-screen picker with flipped (bottom-up) item list.
 
@@ -503,8 +504,11 @@ def tui_pick(
             if filt and filt[sel] in disabled_indices:
                 sel = first_selectable(filt)
 
-            if flags.show_image and top_header_fn is not None and filt:
-                now     = time.time()
+            now = time.time()
+            if tick_fn is not None and tick_fn() and now - last_poster_tick >= 0.1:
+                last_poster_tick = now
+                _needs_redraw = True
+            elif flags.show_image and top_header_fn is not None and filt:
                 sel_idx = filt[sel] if sel < len(filt) else -1
                 if 0 <= sel_idx < len(options):
                     show_obj = ui.hovered_show_obj

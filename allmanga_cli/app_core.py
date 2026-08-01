@@ -216,16 +216,7 @@ atexit.register(_cleanup_incognito_cache)
 GREEN  = "\033[1;32m"; YELLOW = "\033[1;33m"; RED   = "\033[1;31m"
 CYAN   = "\033[1;36m"; BOLD   = "\033[1m";    RESET = "\033[0m"
 
-_player_ui_state = {
-    "active": False,
-    "show": None,
-    "current_ep": 0,
-    "current_ep_label": "",
-    "total_eps": 0,
-    "status_lines": [],
-    "stream_info": {},
-    "mpv_props": None
-}
+from allmanga_cli.ui.player_screen import _player_ui_state
 
 def _add_status(m, color="\033[94m"):
     s = _player_ui_state
@@ -234,10 +225,11 @@ def _add_status(m, color="\033[94m"):
         if len(s["status_lines"]) > 8:
             s["status_lines"].pop(0)
 
-        # Avoid circular import/name errors by looking up render_player_screen dynamically if needed
-        # Actually it will be defined globally before it's used in the PLAY state.
-        if "render_player_screen" in globals():
-            globals()["render_player_screen"]()
+        try:
+            from allmanga_cli.ui.player_screen import render
+            render()
+        except ImportError:
+            pass
         return True
     return False
 
@@ -529,165 +521,7 @@ def _playback_episode_summary(show, player_state, ttype="sub"):
         return f"Total {total}"
     return ""
 
-def render_player_screen():
-    s = _player_ui_state
-    if not s["active"]: return
 
-    enter_alt_screen()
-
-    try:
-        w, h = os.get_terminal_size(sys.stdin.fileno())
-    except Exception:
-        w, h = 80, 24
-
-    show = s["show"]
-    title = get_show_display_title(show) if show else "Unknown"
-    clean, sn, stype = _extract_title_parts(title)
-
-    info_bits = []
-    if sn: info_bits.append(f"Season {sn}")
-    summary = _playback_episode_summary(show, s)
-    if summary:
-        info_bits.append(summary)
-    ep_str = " \u2022 ".join(info_bits)
-
-    si = s.get("stream_info", {})
-    mirror = si.get('mirror')
-    stream_str = ""
-    if mirror:
-        pref_star = " \u2022 \033[33mPreferred \u2605" if si.get('is_pref') else ""
-        stream_str = f"{mirror}{pref_star}\033[0m"
-
-    props = s.get("mpv_props")
-    is_playing = (props is not None)
-
-    def fmt_time(sec):
-        if not sec: return "00:00"
-        m, sec = divmod(int(sec), 60)
-        if m >= 60:
-            hr, m = divmod(m, 60)
-            return f"{hr:02d}:{m:02d}:{sec:02d}"
-        return f"{m:02d}:{sec:02d}"
-
-    content = []
-    if is_incognito():
-        content.append("\033[1;33mINCOGNITO\033[0m")
-        content.append("")
-
-    if is_playing:
-        state_str = "\u258c\u258c Paused" if props.get("pause") else "\u25b6 Playing"
-        pt_sec = props.get("playback-time", 0) or 0
-        dur_sec = props.get("duration", 0) or 0
-
-        t = fmt_time(pt_sec)
-        d = fmt_time(dur_sec)
-        rem_sec = dur_sec - pt_sec if dur_sec > 0 else 0
-        rem = fmt_time(rem_sec)
-
-        bar_width = max(10, min(40, w - 4))
-        ratio = max(0, min(1, pt_sec / dur_sec)) if dur_sec > 0 else 0
-        filled = int(ratio * bar_width)
-        bar = (
-            f"\033[38;5;115m{'━' * filled}\033[0m"
-            f"\033[38;5;240m{'─' * (bar_width - filled)}\033[0m"
-        )
-
-        content.append("")
-        for tl in _wrap_title(clean, w - 4, 2).splitlines():
-            content.append(f"\033[1;97m{tl}\033[0m")
-        content.append("")
-        if ep_str:
-            content.append(f"\033[38;5;248m{ep_str}\033[0m")
-            content.append("")
-        content.append(f"{_C_SECTION}CURRENTLY PLAYING{_RST}")
-        label = s.get("current_ep_label") or str(s["current_ep"])
-        from allmanga_cli.domain.episodes import episode_label
-        ep_str = episode_label(label)
-        content.append(f"\033[38;5;250m{ep_str}\033[0m")
-        if stream_str:
-            content.append(f"\033[38;5;248m{stream_str}\033[0m")
-        content.append("")
-        content.append(f"\033[1;36m{state_str}\033[0m")
-        content.append(bar)
-        content.append(f"\033[38;5;250m{t} / {d}  \u2022  -{rem}\033[0m")
-        detail_lines = []
-        genres = show.get("genres") if isinstance(show, dict) else None
-        if not genres and isinstance(show, dict):
-            genres = show.get("_provider_genres")
-        if isinstance(genres, list):
-            genre_text = ", ".join(str(item) for item in genres[:5] if item)
-        else:
-            genre_text = str(genres or "").strip()
-        if genre_text:
-            detail_lines.append(f"{_C_SECTION}GENRES{_RST}")
-            detail_lines.append("\033[38;5;245m" + genre_text.replace(", ", " \u00b7 ") + "\033[0m")
-        description = str(show.get("description") or "").strip() if isinstance(show, dict) else ""
-        if description:
-            description = re.sub(r"<[^>]+>", " ", description)
-            description = re.sub(r"\s+", " ", description).strip()
-            if detail_lines:
-                detail_lines.append("")
-            detail_lines.append(f"{_C_SECTION}DESCRIPTION{_RST}")
-            detail_lines.extend(
-                f"\033[38;5;245m{line}\033[0m"
-                for line in _wrap_title(description, w - 4, 99).splitlines()
-            )
-        if detail_lines:
-            content.append("")
-            content.extend(detail_lines)
-        content.append("")
-        content.append("\033[38;5;244mQ Quit   Shift+Left Previous   Shift+Right Next\033[0m")
-    else:
-        content.append("")
-        for tl in _wrap_title(clean, w - 4, 2).splitlines():
-            content.append(f"\033[1;97m{tl}\033[0m")
-        content.append("")
-        if ep_str:
-            content.append(f"\033[38;5;248m{ep_str}\033[0m")
-            content.append("")
-        content.append(f"{_C_SECTION}STATUS{_RST}")
-        content.append("\033[1;36mLoading stream...\033[0m")
-        content.append("")
-        for sl in s["status_lines"]:
-            content.append(sl)
-
-    poster_raw = _get_player_poster(show)
-    native_poster = poster_raw if _poster_uses_native_protocol(poster_raw) else ""
-    poster_key = (
-        hashlib.sha256(poster_raw.encode("utf-8", errors="ignore")).hexdigest()
-        if poster_raw
-        else None
-    )
-    poster_changed = poster_key != s.get("_last_poster_key")
-    s["_last_poster_key"] = poster_key
-    if native_poster and poster_changed:
-        terminal_images.mark_active()
-    poster_lines = _poster_symbol_lines(poster_raw, POSTER_HEIGHT, w)
-    out = []
-
-    # 1. Reserve a fixed poster container.
-    if poster_raw:
-        for row in range(POSTER_HEIGHT):
-            if poster_changed:
-                line = poster_lines[row] if row < len(poster_lines) else ""
-                out.append(f"\033[2K{line}")
-            else:
-                out.append("")
-
-    # 2. Add content
-    for line in content:
-        out.append(f"\033[2K{_fit_terminal_line(line, w)}")
-    if out:
-        clear_images = ""
-        if not s.get("_cleared_terminal_image"):
-            clear_images = terminal_images.clear_if_active()
-            s["_cleared_terminal_image"] = True
-        overlay = f"\033[1;1H{native_poster}" if native_poster and poster_changed else ""
-        sys.stdout.write(
-            clear_images + "\033[H" + "\r\n".join(out) + "\033[J"
-            + overlay + "\033[1;1H\033[?25l"
-        )
-        sys.stdout.flush()
 
 
 
@@ -1172,7 +1006,7 @@ def _search_cover_header(get_results):
         return ""
     return _hdr
 
-def _search_result_header(source_name, query_str, ttype, get_results, get_loading, esc_action="quit"):
+def _search_result_header(source_name, query_str, ttype, get_results, get_loading, esc_action="quit", get_error_fn=None):
     def _hdr(si):
         C_K = "\033[38;5;244m"
         R = "\033[0m"
@@ -1216,7 +1050,11 @@ def _search_result_header(source_name, query_str, ttype, get_results, get_loadin
         elif shows:
             parts.append(_poster_footer_line(selected_show, f'{len(shows)} result(s) for "{safe_query}"  │  Enter=select  ? = Help  Left=search  Esc={esc_action}', w))
         else:
-            parts.append(f"{C_K}No results for \"{safe_query}\"  │  Left=new search  Esc={esc_action}{R}")
+            err_msg = get_error_fn() if get_error_fn else ""
+            if err_msg:
+                parts.append(f"\033[38;5;196m{err_msg}{R}  │  Left=new search  Esc={esc_action}")
+            else:
+                parts.append(f"{C_K}No results for \"{safe_query}\"  │  Left=new search  Esc={esc_action}{R}")
         return "\n".join(parts)
     return _hdr
 
@@ -1290,7 +1128,7 @@ def _run_manual_match_search(flags, ui, anilist_show, ttype):
         idx = tui_pick(
             flags, ui, "Match AllAnime",
             initial_opts,
-            header_fn=_search_result_header("AllAnime", query, ttype, get_results, get_loading),
+            header_fn=_search_result_header("AllAnime", query, ttype, get_results, get_loading, get_error_fn=get_error),
             top_header_fn=_search_cover_header(get_results),
             live_fn=live_fn,
             help_dict=picker_help("Link title", "Search again", "Cancel")
@@ -1713,8 +1551,11 @@ _update_bg_stats = streams._update_bg_stats
 start_bg_resolve = streams.start_bg_resolve
 
 def _redraw_player(props):
-    _player_ui_state["mpv_props"] = props
-    render_player_screen()
+    try:
+        from allmanga_cli.ui.player_screen import update_mpv_props
+        update_mpv_props(props)
+    except ImportError:
+        pass
 
 
 _ipc_player = MpvIpc(_redraw_player)

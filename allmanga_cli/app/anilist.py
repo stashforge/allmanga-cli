@@ -536,7 +536,7 @@ def handle_anilist_search_state(
             return ""
         return _hdr
 
-    def _search_result_header(provider_name, base_query, ttype_local, get_results_fn, get_loading_fn, esc_action="quit"):
+    def _search_result_header(provider_name, base_query, ttype_local, get_results_fn, get_loading_fn, esc_action="quit", get_error_fn=None):
         def _hdr(si):
             C_K = "\033[38;5;244m"
             R = "\033[0m"
@@ -576,9 +576,12 @@ def handle_anilist_search_state(
                     "Left=search",
                     f"Esc={esc_action}",
                 )
-                parts.append(app_core._poster_footer_line(selected_show, footer, w))
             else:
-                parts.append(f'{C_K}No results for "{safe_query}"  │  Left=new search  Esc={esc_action}{R}')
+                err_msg = get_error_fn() if get_error_fn else ""
+                if err_msg:
+                    parts.append(f'\033[38;5;196m{err_msg}{R}  │  Left=new search  Esc={esc_action}')
+                else:
+                    parts.append(f'{C_K}No results for "{safe_query}"  │  Left=new search  Esc={esc_action}{R}')
             return "\n".join(parts)
         return _hdr
 
@@ -635,8 +638,10 @@ def handle_anilist_search_state(
             flags, ui,
             "Search Anime", initial_opts,
             header_fn=_search_result_header(
-                "AniList", ms.query_str, ttype, get_results, get_loading,
-                esc_action
+                "AniList", ms.query_str, "sub",
+                get_results, get_loading,
+                esc_action=esc_action,
+                get_error_fn=get_error
             ),
             top_header_fn=_search_cover_header(get_results),
             live_fn=live_fn,

@@ -298,7 +298,7 @@ def handle_play_state(
     episode_labels = _episode_labels_for(s_ctx, ttype)
     current_ep_label = _display_episode_label(s_ctx, ms.current_ep, ttype)
 
-    _player_ui_state = app_core._player_ui_state
+    from ..ui.player_screen import _player_ui_state
     _player_ui_state.update({
         "active": True,
         "show": ui.ui_show_ctx,

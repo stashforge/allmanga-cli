@@ -859,8 +859,8 @@ def refresh_history_entry_from_anilist(entry, token):
 def refresh_history_anilist_airing_batch(history_entries):
     now = int(_time.time())
 
-    # 1 hour cooldown
-    COOLDOWN = 3600
+    # No cooldown, check every time user enters history
+    COOLDOWN = 0
 
     media_ids_to_fetch = []
     entry_map = {}
@@ -949,7 +949,7 @@ def refresh_history_anilist_airing_batch(history_entries):
                 show["_anilist_status"] = new_status
                 changed = True
 
-            if old_next_airing_at and old_next_airing_at <= now:
+            if new_status in ("RELEASING", "NOT_YET_RELEASED") or (old_next_airing_at and old_next_airing_at <= now):
                 if _allanime_catalog_refresh_fn and _allanime_catalog_refresh_fn(entry):
                     changed = True
 

@@ -325,13 +325,23 @@ def render(
         if description:
             description = re.sub(r"<[^>]+>", " ", description)
             description = re.sub(r"\s+", " ", description).strip()
-            if detail_lines:
-                detail_lines.append("")
-            detail_lines.append(f"{SECTION_LABEL}DESCRIPTION{RESET}")
-            detail_lines.extend(
-                f"\033[38;5;245m{line}\033[0m"
-                for line in _wrap_title(description, w - 4, 99).splitlines()
-            )
+            
+            # Calculate exactly how many lines we can safely print without causing the terminal to scroll.
+            # If the terminal scrolls, the poster image gets pushed off the screen!
+            has_poster = bool(show.get("thumbnail") or show.get("image"))
+            poster_rows = POSTER_HEIGHT if has_poster else 0
+            extra_padding = 5 if detail_lines else 4
+            used_lines = poster_rows + len(content) + len(detail_lines) + extra_padding
+            max_desc_lines = max(1, h - used_lines)
+
+            if max_desc_lines > 0:
+                if detail_lines:
+                    detail_lines.append("")
+                detail_lines.append(f"{SECTION_LABEL}DESCRIPTION{RESET}")
+                detail_lines.extend(
+                    f"\033[38;5;245m{line}\033[0m"
+                    for line in _wrap_title(description, w - 4, max_desc_lines).splitlines()
+                )
         if detail_lines:
             content.append("")
             content.extend(detail_lines)
@@ -372,10 +382,16 @@ def render(
     poster_lines = _poster_symbol_lines(poster_raw, POSTER_HEIGHT, w)
     out = []
 
-    if poster_raw:
+    has_poster = bool(show and (show.get("thumbnail") or show.get("image")))
+    if poster_raw or has_poster:
         for row in range(POSTER_HEIGHT):
             line = poster_lines[row] if row < len(poster_lines) else ""
-            out.append(f"\033[2K{line}")
+            if line:
+                out.append(f"\033[2K{line}")
+            elif poster_changed:
+                out.append("\033[2K")
+            else:
+                out.append("")
 
     for line in content:
         out.append(f"\033[2K{_fit_terminal_line(line, w)}")
