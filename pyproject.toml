@@ -15,6 +15,9 @@ dependencies = [
 allanime = [
     "cryptography>=41.0.0",
 ]
+allanime-termux = [
+    "pycryptodomex>=3.19.0",
+]
 miruro = [
     "curl_cffi>=0.7.4",
 ]
