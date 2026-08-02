@@ -46,8 +46,8 @@
       "engine": "scraper",
       "features": ["search"]
     },
-    "luciferdonghua": {
-      "name": "LuciferDonghua",
+    "lucifer": {
+      "name": "Lucifer",
       "domains": ["https://luciferdonghua.in"],
       "type": "donghua",
       "languages": ["sub"],
