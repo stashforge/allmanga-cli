@@ -97,7 +97,7 @@
       "type": "anime",
       "languages": ["sub", "dub"],
       "status": "broken",
-      "engine": "scraper",
+      "engine": "hybrid",
       "features": ["anilist_sync", "donghua"]
     }
   }
