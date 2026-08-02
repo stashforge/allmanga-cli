@@ -70,7 +70,7 @@
       "type": "anime",
       "languages": ["sub", "dub"],
       "status": "active",
-      "engine": "scraper",
+      "engine": "hybrid",
       "features": ["search"]
     },
     "senshi": {
@@ -79,7 +79,7 @@
       "type": "anime",
       "languages": ["sub", "dub"],
       "status": "active",
-      "engine": "scraper",
+      "engine": "api",
       "features": ["search"]
     },
     "movies": {
