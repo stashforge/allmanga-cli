@@ -4,6 +4,12 @@ import argparse
 import os
 import re
 import sys
+import importlib.metadata
+
+try:
+    __version__ = importlib.metadata.version("allmanga-cli")
+except Exception:
+    __version__ = "unknown"
 
 from allmanga_cli.providers import available_providers, _DEFAULT_PROVIDER_ID
 
@@ -361,6 +367,9 @@ def build_command_parser():
     global_options = parser.add_argument_group("Global options")
     global_options.add_argument(
         "-h", "--help", action="help", help="Show this help message and exit"
+    )
+    global_options.add_argument(
+        "-v", "--version", action="version", version=f"%(prog)s {__version__}", help="Show program's version number and exit"
     )
     _add_debug_option(global_options)
 

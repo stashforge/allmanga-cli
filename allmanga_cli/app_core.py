@@ -1757,19 +1757,41 @@ def main():
 
     if getattr(args, "list_providers", False):
         globals()["SUPPRESS_FINAL_CURSOR_RESTORE"] = True
-        from allmanga_cli.providers import available_providers, _DEFAULT_PROVIDER_ID
+        from allmanga_cli.providers import available_providers, _DEFAULT_PROVIDER_ID, get_provider_registry
         cfg = load_config()
         default_pid = cfg.get("provider", _DEFAULT_PROVIDER_ID)
         
-        CYAN, GREEN, BOLD, RESET = "\033[36m", "\033[32m", "\033[1m", "\033[0m"
+        CYAN, GREEN, BOLD, RESET, RED, YELLOW, DIM = "\033[36m", "\033[32m", "\033[1m", "\033[0m", "\033[31m", "\033[33m", "\033[2m"
+        
+        registry = get_provider_registry()
         
         print(f"\n{BOLD}Available Streaming Providers:{RESET}\n")
+        
+        # Header
+        print(f"  {BOLD}{'ID':<16} {'Name':<20} {'Engine':<10} {'Status':<10} {'Type':<10} {'Languages':<15}{RESET}")
+        print(f"  {DIM}{'-'*83}{RESET}")
+        
         for pid in sorted(available_providers().keys()):
+            meta = registry.get(pid, {})
+            name = meta.get("name", pid.title())
+            engine = meta.get("engine", "unknown")
+            status = meta.get("status", "unknown")
+            ptype = meta.get("type", "anime")
+            langs = "/".join(meta.get("languages", ["sub"]))
+            
+            # Formatting
+            status_color = GREEN if status == "active" else RED
             if pid == default_pid:
-                print(f"  {GREEN}▸ {pid} (default){RESET}")
+                id_str = f"{GREEN}▸ {pid:<14}{RESET}"
             else:
-                print(f"  {CYAN}▸ {pid}{RESET}")
+                id_str = f"  {CYAN}{pid:<14}{RESET}"
+                
+            engine_str = f"{YELLOW}{engine:<10}{RESET}" if engine == "hybrid" else f"{engine:<10}"
+            if engine == "scraper": engine_str = f"{DIM}{engine:<10}{RESET}"
+            
+            print(f"  {id_str} {name:<20} {engine_str} {status_color}{status:<10}{RESET} {ptype:<10} {langs:<15}")
         print()
+        print(f"  {DIM}Note: Scrapers are brittle and may break often. APIs and Hybrids are recommended.{RESET}\n")
         return
 
     check_deps()

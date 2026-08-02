@@ -125,6 +125,14 @@ class MiruroProvider:
 
     def __init__(self, request_json_fn=request_json):
         self._request_json = request_json_fn
+        
+        # Override hardcoded domains if they exist in JSON registry
+        if hasattr(self, 'domains') and self.domains:
+            global MIRURO_DOMAINS
+            global ACTIVE_DOMAIN
+            MIRURO_DOMAINS = self.domains
+            if ACTIVE_DOMAIN not in MIRURO_DOMAINS:
+                ACTIVE_DOMAIN = MIRURO_DOMAINS[0]
 # ... [skipping search and get_title]
     def search(self, query: str, ttype: str = "sub") -> list[dict[str, Any]]:
         gql = """

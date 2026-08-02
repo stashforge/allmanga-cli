@@ -4,7 +4,17 @@ from __future__ import annotations
 
 import importlib
 import pkgutil
-from typing import Iterable
+import json
+import os
+from typing import Iterable, Dict, Any
+
+# Load the JSON registry
+_REGISTRY_PATH = os.path.join(os.path.dirname(__file__), "registry.json")
+try:
+    with open(_REGISTRY_PATH, "r", encoding="utf-8") as _f:
+        PROVIDER_REGISTRY = json.load(_f).get("providers", {})
+except Exception:
+    PROVIDER_REGISTRY = {}
 
 
 _SKIPPED_MODULES = {"shared"}
@@ -63,11 +73,22 @@ PROVIDERS = {
     for provider_id, factory in PROVIDER_FACTORIES.items()
 }
 
+# Attach metadata directly to instances for backward compatibility,
+# and so providers can self-reference their JSON domains.
+for p_id, p_inst in PROVIDERS.items():
+    if p_id in PROVIDER_REGISTRY:
+        p_inst.metadata = PROVIDER_REGISTRY[p_id]
+        if hasattr(p_inst, 'domains') or not hasattr(p_inst, 'domains'):
+            p_inst.domains = PROVIDER_REGISTRY[p_id].get("domains", [])
+
 ALLANIME = PROVIDERS[_DEFAULT_PROVIDER_ID]
 
 
 def available_providers():
     return dict(PROVIDERS)
+
+def get_provider_registry() -> Dict[str, Any]:
+    return PROVIDER_REGISTRY
 
 
 def provider_key(provider_id=_DEFAULT_PROVIDER_ID):

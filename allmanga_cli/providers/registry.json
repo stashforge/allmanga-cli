@@ -1,0 +1,104 @@
+{
+  "version": "1.0",
+  "providers": {
+    "miruro": {
+      "name": "Miruro",
+      "domains": ["https://www.miruro.tv", "https://www.miruro.to", "https://www.miruro.ru", "https://www.miruro.bz"],
+      "type": "anime",
+      "languages": ["sub", "dub"],
+      "status": "active",
+      "engine": "hybrid",
+      "features": ["anilist_sync", "search", "fallback_servers"]
+    },
+    "anidbapp": {
+      "name": "AniDB.app",
+      "domains": ["https://anidb.app"],
+      "type": "anime",
+      "languages": ["sub", "dub"],
+      "status": "active",
+      "engine": "hybrid",
+      "features": ["anilist_sync", "search"]
+    },
+    "animekhor": {
+      "name": "AnimeKhor",
+      "domains": ["https://animekhor.xyz"],
+      "type": "donghua",
+      "languages": ["sub"],
+      "status": "active",
+      "engine": "scraper",
+      "features": ["search"]
+    },
+    "animexin": {
+      "name": "AnimeXin",
+      "domains": ["https://animexin.vip"],
+      "type": "donghua",
+      "languages": ["sub"],
+      "status": "active",
+      "engine": "scraper",
+      "features": ["search"]
+    },
+    "anizone": {
+      "name": "AniZone",
+      "domains": ["https://anizone.to"],
+      "type": "anime",
+      "languages": ["sub", "dub"],
+      "status": "active",
+      "engine": "scraper",
+      "features": ["search"]
+    },
+    "luciferdonghua": {
+      "name": "LuciferDonghua",
+      "domains": ["https://luciferdonghua.in"],
+      "type": "donghua",
+      "languages": ["sub"],
+      "status": "active",
+      "engine": "scraper",
+      "features": ["search"]
+    },
+    "animegg": {
+      "name": "AnimeGG",
+      "domains": ["https://animegg.org"],
+      "type": "anime",
+      "languages": ["sub", "dub"],
+      "status": "active",
+      "engine": "scraper",
+      "features": ["search"]
+    },
+    "anikoto": {
+      "name": "Anikoto",
+      "domains": ["https://anikoto.com"],
+      "type": "anime",
+      "languages": ["sub", "dub"],
+      "status": "active",
+      "engine": "scraper",
+      "features": ["search"]
+    },
+    "senshi": {
+      "name": "Senshi",
+      "domains": ["https://senshi.tv"],
+      "type": "anime",
+      "languages": ["sub", "dub"],
+      "status": "active",
+      "engine": "scraper",
+      "features": ["search"]
+    },
+    "movies": {
+      "name": "Movies",
+      "domains": ["https://vidsrc.me"],
+      "type": "movie",
+      "languages": ["sub", "dub"],
+      "status": "active",
+      "engine": "api",
+      "features": ["search"]
+    },
+    "allanime": {
+      "name": "AllAnime",
+      "domains": ["https://allanime.to", "https://mkissa.to"],
+      "type": "anime",
+      "languages": ["sub", "dub"],
+      "status": "broken",
+      "engine": "scraper",
+      "features": ["anilist_sync", "donghua"]
+    }
+  }
+}
