@@ -80,6 +80,9 @@ for p_id, p_inst in PROVIDERS.items():
         p_inst.metadata = PROVIDER_REGISTRY[p_id]
         if hasattr(p_inst, 'domains') or not hasattr(p_inst, 'domains'):
             p_inst.domains = PROVIDER_REGISTRY[p_id].get("domains", [])
+    else:
+        p_inst.metadata = {}
+        p_inst.domains = []
 
 ALLANIME = PROVIDERS[_DEFAULT_PROVIDER_ID]
 
@@ -105,4 +108,7 @@ def get_provider(provider_id=_DEFAULT_PROVIDER_ID, request_json_fn=None):
     if key in PROVIDER_REGISTRY:
         inst.metadata = PROVIDER_REGISTRY[key]
         inst.domains = PROVIDER_REGISTRY[key].get("domains", [])
+    else:
+        inst.metadata = {}
+        inst.domains = []
     return inst

@@ -27,3 +27,6 @@ allmanga-cli = "allmanga_cli.cli.main:run"
 
 [tool.setuptools.packages.find]
 include = ["allmanga_cli*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.json"]
