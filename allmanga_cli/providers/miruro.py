@@ -17,13 +17,7 @@ from .shared.models import (
     normalize_titles,
 )
 
-MIRURO_DOMAINS = [
-    "https://www.miruro.tv",
-    "https://www.miruro.to",
-    "https://www.miruro.ru",
-    "https://www.miruro.bz",
-]
-ACTIVE_DOMAIN = MIRURO_DOMAINS[0]
+ACTIVE_DOMAIN = ""
 
 ANILIST_URL = "https://graphql.anilist.co"
 
@@ -87,13 +81,19 @@ def _fetch_pipe_urllib(encoded_req: str, domain: str, headers: dict[str, str]) -
         return None
 
 
-def _fetch_pipe(payload: dict) -> dict | None:
+def _fetch_pipe(payload: dict, domains: list[str]) -> dict | None:
     global ACTIVE_DOMAIN
     encoded_req = _encode_pipe_request(payload)
     curl_requests = _load_curl_requests()
     
+    if not domains:
+        domains = ["https://www.miruro.tv"]
+        
+    if ACTIVE_DOMAIN not in domains:
+        ACTIVE_DOMAIN = domains[0]
+    
     # Put the active domain first
-    domains_to_try = [ACTIVE_DOMAIN] + [d for d in MIRURO_DOMAINS if d != ACTIVE_DOMAIN]
+    domains_to_try = [ACTIVE_DOMAIN] + [d for d in domains if d != ACTIVE_DOMAIN]
     
     for domain in domains_to_try:
         headers = _get_headers(domain)
@@ -121,18 +121,22 @@ def _fetch_pipe(payload: dict) -> dict | None:
 
 class MiruroProvider:
     id = "miruro"
-    name = "Miruro"
 
     def __init__(self, request_json_fn=request_json):
         self._request_json = request_json_fn
         
-        # Override hardcoded domains if they exist in JSON registry
-        if hasattr(self, 'domains') and self.domains:
-            global MIRURO_DOMAINS
-            global ACTIVE_DOMAIN
-            MIRURO_DOMAINS = self.domains
-            if ACTIVE_DOMAIN not in MIRURO_DOMAINS:
-                ACTIVE_DOMAIN = MIRURO_DOMAINS[0]
+        if not hasattr(self, 'domains'):
+            self.domains = []
+        if not hasattr(self, 'metadata'):
+            self.metadata = {}
+
+    @property
+    def base_url(self) -> str:
+        return self.domains[0] if getattr(self, 'domains', None) else "https://www.miruro.tv"
+
+    @property
+    def name(self) -> str:
+        return self.metadata.get("name", "Miruro")
 # ... [skipping search and get_title]
     def search(self, query: str, ttype: str = "sub") -> list[dict[str, Any]]:
         gql = """
@@ -233,7 +237,7 @@ class MiruroProvider:
             "version": "0.1.0",
         }
         
-        data = _fetch_pipe(payload)
+        data = _fetch_pipe(payload, self.domains)
                 
         if not data:
             return normalize_episode_catalog({"state": "error", "error": "Miruro API blocked request or failed"}, provider_id=self.id, provider_title_id=provider_id)
@@ -283,7 +287,7 @@ class MiruroProvider:
             "version": "0.1.0",
         }
         
-        data = _fetch_pipe(payload)
+        data = _fetch_pipe(payload, self.domains)
                 
         if not data:
             return None
@@ -326,7 +330,7 @@ class MiruroProvider:
                 "body": None,
                 "version": "0.1.0"
             }
-            sdata = _fetch_pipe(spayload)
+            sdata = _fetch_pipe(spayload, self.domains)
             
             if sdata:
                 subtitles = []
@@ -404,7 +408,7 @@ class MiruroProvider:
         ttype: str = "sub",
         cfg: dict[str, Any] | None = None,
     ) -> str:
-        base = "https://www.miruro.tv"
+        base = self.base_url
         if not provider_id:
             return base
         return f"{base}/anime/{provider_id}"

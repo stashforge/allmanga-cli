@@ -16,8 +16,6 @@ from .shared.models import (
 
 log = logging.getLogger(__name__)
 
-BASE_URL = "https://anidb.app"
-
 # Base headers that mirror Chrome, needed to bypass Cloudflare
 NAV_HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
@@ -48,10 +46,21 @@ XHR_HEADERS = {
 
 class AniDBApp(Provider):
     id = "anidbapp"
-    name = "AniDB.app"
 
     def __init__(self, request_json_fn=None):
         self._request_json = request_json_fn
+        if not hasattr(self, 'metadata'):
+            self.metadata = {}
+        if not hasattr(self, 'domains'):
+            self.domains = []
+
+    @property
+    def base_url(self) -> str:
+        return self.domains[0] if getattr(self, 'domains', None) else "https://anidb.app"
+
+    @property
+    def name(self) -> str:
+        return self.metadata.get("name", "AniDB.app")
 
     def _fetch(self, url, headers):
         req = urllib.request.Request(url, headers=headers)
@@ -64,9 +73,9 @@ class AniDBApp(Provider):
             return 500, str(e)
 
     def search(self, query: str, ttype: str = "sub") -> list[dict[str, Any]]:
-        url = f"{BASE_URL}/browse?q={urllib.parse.quote(query)}"
+        url = f"{self.base_url}/browse?q={urllib.parse.quote(query)}"
         headers = dict(NAV_HEADERS)
-        headers["Referer"] = f"{BASE_URL}/home"
+        headers["Referer"] = f"{self.base_url}/home"
 
         status, html = self._fetch(url, headers=headers)
         if status != 200:
@@ -121,9 +130,9 @@ class AniDBApp(Provider):
 
     def get_title(self, provider_id: str) -> dict[str, Any] | None:
         # provider_id is the slug, e.g., one-piece-0948
-        url = f"{BASE_URL}/anime/{provider_id}"
+        url = f"{self.base_url}/anime/{provider_id}"
         headers = dict(NAV_HEADERS)
-        headers["Referer"] = f"{BASE_URL}/home"
+        headers["Referer"] = f"{self.base_url}/home"
         
         status, text = self._fetch(url, headers=headers)
         if status != 200:
@@ -154,9 +163,9 @@ class AniDBApp(Provider):
             return normalize_episode_catalog({"state": "error", "error": "Invalid siteId"}, provider_id=self.id, provider_title_id=provider_id)
             
         site_id = m.group(1)
-        url = f"{BASE_URL}/api/frontend/anime/{site_id}/episodes"
+        url = f"{self.base_url}/api/frontend/anime/{site_id}/episodes"
         headers = dict(XHR_HEADERS)
-        headers["Referer"] = f"{BASE_URL}/anime/{provider_id}"
+        headers["Referer"] = f"{self.base_url}/anime/{provider_id}"
         
         status, text = self._fetch(url, headers=headers)
         if status != 200:
@@ -211,9 +220,9 @@ class AniDBApp(Provider):
             return None
             
         # Fetch languages for the episode
-        url = f"{BASE_URL}/api/frontend/episode/{ep_id}/languages"
+        url = f"{self.base_url}/api/frontend/episode/{ep_id}/languages"
         headers = dict(XHR_HEADERS)
-        headers["Referer"] = f"{BASE_URL}/anime/{provider_id}"
+        headers["Referer"] = f"{self.base_url}/anime/{provider_id}"
         
         status, text = self._fetch(url, headers=headers)
         if status != 200:
@@ -249,7 +258,7 @@ class AniDBApp(Provider):
         
         # Hit the embed URL to extract the HLS stream
         embed_headers = dict(NAV_HEADERS)
-        embed_headers["Referer"] = f"{BASE_URL}/"
+        embed_headers["Referer"] = f"{self.base_url}/"
         
         embed_status, html = self._fetch(embed_url, headers=embed_headers)
         if embed_status != 200:
@@ -299,7 +308,7 @@ class AniDBApp(Provider):
         ttype: str = "sub",
         cfg: dict[str, Any] | None = None,
     ) -> str:
-        return f"{BASE_URL}/anime/{provider_id}"
+        return f"{self.base_url}/anime/{provider_id}"
 
 PROVIDER_CLASS = AniDBApp
 

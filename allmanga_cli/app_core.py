@@ -1767,10 +1767,10 @@ def main():
         
         print(f"\n{BOLD}Available Streaming Providers:{RESET}\n")
         
-        # Header
-        print(f"  {BOLD}{'ID':<16} {'Name':<20} {'Engine':<10} {'Status':<10} {'Type':<10} {'Languages':<15}{RESET}")
-        print(f"  {DIM}{'-'*83}{RESET}")
-        
+        import shutil
+        term_width = shutil.get_terminal_size((80, 20)).columns
+
+        rows = []
         for pid in sorted(available_providers().keys()):
             meta = registry.get(pid, {})
             name = meta.get("name", pid.title())
@@ -1778,18 +1778,69 @@ def main():
             status = meta.get("status", "unknown")
             ptype = meta.get("type", "anime")
             langs = "/".join(meta.get("languages", ["sub"]))
+            rows.append({"pid": pid, "name": name, "engine": engine, "status": status, "type": ptype, "langs": langs})
             
-            # Formatting
+        w_id = max(max((len(r["pid"]) + 2 for r in rows), default=0), len("ID"))
+        w_name = max(max((len(r["name"]) for r in rows), default=0), len("Name"))
+        w_eng = max(max((len(r["engine"]) for r in rows), default=0), len("Engine"))
+        w_stat = max(max((len(r["status"]) for r in rows), default=0), len("Status"))
+        w_type = max(max((len(r["type"]) for r in rows), default=0), len("Type"))
+        w_lang = max(max((len(r["langs"]) for r in rows), default=0), len("Languages"))
+        
+        spacing = 4
+        
+        show_type = True
+        show_name = True
+        show_engine = True
+        
+        def calc_total_len():
+            l = 2 + w_id + spacing + w_stat + spacing + w_lang
+            if show_name: l += w_name + spacing
+            if show_engine: l += w_eng + spacing
+            if show_type: l += w_type + spacing
+            return l
+
+        if calc_total_len() > term_width:
+            show_type = False
+        if calc_total_len() > term_width:
+            show_name = False
+        if calc_total_len() > term_width:
+            show_engine = False
+        
+        # Header
+        header = f"    {BOLD}{'ID'.ljust(w_id - 2 + spacing)}"
+        if show_name: header += f"{'Name'.ljust(w_name + spacing)}"
+        if show_engine: header += f"{'Engine'.ljust(w_eng + spacing)}"
+        header += f"{'Status'.ljust(w_stat + spacing)}"
+        if show_type: header += f"{'Type'.ljust(w_type + spacing)}"
+        header += f"{'Languages'}{RESET}"
+        
+        print(header)
+        print(f"  {DIM}{'-'*calc_total_len()}{RESET}")
+        
+        for r in rows:
+            pid, name, engine, status, ptype, langs = r["pid"], r["name"], r["engine"], r["status"], r["type"], r["langs"]
             status_color = GREEN if status == "active" else RED
-            if pid == default_pid:
-                id_str = f"{GREEN}▸ {pid:<14}{RESET}"
-            else:
-                id_str = f"  {CYAN}{pid:<14}{RESET}"
-                
-            engine_str = f"{YELLOW}{engine:<10}{RESET}" if engine == "hybrid" else f"{engine:<10}"
-            if engine == "scraper": engine_str = f"{DIM}{engine:<10}{RESET}"
             
-            print(f"  {id_str} {name:<20} {engine_str} {status_color}{status:<10}{RESET} {ptype:<10} {langs:<15}")
+            if pid == default_pid:
+                id_str = f"{GREEN}▸ {pid.ljust(w_id - 2)}{RESET}"
+            else:
+                id_str = f"  {CYAN}{pid.ljust(w_id - 2)}{RESET}"
+                
+            row_str = f"  {id_str}{' '*spacing}"
+            if show_name: row_str += f"{name.ljust(w_name)}{' '*spacing}"
+            
+            if show_engine:
+                engine_str = f"{YELLOW}{engine.ljust(w_eng)}{RESET}" if engine == "hybrid" else f"{engine.ljust(w_eng)}"
+                if engine == "scraper": engine_str = f"{DIM}{engine.ljust(w_eng)}{RESET}"
+                row_str += f"{engine_str}{' '*spacing}"
+                
+            row_str += f"{status_color}{status.ljust(w_stat)}{RESET}{' '*spacing}"
+            if show_type: row_str += f"{ptype.ljust(w_type)}{' '*spacing}"
+            row_str += f"{langs}"
+            
+            print(row_str)
+        
         print()
         print(f"  {DIM}Note: Scrapers are brittle and may break often. APIs and Hybrids are recommended.{RESET}\n")
         return

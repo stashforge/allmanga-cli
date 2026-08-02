@@ -11,19 +11,53 @@ from ..core.terminal import (
 
 
 def wrap_title(text, columns, max_lines=2):
-    """Wrap text within a fixed number of terminal display rows."""
+    """Wrap text within a fixed number of terminal display rows, word-aware."""
     if display_width(text) <= columns:
         return text
+
     lines = []
-    remaining = text
-    for index in range(max_lines):
-        if not remaining:
-            break
-        if index == max_lines - 1:
-            lines.append(truncate_display(remaining, columns))
+    for paragraph in str(text).splitlines():
+        words = paragraph.split()
+        if not words:
+            lines.append("")
+            continue
+            
+        current_line = []
+        current_width = 0
+        
+        for word in words:
+            word_width = display_width(word)
+            space_width = 1 if current_line else 0
+            
+            if current_width + space_width + word_width > columns:
+                if current_line:
+                    lines.append(" ".join(current_line))
+                    current_line = []
+                    current_width = 0
+                
+                while display_width(word) > columns:
+                    w_line, word = split_display_prefix(word, columns)
+                    lines.append(w_line)
+                
+                if word:
+                    current_line.append(word)
+                    current_width = display_width(word)
+            else:
+                current_line.append(word)
+                current_width += space_width + word_width
+                
+        if current_line:
+            lines.append(" ".join(current_line))
+
+    if len(lines) > max_lines:
+        lines = lines[:max_lines]
+        last_line = lines[-1]
+        if display_width(last_line) < columns:
+            lines[-1] = last_line + "…"
         else:
-            line, remaining = split_display_prefix(remaining, columns)
-            lines.append(line)
+            w_line, _ = split_display_prefix(last_line, columns - 1)
+            lines[-1] = w_line + "…"
+
     return "\n".join(lines)
 
 

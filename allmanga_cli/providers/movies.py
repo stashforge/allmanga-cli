@@ -13,18 +13,23 @@ from allmanga_cli.providers.shared.models import normalize_episode_sources
 
 class MoviesProvider(MovieProvider):
     id = "movies"
-    name = "Movies"
     
-    BASE_URL = "https://vsembed.ru"
     HEADERS = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",
-        "Referer": "https://vsembed.ru/"
     }
+
+    @property
+    def base_url(self) -> str:
+        return self.domains[0] if getattr(self, 'domains', None) else "https://vsembed.ru"
+
+    @property
+    def name(self) -> str:
+        return self.metadata.get("name", "Movies")
 
     def _fetch_page(self, url: str, headers: dict | None = None) -> str | None:
         if url.startswith("//"):
             url = "https:" + url
-        req_headers = headers or self.HEADERS
+        req_headers = headers or dict(self.HEADERS, Referer=f"{self.base_url}/")
         req = urllib.request.Request(url, headers=req_headers)
         try:
             with urllib.request.urlopen(req, timeout=10) as response:
@@ -33,13 +38,12 @@ class MoviesProvider(MovieProvider):
             return None
 
     def _fetch_vidsrc(self, media_type: str, tmdb_id: str, s: str = "1", e: str = "1") -> list[dict]:
-        base_url = "https://vsembed.ru"
-        headers = {**self.HEADERS, "Referer": f"{base_url}/"}
+        headers = {**self.HEADERS, "Referer": f"{self.base_url}/"}
         
         if media_type == "movie":
-            url = f"{base_url}/embed/movie?tmdb={tmdb_id}"
+            url = f"{self.base_url}/embed/movie?tmdb={tmdb_id}"
         else:
-            url = f"{base_url}/embed/tv?tmdb={tmdb_id}&season={s}&episode={e}"
+            url = f"{self.base_url}/embed/tv?tmdb={tmdb_id}&season={s}&episode={e}"
                 
         html1 = self._fetch_page(url, headers)
         if not html1: return []

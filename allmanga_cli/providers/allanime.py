@@ -178,10 +178,17 @@ def get_clock_links(request_json, path):
 
 class AllAnimeProvider:
     id = "allanime"
-    name = "AllAnime"
 
     def __init__(self, request_json_fn=request_json):
         self._request_json = request_json_fn
+        if not hasattr(self, 'metadata'):
+            self.metadata = {}
+        if not hasattr(self, 'domains'):
+            self.domains = []
+
+    @property
+    def name(self) -> str:
+        return self.metadata.get("name", "AllAnime")
 
     def search(self, query: str, ttype: str = "sub") -> list[dict[str, Any]]:
         results = search_anime(self._request_json, query, ttype)
@@ -257,7 +264,7 @@ class AllAnimeProvider:
         ttype: str = "sub",
         cfg: dict[str, Any] | None = None,
     ) -> str:
-        base = _frontend_domain(cfg)
+        base = self.domains[0] if self.domains else _frontend_domain(cfg)
         provider_id = str(provider_id or "").strip()
         if not provider_id:
             return base

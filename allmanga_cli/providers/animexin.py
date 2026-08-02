@@ -15,9 +15,15 @@ from ..services.http import UA
 
 class AnimeXinProvider(WordPressAnimeProvider):
     id = "animexin"
-    name = "AnimeXin"
-    base_url = "https://animexin.dev"
     blocked_mirror_label_pattern = r"\b(?:indo|indonesia|indonesian)\b"
+
+    @property
+    def base_url(self) -> str:
+        return self.domains[0] if getattr(self, 'domains', None) else "https://animexin.dev"
+
+    @property
+    def name(self) -> str:
+        return self.metadata.get("name", "AnimeXin")
 
     def __init__(self, request_json_fn=None, fetch=None, ajax_fetch=None):
         del request_json_fn

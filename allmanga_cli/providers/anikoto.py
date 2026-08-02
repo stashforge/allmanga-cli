@@ -18,14 +18,24 @@ _logger = logging.getLogger(__name__)
 
 class AnikotoProvider:
     id = "anikoto"
-    name = "Anikoto"
 
     def __init__(self, request_json_fn=None):
         self._request_json = request_json_fn
-        self.base_url = "https://megaplay.buzz"
+        if not hasattr(self, 'metadata'):
+            self.metadata = {}
+        if not hasattr(self, 'domains'):
+            self.domains = []
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
         }
+
+    @property
+    def base_url(self) -> str:
+        return self.domains[0] if getattr(self, 'domains', None) else "https://megaplay.buzz"
+
+    @property
+    def name(self) -> str:
+        return self.metadata.get("name", "Anikoto")
 
     def search(self, query: str, ttype: str = "sub") -> list[dict[str, Any]]:
         try:

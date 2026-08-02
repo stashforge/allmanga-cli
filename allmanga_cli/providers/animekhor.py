@@ -7,8 +7,14 @@ from .animexin import AnimeXinProvider
 
 class AnimeKhorProvider(AnimeXinProvider):
     id = "animekhor"
-    name = "AnimeKhor"
-    base_url = "https://animekhor.org"
+
+    @property
+    def base_url(self) -> str:
+        return self.domains[0] if getattr(self, 'domains', None) else "https://animekhor.org"
+
+    @property
+    def name(self) -> str:
+        return self.metadata.get("name", "AnimeKhor")
 
 
 PROVIDER_CLASS = AnimeKhorProvider

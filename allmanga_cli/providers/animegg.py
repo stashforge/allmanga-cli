@@ -17,23 +17,33 @@ from .shared.models import (
 
 log = logging.getLogger(__name__)
 
-BASE_URL = "https://www.animegg.org"
-
 # Basic headers for web scraping
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",
-    "Referer": BASE_URL,
 }
 
 class AnimeGG(Provider):
     id = "animegg"
-    name = "AnimeGG"
 
     def __init__(self, request_json_fn=None):
         self._request_json = request_json_fn
+        if not hasattr(self, 'metadata'):
+            self.metadata = {}
+        if not hasattr(self, 'domains'):
+            self.domains = []
+
+    @property
+    def base_url(self) -> str:
+        return self.domains[0] if getattr(self, 'domains', None) else "https://www.animegg.org"
+
+    @property
+    def name(self) -> str:
+        return self.metadata.get("name", "AnimeGG")
 
     def _fetch_html(self, url: str) -> str:
-        req = urllib.request.Request(url, headers=HEADERS)
+        headers = dict(HEADERS)
+        headers["Referer"] = self.base_url
+        req = urllib.request.Request(url, headers=headers)
         try:
             with urllib.request.urlopen(req) as response:
                 return response.read().decode("utf-8")
@@ -45,7 +55,7 @@ class AnimeGG(Provider):
             return ""
 
     def search(self, query: str, ttype: str = "sub") -> list[dict[str, Any]]:
-        url = f"{BASE_URL}/search/?q={urllib.parse.quote(query)}"
+        url = f"{self.base_url}/search/?q={urllib.parse.quote(query)}"
         html_content = self._fetch_html(url)
         
         results = []
@@ -63,7 +73,7 @@ class AnimeGG(Provider):
             img_match = re.search(r'<img\b[^>]*src=["\']([^"\']+)["\']', tag_content, re.IGNORECASE)
             thumbnail = img_match.group(1) if img_match else ""
             if thumbnail and not thumbnail.startswith("http"):
-                thumbnail = f"{BASE_URL}{thumbnail}"
+                thumbnail = f"{self.base_url}{thumbnail}"
                 
             status_match = re.search(r'Status\s*:\s*(.*?)</div>', tag_content, re.IGNORECASE)
             status = re.sub(r'<[^>]+>', '', status_match.group(1)).strip() if status_match else ""
@@ -101,7 +111,7 @@ class AnimeGG(Provider):
         return normalize_titles(results, provider_id=self.id, provider_name=self.name, id_key="id")
 
     def get_title(self, provider_id: str) -> dict[str, Any] | None:
-        url = f"{BASE_URL}/series/{provider_id}"
+        url = f"{self.base_url}/series/{provider_id}"
         html_content = self._fetch_html(url)
         
         # fallback defaults
@@ -121,7 +131,7 @@ class AnimeGG(Provider):
             if img_match:
                 thumbnail = img_match.group(1)
                 if not thumbnail.startswith("http"):
-                    thumbnail = f"{BASE_URL}{thumbnail}"
+                    thumbnail = f"{self.base_url}{thumbnail}"
                 
             alt_match = re.search(r'Alternate Titles:\s*(.*?)</span>', html_content, re.IGNORECASE | re.DOTALL)
             if alt_match:
@@ -157,7 +167,7 @@ class AnimeGG(Provider):
         }, provider_id=self.id, provider_name=self.name, id_key="id")
 
     def episode_catalog(self, provider_id: str, ttype: str = "sub") -> dict[str, Any]:
-        url = f"{BASE_URL}/series/{provider_id}"
+        url = f"{self.base_url}/series/{provider_id}"
         html_content = self._fetch_html(url)
         
         episodes = []
@@ -212,7 +222,7 @@ class AnimeGG(Provider):
         episode: str,
         ttype: str = "sub",
     ) -> dict[str, Any] | None:
-        url = f"{BASE_URL}/{episode}"
+        url = f"{self.base_url}/{episode}"
         html_content = self._fetch_html(url)
         
         tabs = []
@@ -238,7 +248,7 @@ class AnimeGG(Provider):
         all_sources = []
         for tab in tabs:
             if tab["server"].lower() == "animegg" and "sub" in tab["version"].lower():
-                embed_url = f"{BASE_URL}/embed/{tab['embedId']}"
+                embed_url = f"{self.base_url}/embed/{tab['embedId']}"
                 embed_html = self._fetch_html(embed_url)
                 
                 vid_match = re.search(r'var\s+videoSources\s*=\s*(\[[\s\S]*?\]);', embed_html)
@@ -258,7 +268,7 @@ class AnimeGG(Provider):
                 for s in parsed:
                     s_url = s.get("file", "")
                     if s_url and not s_url.startswith("http"):
-                        s_url = f"{BASE_URL}{s_url}"
+                        s_url = f"{self.base_url}{s_url}"
                     if s_url:
                         quality_label = s.get("label", "unknown")
                         q_match = re.search(r'(\d+)', quality_label)
@@ -270,7 +280,7 @@ class AnimeGG(Provider):
                             "resolution": q_num,
                             "type": "mp4",
                             "priority": 0,
-                            "headers": {"Referer": BASE_URL}
+                            "headers": {"Referer": self.base_url}
                         })
                         
         try:
@@ -292,7 +302,7 @@ class AnimeGG(Provider):
         cfg: dict[str, Any] | None = None,
     ) -> str:
         if episode:
-            return f"{BASE_URL}/{episode}"
-        return f"{BASE_URL}/series/{provider_id}"
+            return f"{self.base_url}/{episode}"
+        return f"{self.base_url}/series/{provider_id}"
 
 PROVIDER_CLASS = AnimeGG

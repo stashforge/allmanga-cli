@@ -100,4 +100,9 @@ def get_provider(provider_id=_DEFAULT_PROVIDER_ID, request_json_fn=None):
     key = provider_key(provider_id)
     if request_json_fn is None:
         return PROVIDERS[key]
-    return PROVIDER_FACTORIES[key](request_json_fn)
+    
+    inst = PROVIDER_FACTORIES[key](request_json_fn)
+    if key in PROVIDER_REGISTRY:
+        inst.metadata = PROVIDER_REGISTRY[key]
+        inst.domains = PROVIDER_REGISTRY[key].get("domains", [])
+    return inst

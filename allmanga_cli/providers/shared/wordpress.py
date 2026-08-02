@@ -77,7 +77,7 @@ def is_media_asset_url(url: str) -> bool:
     ))
 
 
-def parse_cards(base_url: str, page_html: str, *, only_main: bool = False) -> list[Entry]:
+def parse_cards(base_url: str, page_html: str, *, only_main: bool = False, valid_domains: list[str] = None) -> list[Entry]:
     soup = BeautifulSoup(page_html, "html.parser")
     source = soup
     if only_main:
@@ -90,7 +90,10 @@ def parse_cards(base_url: str, page_html: str, *, only_main: bool = False) -> li
         if not href_attr:
             continue
         href = normalize_url(base_url, href_attr)
-        if not href.startswith(base_url) or href in seen:
+        if not href.startswith(base_url):
+            if not valid_domains or not any(href.startswith(d) for d in valid_domains):
+                continue
+        if href in seen:
             continue
         if is_media_asset_url(href):
             continue
@@ -111,7 +114,7 @@ def parse_cards(base_url: str, page_html: str, *, only_main: bool = False) -> li
     return entries
 
 
-def parse_series(base_url: str, page_html: str) -> list[Entry]:
+def parse_series(base_url: str, page_html: str, valid_domains: list[str] = None) -> list[Entry]:
     soup = BeautifulSoup(page_html, "html.parser")
     section = soup.select_one("div.eplister, div.episodelist") or soup
     items: list[Entry] = []
@@ -142,7 +145,7 @@ def parse_series(base_url: str, page_html: str) -> list[Entry]:
     return items
 
 
-def parse_episode(base_url: str, page_html: str) -> EpisodePage:
+def parse_episode(base_url: str, page_html: str, valid_domains: list[str] = None) -> EpisodePage:
     soup = BeautifulSoup(page_html, "html.parser")
     title_node = soup.select_one("h1.entry-title, h1")
     title = clean_text(title_node.get_text(" ", strip=True) if title_node else "Unknown episode")
@@ -150,7 +153,8 @@ def parse_episode(base_url: str, page_html: str) -> EpisodePage:
     series_link = None
     for link in soup.select("a[href]"):
         href = normalize_url(base_url, link.get("href", ""))
-        if href.startswith(base_url) and not is_episode_url(href):
+        is_internal = href.startswith(base_url) or (valid_domains and any(href.startswith(d) for d in valid_domains))
+        if is_internal and not is_episode_url(href):
             text = clean_text(link.get_text(" ", strip=True))
             if text and text.lower() not in {"home", "anime", "donghua"}:
                 series_link = link
@@ -317,8 +321,9 @@ class WordPressAnimeProvider:
     def search(self, query: str, ttype: str = "sub") -> list[dict]:
         del ttype
         url = f"{self.base_url}/?{urllib.parse.urlencode({'s': query})}"
+        domains = getattr(self, 'domains', [])
         entries = [
-            entry for entry in parse_cards(self.base_url, self._fetch(url), only_main=True)
+            entry for entry in parse_cards(self.base_url, self._fetch(url), only_main=True, valid_domains=domains)
             if not is_episode_url(entry.url)
         ]
         return [self._title_from_entry(entry) for entry in entries]
@@ -406,7 +411,8 @@ class WordPressAnimeProvider:
 
     def episode_catalog(self, provider_id: str, ttype: str = "sub") -> dict:
         del ttype
-        entries = list(reversed(parse_series(self.base_url, self._fetch(provider_id))))
+        domains = getattr(self, 'domains', [])
+        entries = list(reversed(parse_series(self.base_url, self._fetch(provider_id), valid_domains=domains)))
         episodes = []
         for index, entry in enumerate(entries):
             label = entry.meta or episode_number(entry.title, str(index + 1))
@@ -425,7 +431,8 @@ class WordPressAnimeProvider:
 
     def episode_sources(self, provider_id: str, episode: str, ttype: str = "sub") -> dict | None:
         del provider_id, ttype
-        page = parse_episode(self.base_url, self._fetch(episode))
+        domains = getattr(self, 'domains', [])
+        page = parse_episode(self.base_url, self._fetch(episode), valid_domains=domains)
         sources = []
         for mirror in page.mirrors:
             if self._skip_mirror(mirror):
