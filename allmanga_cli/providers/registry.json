@@ -21,7 +21,7 @@
     },
     "animekhor": {
       "name": "AnimeKhor",
-      "domains": ["https://animekhor.xyz"],
+      "domains": ["https://animekhor.xyz", "https://animekhor.org"],
       "type": "donghua",
       "languages": ["sub"],
       "status": "active",
@@ -30,7 +30,7 @@
     },
     "animexin": {
       "name": "AnimeXin",
-      "domains": ["https://animexin.vip"],
+      "domains": ["https://animexin.vip", "https://animexin.dev"],
       "type": "donghua",
       "languages": ["sub"],
       "status": "active",
@@ -66,7 +66,7 @@
     },
     "anikoto": {
       "name": "Anikoto",
-      "domains": ["https://anikoto.com"],
+      "domains": ["https://megaplay.buzz", "https://anikoto.com"],
       "type": "anime",
       "languages": ["sub", "dub"],
       "status": "active",
@@ -75,7 +75,7 @@
     },
     "senshi": {
       "name": "Senshi",
-      "domains": ["https://senshi.tv"],
+      "domains": ["https://senshi.live", "https://senshi.tv"],
       "type": "anime",
       "languages": ["sub", "dub"],
       "status": "active",

@@ -8,28 +8,43 @@ import logging
 from .shared.base import Provider
 from .shared.models import normalize_title, normalize_episode_catalog, normalize_episode_sources
 
-BASE_URL = "https://senshi.live"
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:146.0) Gecko/20100101 Firefox/146.0",
-    "Referer": f"{BASE_URL}/"
 }
 
 class Senshi(Provider):
     id = "senshi"
-    name = "Senshi"
 
-    def __init__(self, *args, **kwargs):
-        pass
+    def __init__(self, request_json_fn=None, *args, **kwargs):
+        self._request_json = request_json_fn
+        if not hasattr(self, 'metadata'):
+            self.metadata = {}
+        if not hasattr(self, 'domains'):
+            self.domains = []
+
+    @property
+    def base_url(self) -> str:
+        return self.domains[0] if getattr(self, 'domains', None) else "https://senshi.live"
+
+    @property
+    def name(self) -> str:
+        return self.metadata.get("name", "Senshi")
 
     def _fetch_json(self, url: str) -> Any:
-        req = urllib.request.Request(url, headers=HEADERS)
+        headers = dict(HEADERS)
+        headers["Referer"] = f"{self.base_url}/"
+        req = urllib.request.Request(url, headers=headers)
         try:
             with urllib.request.urlopen(req, timeout=10) as response:
                 return json.loads(response.read().decode('utf-8'))
         except urllib.error.HTTPError as e:
             if e.code == 404:
                 return []
-            raise
+            logging.debug("Senshi HTTP error: %s", e)
+            return []
+        except Exception as e:
+            logging.debug("Senshi fetch error: %s", e)
+            return []
 
     def search(self, query: str, ttype: str = "sub") -> list[dict[str, Any]]:
         # AniList GraphQL query to search and retrieve idMal
@@ -83,7 +98,7 @@ class Senshi(Provider):
         }
 
     def episode_catalog(self, provider_id: str, ttype: str = "sub") -> dict[str, Any]:
-        episodes_data = self._fetch_json(f"{BASE_URL}/episodes/{provider_id}")
+        episodes_data = self._fetch_json(f"{self.base_url}/episodes/{provider_id}")
         if not episodes_data:
             return normalize_episode_catalog(
                 {"episodes": []},
@@ -126,7 +141,7 @@ class Senshi(Provider):
         )
 
     def episode_sources(self, provider_id: str, episode: str, ttype: str = "sub") -> dict[str, Any] | None:
-        embeds = self._fetch_json(f"{BASE_URL}/episode-embeds/{provider_id}/{episode}")
+        embeds = self._fetch_json(f"{self.base_url}/episode-embeds/{provider_id}/{episode}")
         if not embeds:
             return None
 
@@ -161,7 +176,7 @@ class Senshi(Provider):
                 "resolution": "auto",
                 "type": "hls",
                 "priority": 5,
-                "headers": {"Referer": f"{BASE_URL}/"}
+                "headers": {"Referer": f"{self.base_url}/"}
             })
 
         # 2. Server 2 (StreamNin)
@@ -173,7 +188,7 @@ class Senshi(Provider):
                 "resolution": "auto",
                 "type": "embed",
                 "priority": 3,
-                "headers": {"Referer": f"{BASE_URL}/"}
+                "headers": {"Referer": f"{self.base_url}/"}
             })
 
         # 3. Server FM (FileMoon)
@@ -185,7 +200,7 @@ class Senshi(Provider):
                 "resolution": "auto",
                 "type": "embed",
                 "priority": 2,
-                "headers": {"Referer": f"{BASE_URL}/"}
+                "headers": {"Referer": f"{self.base_url}/"}
             })
 
         return normalize_episode_sources({
@@ -195,6 +210,6 @@ class Senshi(Provider):
         }, provider_id=self.id, provider_title_id=provider_id, episode=episode)
 
     def browser_url(self, *, provider_id: str = "", episode: str = "") -> str:
-        return BASE_URL
+        return self.base_url
 
 PROVIDER_CLASS = Senshi

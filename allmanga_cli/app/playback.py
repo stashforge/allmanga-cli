@@ -1187,7 +1187,7 @@ def handle_browser_play_state(
     opts = []
     urls = []
     for s in sources:
-        url = s.get("sourceUrl") or s.get("link")
+        url = s.get("sourceUrl") or s.get("link") or s.get("streamUrl")
         if url:
             name = s.get("sourceName", "Unknown")
             opts.append(f"{name} ({url})")
