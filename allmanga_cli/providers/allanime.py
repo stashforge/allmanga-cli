@@ -9,7 +9,7 @@ from typing import Any
 
 from ..core.api import ProviderVerificationRequired, SearchFailure
 from ..domain.episodes import normalize_episode_ids
-from ..media.decryption import decrypt_tobeparsed, generate_aa_req
+from ..media.decryption import decrypt_tobeparsed
 from ..media.urls import validate_http_url
 from ..services.http import API_BASE, CLOCK_BASE, request_json
 from .shared.models import (
@@ -127,7 +127,7 @@ def fetch_episode_catalog(request_json, show_id, ttype="sub"):
 
 def get_episode_data(request_json, show_id, episode, ttype="sub"):
     query_hash = (
-        "f4662f4b7510b26795dd53ef824a0bf1740fbbc5d1273fab18222ac831bca8d0"
+        "d405d0edd690624b66baba3068e0edc3ac90f1597d898a1ec8db4e5c43c00fec"
     )
     variables = {
         "showId": show_id,
@@ -136,7 +136,6 @@ def get_episode_data(request_json, show_id, episode, ttype="sub"):
     }
     extensions = {
         "persistedQuery": {"version": 1, "sha256Hash": query_hash},
-        "aaReq": generate_aa_req(),
     }
     variables_json = json.dumps(variables, separators=(",", ":"))
     extensions_json = json.dumps(extensions, separators=(",", ":"))
@@ -147,9 +146,8 @@ def get_episode_data(request_json, show_id, episode, ttype="sub"):
     response = request_json(
         url,
         extra_hdrs={
-            "Origin": "https://mkissa.to",
-            "Referer": "https://mkissa.to/",
-            "x-build-id": "64",
+            "Origin": "https://allmanga.to",
+            "Referer": "https://allmanga.to/",
         },
     )
     if _needs_browser_verification(response):
