@@ -299,6 +299,22 @@ def format_info_metadata_line(
     anime_type = str(anime.get("type") or "UNKNOWN").upper()
     if anime_type == "UNKNOWN":
         anime_type = "UNKNOWN TYPE"
+
+    avail_eps = anime.get("availableEpisodes", {})
+    sub_count = avail_eps.get("sub", 0)
+    dub_count = avail_eps.get("dub", 0)
+    sub_dub_parts = []
+    if sub_count and dub_count:
+        sub_dub_parts.append(f"\033[38;5;244mSUB|DUB{DIM}")
+    elif dub_count:
+        sub_dub_parts.append(f"\033[38;5;244mDUB{DIM}")
+    elif sub_count:
+        sub_dub_parts.append(f"\033[38;5;244mSUB{DIM}")
+    # For providers that specify it in extra
+    elif anime.get("_provider_sub_type"):
+        sub_dub_parts.append(f"\033[38;5;244m{str(anime.get('_provider_sub_type')).upper()}{DIM}")
+    
+    sub_dub_label = "".join(sub_dub_parts)
     def _ext_year(val):
         if isinstance(val, dict): return val.get("year")
         if isinstance(val, str):
@@ -329,6 +345,8 @@ def format_info_metadata_line(
         details.append(f"\033[38;5;220m{next_airing}{DIM}")
     if anime_type:
         details.append(anime_type)
+    if sub_dub_label:
+        details.append(sub_dub_label)
     if years:
         details.append(years)
     details.append(score_text)

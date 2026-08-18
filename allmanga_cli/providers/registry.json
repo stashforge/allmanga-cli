@@ -30,7 +30,7 @@
     },
     "animexin": {
       "name": "AnimeXin",
-      "domains": ["https://animexin.vip", "https://animexin.dev"],
+      "domains": ["https://animexin.dev", "https://animexin.vip"],
       "type": "donghua",
       "languages": ["sub"],
       "status": "active",

@@ -66,6 +66,9 @@ class AnimeXinProvider(WordPressAnimeProvider):
             headers={
                 "User-Agent": UA,
                 "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                "X-Requested-With": "XMLHttpRequest",
+                "Origin": self.base_url,
+                "Referer": f"{self.base_url}/",
             },
             method="POST",
         )
@@ -100,6 +103,8 @@ class AnimeXinProvider(WordPressAnimeProvider):
             name=title,
             thumbnail=(item.get("post_image") or "").split("?resize=")[0],
             media_type=str(item.get("post_type") or "ONA").strip() or "ONA",
+            status="RELEASING",
+            episode_count=None,
             available_sub=available if ttype == "sub" else 0,
             available_dub=available if ttype == "dub" else 0,
             genres=item.get("post_genres") or "",
@@ -107,12 +112,15 @@ class AnimeXinProvider(WordPressAnimeProvider):
                 "_provider_latest": latest,
                 "_provider_genres": str(item.get("post_genres") or "").strip(),
                 "_provider_wp_id": str(item.get("ID") or ""),
+                "_provider_sub_type": sub_type.upper(),
             },
         )
 
 
 def _latest_episode_count(value: str) -> int:
-    matches = re.findall(r"\d+", str(value or ""))
+    clean_val = re.sub(r"\[.*?\]|\(.*?\)", "", str(value or ""))
+    clean_val = re.sub(r"(?i)\b(4k|1080p?|720p?|480p?|2k|8k)\b", "", clean_val)
+    matches = re.findall(r"\d+", clean_val)
     return int(matches[-1]) if matches else 0
 
 
