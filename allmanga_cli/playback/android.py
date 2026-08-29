@@ -68,7 +68,9 @@ def play_android(
         player="mpv",
         total_eps=1,
         show_id=None,
-        is_binge=False):
+        is_binge=False,
+        mal_id=None,
+        aniskip_enabled=True):
     del fetch_callback, total_eps, show_id, is_binge
     try:
         url = validate_stream_url(stream["link"])
@@ -77,10 +79,24 @@ def play_android(
         _error("Player rejected an unsafe stream URL.")
         return False
 
+    # Write AniSkip chapters for MPV on Android (always overwrites / clears if no skips)
+    chapters_path = "/storage/emulated/0/Mpv/chapters.txt"
+    try:
+        from ..media.aniskip import fetch_skip_times, generate_chapters_file
+        from ..domain.episodes import episode_progress_number
+        skip_intervals = []
+        if aniskip_enabled and mal_id:
+            ep_num = episode_progress_number(episode)
+            skip_intervals = fetch_skip_times(mal_id, ep_num)
+        generate_chapters_file(skip_intervals, chapters_path)
+    except Exception:
+        pass
+
     headers = proxy_filtered_headers(stream.get("headers", {}))
     package, activity = PLAYERS.get(player, PLAYERS["mpv"])
-    from allmanga_cli.domain.episodes import episode_label
-    ep_str = str(episode_label(episode)).strip()
+    from allmanga_cli.domain.episodes import episode_label, clean_episode_identifier
+    raw_ep = str(episode_label(episode)).strip()
+    ep_str = clean_episode_identifier(raw_ep) or raw_ep
     
     if ep_str.lower() in ("movie", "full"):
         media_title = f"{title}"

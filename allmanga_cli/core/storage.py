@@ -358,6 +358,9 @@ def sanitize_show_for_history(show):
     stored = dict(show or {})
     for key in HISTORY_SHOW_STRIP_KEYS:
         stored.pop(key, None)
+    if "_provider" not in stored and "provider" not in stored:
+        from ..providers.shared.models import title_provider_key
+        stored["_provider"] = title_provider_key(show)
     return stored
 
 
@@ -375,6 +378,8 @@ def sanitize_history_list(history):
 
 
 def load_history():
+    if is_incognito():
+        return []
     global _history_cache
     try:
         raw = list_state.load_json_list(
@@ -392,6 +397,8 @@ def load_history():
 
 
 def get_history_entry(show, ttype="sub"):
+    if is_incognito():
+        return None
     show_id = str((show or {}).get("_id") or "")
     if not show_id:
         return None
@@ -404,6 +411,8 @@ def get_history_entry(show, ttype="sub"):
 
 
 def get_local_progress(show, ttype="sub"):
+    if is_incognito():
+        return None
     return history_domain.local_progress(
         load_history(),
         show,
@@ -412,6 +421,8 @@ def get_local_progress(show, ttype="sub"):
 
 
 def get_local_episode_label(show, ttype="sub"):
+    if is_incognito():
+        return None
     entry = get_history_entry(show, ttype)
     if entry and "episode" in entry:
         return entry["episode"]
@@ -642,6 +653,34 @@ def save_search_history(query):
         _search_history_cache = history
     except Exception as e:
         debug_warn("Failed to save search history", e)
+
+
+def delete_search_history_entry(query: str):
+    global _search_history_cache
+    if is_incognito():
+        return
+    q_str = (query or "").strip().lower()
+    if not q_str:
+        return
+    history = [q for q in load_search_history() if q.strip().lower() != q_str]
+    try:
+        _atomic_write_json(paths.SEARCH_HISTORY_PATH, history, indent=2)
+        _search_history_cache = history
+    except Exception as e:
+        debug_warn("Failed to delete search history entry", e)
+    return history
+
+
+def clear_search_history():
+    global _search_history_cache
+    if is_incognito():
+        return
+    try:
+        _atomic_write_json(paths.SEARCH_HISTORY_PATH, [], indent=2)
+        _search_history_cache = []
+    except Exception as e:
+        debug_warn("Failed to clear search history", e)
+    return []
 
 
 # ---------------------------------------------------------------------------

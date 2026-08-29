@@ -482,10 +482,17 @@ def tui_pick(
 
             if live_fn is not None:
                 new_opts, new_hdr, _done = live_fn(query)
+                was_done = live_done
                 live_done = bool(_done)
+                if not was_done and live_done and initial_query and query == initial_query:
+                    query = ""
+                    cursor_pos = 0
                 if new_opts != options:
                     options.clear()
                     options.extend(new_opts)
+                    filt = filt_list()
+                    _needs_redraw = True
+                elif not was_done and live_done:
                     filt = filt_list()
                     _needs_redraw = True
                 if cur_header != new_hdr:
@@ -661,7 +668,19 @@ def tui_pick(
                         filt = filt_list()
                         sel  = first_selectable(filt)
             elif key in ("DELETE", "CTRL_D"):
-                if delete_fn and filt:
+                if is_search and query_history:
+                    if 0 <= history_idx < len(query_history):
+                        to_del = query_history[history_idx]
+                        if delete_fn:
+                            delete_fn(to_del)
+                        query_history.pop(history_idx)
+                        if history_idx >= len(query_history):
+                            history_idx = len(query_history) - 1
+                        query = query_history[history_idx] if history_idx >= 0 else ""
+                        cursor_pos = len(query)
+                        filt = filt_list()
+                        _needs_redraw = True
+                elif delete_fn and filt:
                     pending_delete_index = filt[sel]
             elif key == "CTRL_O":
                 if info_fn is not None and filt and sel < len(filt) and filt[sel] not in disabled_indices:

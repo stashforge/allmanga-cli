@@ -74,16 +74,23 @@ def playback_updates_history(
 
 
 def marked_watched_osd(ep, synced=False):
+    from ..domain.episodes import clean_episode_identifier
+    clean_ep = clean_episode_identifier(str(ep)) or str(ep)
     target = " • synced to AniList" if synced else " • local only"
-    return f"EP {ep} marked as watched{target}"
+    return f"EP {clean_ep} marked as watched{target}"
 
 
 def sync_queued_osd(ep):
-    return f"EP {ep} marked as watched • AniList sync queued"
+    from ..domain.episodes import clean_episode_identifier
+    clean_ep = clean_episode_identifier(str(ep)) or str(ep)
+    return f"EP {clean_ep} marked as watched • AniList sync queued"
 
 
 def pending_completion_osd(ep, next_ep):
-    return f"EP {ep} will be marked after EP {next_ep} plays 2 min"
+    from ..domain.episodes import clean_episode_identifier
+    clean_ep = clean_episode_identifier(str(ep)) or str(ep)
+    clean_next = clean_episode_identifier(str(next_ep)) or str(next_ep)
+    return f"EP {clean_ep} will be marked after EP {clean_next} plays 2 min"
 
 
 def episode_transition_osd(action, state):

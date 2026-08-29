@@ -174,6 +174,8 @@ def fetch_anilist_media(token, media_id):
 
 
 def get_show_anilist_id(show):
+    if not isinstance(show, dict):
+        return None
     try:
         if show.get("_anilist_id"):
             return int(show.get("_anilist_id"))
@@ -182,6 +184,29 @@ def get_show_anilist_id(show):
         match = show.get("anilistMatch")
         if isinstance(match, dict) and match.get("id"):
             return int(match["id"])
+        return None
+    except (ValueError, TypeError):
+        return None
+
+
+def get_show_mal_id(show):
+    if not isinstance(show, dict):
+        return None
+    try:
+        if show.get("malId"):
+            return int(show.get("malId"))
+        if show.get("idMal"):
+            return int(show.get("idMal"))
+        match = show.get("anilistMatch")
+        if isinstance(match, dict) and match.get("idMal"):
+            return int(match["idMal"])
+        al_id = get_show_anilist_id(show)
+        if al_id:
+            results = fetch_anilist_by_ids("", anilist_ids=[int(al_id)])
+            if results and results[0].get("malId"):
+                mal_id = int(results[0]["malId"])
+                show["malId"] = mal_id
+                return mal_id
         return None
     except (ValueError, TypeError):
         return None

@@ -19,6 +19,8 @@ DEFAULT_CONFIG = {
     "spinner": "braille",
     "allanime_frontend_domain": "https://mkissa.to",
     "provider": "miruro",
+    "aniskip_enabled": True,
+    "aniskip_auto": True,
 }
 
 

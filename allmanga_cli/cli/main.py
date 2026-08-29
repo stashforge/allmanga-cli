@@ -10,10 +10,10 @@ def run():
     try:
         app.main()
     except KeyboardInterrupt:
-        print(f"\n\n{app.YELLOW}Goodbye.{app.RESET}")
+        app.restore_terminal()
         return 130
     except Exception as exc:
-        app.exit_alt_screen()
+        app.restore_terminal()
         if runtime_flags.debug_mode:
             try:
                 log_path = app.write_exception_log("crash.log")
@@ -40,8 +40,6 @@ def run():
         )
         return 1
     finally:
-        if not getattr(app, "SUPPRESS_FINAL_CURSOR_RESTORE", False):
-            sys.stdout.write("\033[?25h")
-            sys.stdout.flush()
+        app.restore_terminal()
         app.flush_anilist_writes()
     return 0

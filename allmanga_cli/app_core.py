@@ -377,6 +377,7 @@ _poster_needs_tick = display._poster_needs_tick
 _get_poster = display._get_poster
 enter_alt_screen = display.enter_alt_screen
 exit_alt_screen = display.exit_alt_screen
+restore_terminal = display.restore_terminal
 with_loading = display.with_loading
 render_anilist_menu_loading = display.render_anilist_menu_loading
 with_anilist_menu_loading = display.with_anilist_menu_loading
@@ -415,7 +416,9 @@ def enrich_show_if_missing(show: dict) -> None:
         if title_data:
             # Merge any newly scraped data (description, episodes, etc.) into the active show object
             for k, v in title_data.items():
-                if v and not show.get(k):
+                if k in ("status", "episodeCount", "_next_airing_ep", "_next_airing_at", "_next_airing_time", "aniListId", "malId", "format") and v:
+                    show[k] = v
+                elif v and not show.get(k):
                     show[k] = v
                 elif k == "availableEpisodes" and isinstance(v, dict):
                     show.setdefault(k, {})
@@ -423,7 +426,7 @@ def enrich_show_if_missing(show: dict) -> None:
                         if ep_v > show[k].get(ep_k, 0):
                             show[k][ep_k] = ep_v
 
-            if title_data.get("aniListId"):
+            if title_data.get("aniListId") or title_data.get("malId"):
                 from allmanga_cli.core.anilist import fetch_anilist_by_ids
                 from allmanga_cli.core.enrichment import _merge_anilist_into_provider
                 from allmanga_cli.core.storage import load_config, get_title_sync
@@ -436,7 +439,9 @@ def enrich_show_if_missing(show: dict) -> None:
                     sync_allowed = get_title_sync(show)
                     
                 token = load_config().get("anilist_token") if sync_allowed else None
-                al_data = fetch_anilist_by_ids(token, anilist_ids=[title_data["aniListId"]])
+                al_ids = [title_data["aniListId"]] if title_data.get("aniListId") else None
+                mal_ids = [title_data["malId"]] if title_data.get("malId") else None
+                al_data = fetch_anilist_by_ids(token, anilist_ids=al_ids, mal_ids=mal_ids)
                 if al_data:
                     _merge_anilist_into_provider(show, al_data[0])
     except Exception as e:
@@ -559,6 +564,15 @@ set_last_synced_progress = storage.set_last_synced_progress
 def prepare_show_display_state(show, ttype="sub", sync_enabled=None):
     if not show:
         return show
+    if is_incognito():
+        show["_local_progress"] = None
+        show["_local_episode_label"] = None
+        show["_sync_enabled"] = False
+        show.pop("_anilist_progress", None)
+        show.pop("_anilist_list", None)
+        show.pop("watched_episodes", None)
+        show["_progress_authority"] = "LOCAL"
+        return show
     raw_anilist_show = bool(
         show.get("_anilist_list")
         and not show.get("_allanime_name")
@@ -621,6 +635,7 @@ delete_history_entry = storage.delete_history_entry
 
 fetch_anilist_media = anilist.fetch_anilist_media
 get_show_anilist_id = anilist.get_show_anilist_id
+get_show_mal_id = anilist.get_show_mal_id
 get_anilist_media_id = anilist.get_anilist_media_id
 update_anime_from_anilist_media = anilist.update_anime_from_anilist_media
 
@@ -663,38 +678,64 @@ def refresh_history_entry_allanime_catalog(entry):
     if not show_id:
         return False
 
-    try:
-        allanime_show = get_allanime_show(show_id)
-        if allanime_show:
-            if apply_allanime_metadata_to_history_show(show, allanime_show):
-                changed = True
-    except Exception as e:
-        debug_warn("Failed to fetch show metadata during AllAnime refresh", e)
+    pkey = title_provider_key(show)
+    if pkey == "allanime":
+        try:
+            allanime_show = get_allanime_show(show_id)
+            if allanime_show:
+                if apply_allanime_metadata_to_history_show(show, allanime_show):
+                    changed = True
+        except Exception as e:
+            debug_warn("Failed to fetch show metadata during AllAnime refresh", e)
 
-    try:
-        catalog = fetch_episode_catalog(show_id, ttype)
-        if catalog.get("state") == "loaded":
-            old_avail = (show.get("availableEpisodes") or {}).get(ttype)
-            new_avail = len(catalog.get("ids", []))
+        try:
+            catalog = fetch_episode_catalog(show_id, ttype)
+            if catalog.get("state") == "loaded":
+                old_avail = (show.get("availableEpisodes") or {}).get(ttype)
+                new_avail = len(catalog.get("ids", []))
 
-            current_ids = show.get("_episode_ids") or []
-            if old_avail != new_avail or show.get("_episode_ids_ttype") != ttype or current_ids != catalog["ids"]:
-                if not show.get("availableEpisodes"):
-                    show["availableEpisodes"] = {}
-                update_available_count_from_episode_ids(show, ttype, catalog["ids"], catalog.get("detail"))
-                changed = True
+                current_ids = show.get("_episode_ids") or []
+                if old_avail != new_avail or show.get("_episode_ids_ttype") != ttype or current_ids != catalog["ids"]:
+                    if not show.get("availableEpisodes"):
+                        show["availableEpisodes"] = {}
+                    update_available_count_from_episode_ids(show, ttype, catalog["ids"], catalog.get("detail"))
+                    changed = True
 
-            if show.get("_episode_catalog_state") != "loaded":
-                show["_episode_catalog_state"] = "loaded"
-                changed = True
+                if show.get("_episode_catalog_state") != "loaded":
+                    show["_episode_catalog_state"] = "loaded"
+                    changed = True
 
-            # Since catalog load succeeded, mark it checked
-            new_checked = int(time.time())
-            if show.get("_allanime_checked_at") != new_checked:
-                show["_allanime_checked_at"] = new_checked
-                changed = True
-    except Exception as e:
-        debug_warn("Failed to fetch episode catalog during AllAnime refresh", e)
+                # Since catalog load succeeded, mark it checked
+                new_checked = int(time.time())
+                if show.get("_allanime_checked_at") != new_checked:
+                    show["_allanime_checked_at"] = new_checked
+                    changed = True
+        except Exception as e:
+            debug_warn("Failed to fetch episode catalog during AllAnime refresh", e)
+    else:
+        try:
+            prov = _provider_for_title(show)
+            catalog = prov.episode_catalog(show_id, ttype=ttype)
+            if catalog and catalog.get("state") == "loaded":
+                old_avail = (show.get("availableEpisodes") or {}).get(ttype)
+                new_avail = len(catalog.get("ids", []))
+                current_ids = show.get("_episode_ids") or []
+                if old_avail != new_avail or show.get("_episode_ids_ttype") != ttype or current_ids != catalog.get("ids", []):
+                    if not show.get("availableEpisodes"):
+                        show["availableEpisodes"] = {}
+                    show["availableEpisodes"][ttype] = new_avail
+                    show["_episode_ids"] = catalog.get("ids", [])
+                    show["_episode_labels"] = catalog.get("labels", {})
+                    show["_episode_ids_ttype"] = ttype
+                    changed = True
+                if show.get("_episode_catalog_state") != "loaded":
+                    show["_episode_catalog_state"] = "loaded"
+                    changed = True
+                if "aniListId" not in show and catalog.get("aniListId"):
+                    show["aniListId"] = str(catalog["aniListId"])
+                    changed = True
+        except Exception as e:
+            debug_warn(f"Failed to refresh episode catalog for {pkey}", e)
 
     return changed
 
@@ -702,6 +743,8 @@ save_refreshed_history = storage.save_refreshed_history
 patch_history_entry_show = storage.patch_history_entry_show
 load_search_history = storage.load_search_history
 save_search_history = storage.save_search_history
+delete_search_history_entry = storage.delete_search_history_entry
+clear_search_history = storage.clear_search_history
 format_history_entry = storage.format_history_entry
 format_history_updated_time = storage.format_history_updated_time
 history_entry_progress = storage.history_entry_progress
@@ -930,7 +973,7 @@ def make_provider_oneshot_search(query, ttype, provider_id=None):
             try: w = os.get_terminal_size().columns
             except OSError: w = 80
 
-            msg = f"Searching {provider_name}: {query}"
+            msg = "Searching..."
             return _loading_line(msg, w, spinner_style)
         return ""
 
@@ -972,12 +1015,7 @@ def make_anilist_oneshot_search(token, initial_query):
             try: w = os.get_terminal_size().columns
             except OSError: w = 80
 
-            q = initial_query
-            max_q = w - 30
-            if len(q) > max_q > 0:
-                q = q[:max_q] + "..."
-
-            return _loading_line(f"Searching AniList: {q}", w, spinner_style)
+            return _loading_line("Searching...", w, spinner_style)
         return ""
 
     def live_fn(q):
@@ -992,7 +1030,7 @@ def _search_input_header(source_name, esc_action="quit"):
         R = "\033[0m"
         parts = [""]
         parts.append(f"{C_K}Use Up/Down to browse previous searches.{R}")
-        parts.append(f"\033[38;5;250mSource: \033[1;97m{source_name}\033[0m")
+        parts.append(f"{C_K}Provider: {source_name}{R}")
         if globals().get("_search_error"):
             parts.append(f"{C_K}{globals()['_search_error']}  │  Esc={esc_action}{R}")
         else:
@@ -1564,7 +1602,7 @@ def _redraw_player(props):
 _ipc_player = MpvIpc(_redraw_player)
 atexit.register(_ipc_player.quit)
 
-def play_desktop(title, ep, stream, fetch_callback=None, total_eps=1, is_binge=False, show_id=None, osd_msg="", episode_index=0, next_episode=None):
+def play_desktop(title, ep, stream, fetch_callback=None, total_eps=1, is_binge=False, show_id=None, osd_msg="", episode_index=0, next_episode=None, mal_id=None, aniskip_enabled=True, aniskip_auto=True):
     return desktop_playback.play_desktop(
         _ipc_player,
         title,
@@ -1582,6 +1620,9 @@ def play_desktop(title, ep, stream, fetch_callback=None, total_eps=1, is_binge=F
         osd_msg=osd_msg,
         episode_index=episode_index,
         next_episode=next_episode,
+        mal_id=mal_id,
+        aniskip_enabled=aniskip_enabled,
+        aniskip_auto=aniskip_auto,
     )
 def play_local_video(path, player="mpv"):
     return local_playback.play_local_video(
@@ -1695,9 +1736,7 @@ def main():
     def _force_exit(sig, frame):
         kill_active_subprocesses()
         try:
-            exit_alt_screen()
-            sys.stdout.write("\033[?25h\n")
-            sys.stdout.flush()
+            restore_terminal()
         except Exception:
             pass
         os._exit(130)
@@ -1737,6 +1776,18 @@ def main():
                 print("Restart fish, or run: exec fish")
             return
         print(generate_completion(args.completion_shell), end="")
+        return
+
+    if getattr(args, "show_search_history", False):
+        globals()["SUPPRESS_FINAL_CURSOR_RESTORE"] = True
+        for query in load_search_history():
+            print(query)
+        return
+
+    if getattr(args, "clear_search_history", False):
+        globals()["SUPPRESS_FINAL_CURSOR_RESTORE"] = True
+        clear_search_history()
+        print("Search history cleared.")
         return
 
     if getattr(args, "config_action", None):

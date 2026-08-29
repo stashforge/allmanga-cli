@@ -49,11 +49,11 @@ class MpvIpc:
     def start(self):
         if self.process and self.process.poll() is None: return
         cleanup_mpv_runtime(self.runtime_dir)
-        self.runtime_dir, self.socket_path, self.conf_path = create_mpv_runtime()
+        self.runtime_dir, self.socket_path, self.conf_path, self.chapters_path = create_mpv_runtime()
         try:
             self.process = subprocess.Popen([
                 "mpv", "--idle=yes", "--keep-open=no", f"--input-ipc-server={self.socket_path}",
-                f"--input-conf={self.conf_path}", "--force-window=yes"
+                f"--input-conf={self.conf_path}", f"--chapters-file={self.chapters_path}", "--force-window=yes"
             ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
             for _ in range(20):
@@ -84,13 +84,17 @@ class MpvIpc:
 
     def load(
             self, url, title, headers, referer, start_time=0, osd_msg="",
-            audio_url="", subtitle_url=""):
+            audio_url="", subtitle_url="", skip_intervals=None, aniskip_auto=True):
         self.start()
         self.props["playback-time"] = 0
         self.props["duration"] = 0
         self.props["pause"] = False
         self.props["paused-for-cache"] = False
         self.props["percent-pos"] = 0
+        self.skip_intervals = skip_intervals or []
+        self.aniskip_auto = aniskip_auto
+        self.skipped_intervals = set()
+        self.active_skip_prompt = None
         self.send_cmd("set_property", "force-media-title", title)
         hf = [f"{k}: {v}" for k, v in headers.items()] if headers else []
         if referer and "wixstatic" not in url:
@@ -102,11 +106,29 @@ class MpvIpc:
         self.send_cmd("set_property", "resume-playback", False)
         self.resume_time = start_time
 
+        # If starting with an opening that begins at 0s, auto-seek resume_time to interval end
+        skip_msg = ""
+        if self.aniskip_auto and self.skip_intervals:
+            first_skip = self.skip_intervals[0]
+            if first_skip["start"] <= 2.0 and (start_time == 0 or start_time < first_skip["start"]):
+                self.resume_time = first_skip["end"]
+                self.skipped_intervals.add(0)
+                from ..ui.player_screen import _fmt_time
+                skip_msg = f"Skipped {first_skip.get('label', 'Opening')} ({_fmt_time(first_skip['start'])} → {_fmt_time(first_skip['end'])})\n\n"
+
         self._pending_audio_url = audio_url or ""
         self._pending_subtitle_url = subtitle_url or ""
+
+        if getattr(self, "chapters_path", None):
+            try:
+                from ..media.aniskip import generate_chapters_file
+                generate_chapters_file(self.skip_intervals, self.chapters_path)
+            except Exception:
+                pass
+
         self.send_cmd("loadfile", url)
 
-        msg = f"Now playing\n{title}\n\nShift+Right: Next  •  Shift+Left: Previous  •  Q: Quit"
+        msg = f"{skip_msg}Now playing\n{title}\n\nShift+Right: Next  •  Shift+Left: Previous  •  Q: Quit"
         if osd_msg:
             msg += f"\n\n{osd_msg}"
         self.initial_osd_msg = msg
@@ -301,6 +323,18 @@ class MpvIpc:
                     if key.lower() == 'q':
                         pending_action = "QUIT"
                         self.send_cmd("stop")
+                    elif key in ('\t', 's', 'S') and not self.aniskip_auto and self.skip_intervals:
+                        curr_time = self.props.get("playback-time", 0) or 0
+                        for s_idx, s_item in enumerate(self.skip_intervals):
+                            s_start = s_item["start"]
+                            s_end = s_item["end"]
+                            s_label = s_item.get("label", "Opening")
+                            if s_start <= curr_time < s_end:
+                                self.skipped_intervals.add(s_idx)
+                                self.send_cmd("seek", s_end, "absolute")
+                                self.send_cmd("show-text", f"Skipped {s_label} ({fmt_time(s_start)} → {fmt_time(s_end)})", 3000)
+                                self.active_skip_prompt = None
+                                break
                 if self.client in r:
                     try:
                         data = self.client.recv(4096)
@@ -348,6 +382,32 @@ class MpvIpc:
                                             if getattr(self, "initial_osd_msg", None):
                                                 self.send_cmd("show-text", self.initial_osd_msg, 5000)
 
+                                        if name == "playback-time" and val is not None and self.skip_intervals:
+                                            curr_time = float(val)
+                                            for s_idx, s_item in enumerate(self.skip_intervals):
+                                                s_start = s_item["start"]
+                                                s_end = s_item["end"]
+                                                s_label = s_item.get("label", "Opening")
+                                                if s_start <= curr_time < (s_end - 0.5):
+                                                    if s_idx not in self.skipped_intervals:
+                                                        if self.aniskip_auto:
+                                                            now_mono = time.monotonic()
+                                                            if now_mono - getattr(self, "_last_seek_mono", 0) > 0.8:
+                                                                self._last_seek_mono = now_mono
+                                                                self.send_cmd("seek", s_end, "absolute")
+                                                                self.send_cmd("show-text", f"Skipped {s_label} ({fmt_time(s_start)} → {fmt_time(s_end)})", 3000)
+                                                        else:
+                                                            if self.active_skip_prompt != s_idx:
+                                                                self.active_skip_prompt = s_idx
+                                                                self.send_cmd("show-text", f"[Tab/s] Skip {s_label} ({fmt_time(s_start)} → {fmt_time(s_end)})", int(max(1.0, (s_end - curr_time)) * 1000))
+                                                elif curr_time >= (s_end - 0.5):
+                                                    self.skipped_intervals.add(s_idx)
+                                                    if self.active_skip_prompt == s_idx:
+                                                        self.active_skip_prompt = None
+                                                elif curr_time < s_start:
+                                                    if self.active_skip_prompt == s_idx:
+                                                        self.active_skip_prompt = None
+
                                         if name == "playback-time" and current_ord < total_eps and is_binge:
                                             pt = self.props.get("playback-time")
                                             dur = self.props.get("duration")
@@ -359,8 +419,11 @@ class MpvIpc:
                                                     trigger_fetch(next_ord, "NEXT")
 
                                                 if self.prefetched_stream:
-                                                    from allmanga_cli.domain.episodes import episode_label
-                                                    ep_str = episode_label(next_label)
+                                                    from allmanga_cli.domain.episodes import episode_label, clean_episode_identifier
+                                                    raw_next = str(episode_label(next_label))
+                                                    ep_str = clean_episode_identifier(raw_next) or raw_next
+                                                    if ep_str and ep_str[0].isdigit():
+                                                        ep_str = f"EP {ep_str}"
                                                     ntitle = f"{ui_info.get('title', 'Anime')} - {ep_str}"
                                                     if rem_sec <= 30 and rem_sec > 5:
                                                         self.send_cmd("show-text", f"Next up\n{ntitle}\nStarts in 0:{int(rem_sec):02d}", 60000)
@@ -381,7 +444,19 @@ class MpvIpc:
                                 elif ev == "client-message":
                                     args = msg.get("args", [])
                                     if args:
-                                        if args[0] == "next_ep":
+                                        if args[0] in ("skip_interval", "skip_op", "skip_ed") and self.skip_intervals:
+                                            curr_time = self.props.get("playback-time", 0) or 0
+                                            for s_idx, s_item in enumerate(self.skip_intervals):
+                                                s_start = s_item["start"]
+                                                s_end = s_item["end"]
+                                                s_label = s_item.get("label", "Opening")
+                                                if s_start <= curr_time < s_end:
+                                                    self.skipped_intervals.add(s_idx)
+                                                    self.send_cmd("seek", s_end, "absolute")
+                                                    self.send_cmd("show-text", f"Skipped {s_label} ({fmt_time(s_start)} → {fmt_time(s_end)})", 3000)
+                                                    self.active_skip_prompt = None
+                                                    break
+                                        elif args[0] == "next_ep":
                                             if current_ord >= total_eps:
                                                 self.send_cmd("show-text", "This is the last episode", 3000)
                                             else:

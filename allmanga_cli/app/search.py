@@ -40,7 +40,7 @@ def _footer_parts(*parts):
 def _session_badges(flags, args, *, search_context=False):
     badges = []
     if getattr(flags, "incognito_mode", False):
-        badges.append("Incognito")
+        badges.append("\033[38;2;155;125;185mINCOGNITO\033[0m")
     if search_context and getattr(args, "sync", False) and not getattr(args, "no_sync", False):
         badges.append("Sync On")
     return badges
@@ -76,16 +76,77 @@ def handle_history_state(
         filtered_hist = app_core.filter_history_entries(hist, history_mode)
         hopts = [app_core.format_history_entry(entry) for entry in filtered_hist]
 
+    _history_open_time = time.time()
     history_refresh_status["BATCH"] = "Checking for new episodes..."
     def _batch_refresh_worker():
         try:
             if app_core.refresh_history_anilist_airing_batch(hist):
                 _rebuild_history_view()
+            for entry in hist:
+                s_obj = entry.get("show", {})
+                s_id = str(s_obj.get("_id") or "")
+                if s_id and (
+                    app_core.get_show_anilist_id(s_obj)
+                    or s_obj.get("_anilist_airing_checked_at", 0) >= _history_open_time
+                ):
+                    _refreshed_history_ids.add(s_id)
         finally:
             history_refresh_status.pop("BATCH", None)
             _picker_mod._needs_redraw = True
 
     threading.Thread(target=_batch_refresh_worker, daemon=True).start()
+
+    _hover_index = -1
+    _hover_start_time = time.time()
+    _refreshed_history_ids = set()
+    _in_flight_hover_refresh = set()
+
+    def _trigger_hover_refresh_if_needed():
+        if not (0 <= _hover_index < len(filtered_hist)):
+            return
+        entry = filtered_hist[_hover_index]
+        show = entry.get("show", {})
+        show_id = str(show.get("_id") or "")
+        if not show_id or show_id in _refreshed_history_ids or show_id in _in_flight_hover_refresh:
+            return
+
+        # AniList-backed titles are already handled by the AniList batch check
+        if app_core.get_show_anilist_id(show):
+            _refreshed_history_ids.add(show_id)
+            return
+
+        # Finished titles with known episode counts don't have new episodes to check
+        status = str(show.get("status") or "").upper()
+        if status in ("FINISHED", "COMPLETED", "ENDED") and show.get("episodeCount"):
+            _refreshed_history_ids.add(show_id)
+            return
+
+        if (
+            show.get("_episode_catalog_state") == "loaded"
+            or show.get("_anilist_airing_checked_at", 0) >= _history_open_time
+            or show.get("_allanime_checked_at", 0) >= _history_open_time
+        ):
+            _refreshed_history_ids.add(show_id)
+            return
+
+        _in_flight_hover_refresh.add(show_id)
+        history_refresh_status["SINGLE"] = "Checking for new episodes..."
+        _picker_mod._needs_redraw = True
+
+        def _worker():
+            try:
+                changed = app_core.refresh_history_entry_allanime_catalog(entry)
+                _refreshed_history_ids.add(show_id)
+                show["_episode_catalog_state"] = "loaded"
+                if changed:
+                    app_core.patch_history_entry_show(show_id, entry.get("translation_type", "sub"), show)
+                    _rebuild_history_view()
+            finally:
+                _in_flight_hover_refresh.discard(show_id)
+                history_refresh_status.pop("SINGLE", None)
+                _picker_mod._needs_redraw = True
+
+        threading.Thread(target=_worker, daemon=True).start()
 
     def _history_footer(entry, width):
         updated = app_core.format_history_updated_time(entry)
@@ -112,6 +173,11 @@ def handle_history_state(
         return ""
 
     def _hist_hdr(si):
+        nonlocal _hover_index, _hover_start_time
+        if si != _hover_index:
+            _hover_index = si
+            _hover_start_time = time.time()
+
         try:
             w = os.get_terminal_size().columns
         except OSError:
@@ -139,7 +205,7 @@ def handle_history_state(
             else {}
         )
 
-        status_msg = history_refresh_status.get("BATCH")
+        status_msg = history_refresh_status.get("BATCH") or history_refresh_status.get("SINGLE")
 
         if status_msg:
             spinner = spinner_frame(spinner_from_config(cfg))
@@ -173,6 +239,15 @@ def handle_history_state(
         mode_index = history_modes.index(history_mode)
         return _set_history_mode(mode_index + direction)
 
+    def _hist_tick():
+        now = time.time()
+        if _hover_index >= 0 and (now - _hover_start_time) >= 1.2:
+            _trigger_hover_refresh_if_needed()
+        return (
+            history_refresh_status.get("BATCH") is not None
+            or bool(_in_flight_hover_refresh)
+        )
+
     hidx = tui_pick(
         flags, ui,
         lambda: f"Watch History · {history_mode}", hopts,
@@ -192,7 +267,7 @@ def handle_history_state(
         ),
         keep_cursor_hidden_on_select=True,
         count_total=lambda: len(hist),
-        tick_fn=lambda: history_refresh_status.get("BATCH") is not None
+        tick_fn=_hist_tick
     )
     if hidx == -2:
         return "QUIT"
@@ -207,11 +282,21 @@ def handle_history_state(
         ms.show_title = get_show_display_title(show)
         ms.total_eps = show.get("availableEpisodes", {}).get(ttype_hist, 1)
         ms.current_ep = app_core.playback_ep_from_history_entry(h, ttype_hist)
-        # Force fetching fresh episodes from provider when opened from history
-        show.pop("_episode_catalog_state", None)
-        episode_ids = app_core.load_episode_ids_for_selection(show, ttype_hist)
+
+        # Only fetch fresh if catalog is not already loaded/refreshed in this instance
+        is_fresh = (
+            show.get("_episode_catalog_state") == "loaded"
+            or str(show.get("_id") or "") in _refreshed_history_ids
+            or show.get("_anilist_airing_checked_at", 0) >= _history_open_time
+            or show.get("_allanime_checked_at", 0) >= _history_open_time
+        )
+        if not is_fresh:
+            episode_ids = app_core.load_episode_ids_for_selection(show, ttype_hist)
+        else:
+            episode_ids = app_core.ensure_episode_ids(show, ttype_hist)
+
         ms.total_eps = len(episode_ids) or ms.total_eps
-        ms.current_ep_index = episode_index_for_id(episode_ids, ms.current_ep)
+        ms.current_ep_index = episode_index_for_id(episode_ids, ms.current_ep, labels=show.get("_episode_labels"))
         if episode_ids and ms.current_ep_index is not None:
             ms.current_ep = episode_id_at(episode_ids, ms.current_ep_index)
         elif episode_ids:
@@ -244,17 +329,41 @@ def handle_search_state(
     app_core._clear_poster_downloads()
     provider_id = app_core.provider_key(getattr(args, "provider", "allanime"))
     provider_name = app_core.provider_display_name(provider_id)
+    
+    # Determine category: Anime, Donghua, Movies/Shows
+    category = "Anime"
+    try:
+        from ..providers import get_provider_registry
+        registry = get_provider_registry()
+        meta = registry.get(provider_id, {})
+        ptype = (meta.get("type") or "").lower()
+        if ptype == "donghua":
+            category = "Donghua"
+        elif ptype in ("movie", "movies"):
+            category = "Movies/Shows"
+    except Exception:
+        category = "Anime"
+
+    search_title = f"Search {category}"
 
     def _search_input_header(provider_name, esc_action="quit"):
         def _hdr(si):
             C_K = "\033[38;5;244m"
             R = "\033[0m"
             parts = [""]
-            parts.append(f"{C_K}Use Up/Down to browse previous searches.{R}")
+            if flags.incognito_mode:
+                parts.append(f"{C_K}Search & watch history is paused.{R}")
+            else:
+                parts.append(f"{C_K}Use Up/Down to browse previous searches.{R}")
+            if provider_name:
+                parts.append(f"{C_K}Provider: {provider_name}{R}")
+            nav = f"Enter=search  ? = Help  Esc={esc_action}"
+            if flags.incognito_mode:
+                nav = f"\033[38;2;155;125;185mINCOGNITO\033[0m | {nav}"
             if ui.search_error:
                 parts.append(f"{C_K}{ui.search_error}  │  Esc={esc_action}{R}")
             else:
-                parts.append(f"{C_K}Enter=search  ? = Help  Esc={esc_action}{R}")
+                parts.append(f"{C_K}{nav}{R}")
             return "\n".join(parts)
         return _hdr
 
@@ -287,7 +396,12 @@ def handle_search_state(
             if loading_msg:
                 selected_show = {}
                 parts.append("")
-                parts.append(f"{C_K}Use Up/Down to browse previous searches.{R}")
+                if flags.incognito_mode:
+                    parts.append(f"{C_K}Search & watch history is paused.{R}")
+                else:
+                    parts.append(f"{C_K}Use Up/Down to browse previous searches.{R}")
+                if provider_name:
+                    parts.append(f"{C_K}Provider: {provider_name}{R}")
             elif shows and 0 <= si < len(shows):
                 selected_show = shows[si]
                 app_core.build_info_panel(selected_show, ttype_local, w, parts, main_title=selected_show.get('name'))
@@ -302,7 +416,8 @@ def handle_search_state(
                 parts.append(loading_msg)
             elif shows:
                 footer = _footer_parts(
-                    f'{len(shows)} result(s) for "{safe_query}" | {provider_name}',
+                    f'"{safe_query}"',
+                    provider_name,
                     *_session_badges(flags, args, search_context=True),
                     "Enter=select",
                     "?=Help",
@@ -322,12 +437,14 @@ def handle_search_state(
     # Step 1: Input Page
     if not ms.query_str:
         hd1 = search_input_help("Quit")
+        q_history = [] if flags.incognito_mode else app_core.load_search_history()
         res = tui_pick(
             flags, ui,
-            "Search Anime", [],
+            search_title, [],
             header_fn=_search_input_header(provider_name),
             return_query_on_enter=True,
-            query_history=app_core.load_search_history(),
+            query_history=q_history,
+            delete_fn=app_core.delete_search_history_entry if not flags.incognito_mode else None,
             is_search=True,
             help_dict=hd1
         )
@@ -338,7 +455,11 @@ def handle_search_state(
             return "SEARCH"
         ms.query_str = str(res).strip()
         ms.just_searched = True
-        app_core.save_search_history(ms.query_str)
+        if not flags.incognito_mode and ms.query_str:
+            app_core.save_search_history(ms.query_str)
+    else:
+        if not flags.incognito_mode and ms.query_str:
+            app_core.save_search_history(ms.query_str)
 
     if not ms.query_str:
         app_core.err("Search query cannot be empty.")
@@ -366,10 +487,11 @@ def handle_search_state(
         hd2 = picker_help("Select anime", "New search", "Quit")
         idx = tui_pick(
             flags, ui,
-            "Search Anime", initial_opts,
+            search_title, initial_opts,
             header_fn=_search_result_header(provider_name, ms.query_str, ttype, get_results, get_loading, get_error_fn=get_error),
             top_header_fn=_search_cover_header(get_results),
             live_fn=live_fn,
+            initial_query=ms.query_str,
             is_search=False,
             help_dict=hd2,
             auto_select_single_when_done=ms.just_searched,
@@ -470,17 +592,5 @@ def handle_search_state(
 
         if requested_episode_missing:
             return "EPISODE"
-            
-        if getattr(flags, "incognito_mode", False):
-            return "EPISODE"
-            
-        has_progress = False
-        if sync_enabled and (s.get("_anilist_list") or s.get("_anilist_progress")):
-            has_progress = True
-        elif (app_core.get_local_progress(s, ttype) or 0) > 0:
-            has_progress = True
-            
-        if has_progress:
-            return "DETAILS"
-            
-        return "EPISODE"
+
+        return "DETAILS"

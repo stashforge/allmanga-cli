@@ -315,10 +315,12 @@ def render(
 
     # Target episode: e.g. "EP 1" or "EP 1/12"
     target_ep = s.get("current_ep_label") or str(s.get("current_ep", "") or "")
+    from ..domain.episodes import clean_episode_identifier
+    clean_target_ep = clean_episode_identifier(target_ep) if target_ep else ""
     total = _positive_int(show.get("episodeCount")) if isinstance(show, dict) else None
 
-    if target_ep:
-        target_ep_str = f"EP {target_ep}/{total}" if total else f"EP {target_ep}"
+    if clean_target_ep:
+        target_ep_str = f"EP {clean_target_ep}/{total}" if total else f"EP {clean_target_ep}"
     else:
         target_ep_str = f"EP {total}" if total else ""
 
@@ -378,8 +380,8 @@ def render(
     try:
         from ..core.storage import is_incognito as is_incognito_fn  # lazy import to avoid circular
         if is_incognito_fn():
-            content.append("\033[1;33mINCOGNITO\033[0m")
             content.append("")
+            content.append("\033[38;2;155;125;185mINCOGNITO\033[0m")
     except Exception:
         pass
 

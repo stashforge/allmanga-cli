@@ -19,7 +19,10 @@ def play_desktop(
         show_id=None,
         osd_msg="",
         episode_index=0,
-        next_episode=None):
+        next_episode=None,
+        mal_id=None,
+        aniskip_enabled=True,
+        aniskip_auto=True):
     url = validate_stream_url(stream["link"])
     audio_url = (
         validate_stream_url(stream["audio_url"])
@@ -34,8 +37,9 @@ def play_desktop(
     referer = validate_optional_referer(stream.get("referer", ""))
     headers = proxy_filtered_headers(stream.get("headers", {}))
     resolution = stream.get("resolution", "Adaptive")
-    from allmanga_cli.domain.episodes import episode_label
-    ep_str = str(episode_label(episode)).strip()
+    from allmanga_cli.domain.episodes import episode_label, clean_episode_identifier, episode_progress_number
+    raw_ep = str(episode_label(episode)).strip()
+    ep_str = clean_episode_identifier(raw_ep) or raw_ep
     
     if ep_str.lower() in ("movie", "full"):
         media_title = f"{title} ({resolution})"
@@ -58,6 +62,16 @@ def play_desktop(
     osd_msg = (
         f"{osd_msg}\n{resume_message}" if osd_msg else resume_message
     )
+
+    skip_intervals = []
+    if aniskip_enabled and mal_id:
+        try:
+            from ..media.aniskip import fetch_skip_times
+            ep_num = episode_progress_number(episode)
+            skip_intervals = fetch_skip_times(mal_id, ep_num)
+        except Exception:
+            skip_intervals = []
+
     ipc_player.load(
         url,
         media_title,
@@ -67,6 +81,8 @@ def play_desktop(
         osd_msg,
         audio_url,
         subtitle_url,
+        skip_intervals=skip_intervals,
+        aniskip_auto=aniskip_auto,
     )
 
     mirror_name = stream.get("source_name", "Unknown")

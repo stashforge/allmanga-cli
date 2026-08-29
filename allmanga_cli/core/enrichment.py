@@ -18,8 +18,15 @@ def _merge_anilist_into_provider(provider_show, anilist_show):
     provider_show["_anilist_score"] = anilist_show.get("_anilist_score")
 
     match_source = provider_show.get("_match_source") or "fuzzy"
-    provider_show["anilistMatch"] = {"id": anilist_show.get("_id"), "source": match_source}
-    provider_show["aniListId"] = str(anilist_show.get("_id") or "")
+    provider_show["anilistMatch"] = {
+        "id": anilist_show.get("_id"),
+        "idMal": anilist_show.get("malId"),
+        "source": match_source,
+    }
+    if anilist_show.get("_id"):
+        provider_show["aniListId"] = str(anilist_show.get("_id"))
+    if anilist_show.get("malId"):
+        provider_show["malId"] = int(anilist_show["malId"])
 
     if anilist_show.get("_next_airing_ep"):
         provider_show["_next_airing_ep"] = anilist_show["_next_airing_ep"]

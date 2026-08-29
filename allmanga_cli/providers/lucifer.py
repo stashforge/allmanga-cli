@@ -15,7 +15,7 @@ class LuciferDonghuaProvider(AnimeXinProvider):
 
     @property
     def name(self) -> str:
-        return self.metadata.get("name", "LuciferDonghua")
+        return getattr(self, 'metadata', {}).get("name", "LuciferDonghua")
 
 
 PROVIDER_CLASS = LuciferDonghuaProvider

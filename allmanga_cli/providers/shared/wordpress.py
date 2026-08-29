@@ -123,6 +123,26 @@ def parse_series(base_url: str, page_html: str, valid_domains: list[str] = None)
     section = soup.select_one("div.eplister, div.episodelist") or soup
     items: list[Entry] = []
     seen: set[str] = set()
+
+    # Detect the latest released episode number from div.lastend (e.g. "New Episode: Episode 22")
+    last_end_node = (
+        soup.select_one("div.lastend span.epcurlast")
+        or soup.select_one("div.lastend .inepcx:last-child a")
+        or soup.select_one("div.lastend .inepcx:last-child span.epcur")
+        or soup.select_one("div.lastend a[href]:not([href='#'])")
+    )
+    latest_released_num = None
+    if last_end_node:
+        a_tag = last_end_node if last_end_node.name == "a" else (last_end_node.find_parent("a") or last_end_node.find("a"))
+        href_last = a_tag.get("href", "") if a_tag else ""
+        txt_last = last_end_node.get_text(" ", strip=True)
+        from allmanga_cli.domain.episodes import clean_episode_identifier
+        num_str = clean_episode_identifier(href_last) or clean_episode_identifier(txt_last)
+        try:
+            latest_released_num = float(num_str)
+        except (ValueError, TypeError):
+            pass
+
     for item in section.select("li"):
         link = item.select_one("a[href]")
         if not link:
@@ -137,12 +157,23 @@ def parse_series(base_url: str, page_html: str, valid_domains: list[str] = None)
             if title_node else link.get_text(" ", strip=True)
         )
         meta = clean_text(label_node.get_text(" ", strip=True) if label_node else "")
-        
+
+        from allmanga_cli.domain.episodes import clean_episode_identifier
+        ep_num_str = clean_episode_identifier(href) or clean_episode_identifier(meta) or clean_episode_identifier(title)
+        try:
+            ep_num = float(ep_num_str)
+        except (ValueError, TypeError):
+            ep_num = None
+
+        if latest_released_num is not None and ep_num is not None and ep_num > latest_released_num:
+            # Skip unreleased upcoming countdown episode
+            continue
+
         img = item.select_one("img")
         image_url = ""
         if img:
             image_url = img.get("data-src") or img.get("data-lazy-src") or img.get("src") or ""
-            
+
         if title:
             seen.add(href)
             items.append(Entry(title=title, url=href, meta=meta, image=image_url))
@@ -214,9 +245,26 @@ def extract_embed_url(base_url: str, page_html: str) -> str:
     if meta:
         return normalize_embed_url(normalize_url(base_url, html.unescape(meta.get("content", ""))))
 
-    frame = soup.select_one("div.player-embed iframe[src], div.megavid iframe[src], iframe[src]")
-    if frame:
-        return normalize_embed_url(normalize_url(base_url, html.unescape(frame.get("src", ""))))
+    AD_DOMAINS = ("t.co", "twitter.com", "blogspot.com", "blogger.com", "google.com", "disqus.com", "facebook.com", "histats.com", "ads")
+    KNOWN_VIDEO = ("dailymotion.com", "ok.ru", "rumble.com", "vidhide", "streamtape", "mp4upload", "dood", "filelions", "megavid", "luluvdo", "yurn", "player", "embed")
+
+    frames = soup.select("div.player-embed iframe[src], div.megavid iframe[src], div.video-content iframe[src], iframe[src]")
+    selected_src = None
+    for frame in frames:
+        src = frame.get("src", "").strip()
+        if not src:
+            continue
+        lower_src = src.lower()
+        if any(ad in lower_src for ad in AD_DOMAINS):
+            continue
+        if any(v in lower_src for v in KNOWN_VIDEO):
+            selected_src = src
+            break
+        if not selected_src:
+            selected_src = src
+
+    if selected_src:
+        return normalize_embed_url(normalize_url(base_url, html.unescape(selected_src)))
 
     script = soup.select_one("div.player-embed script[src], div.megavid script[src]")
     if script and "dailymotion.com" in script.get("src", ""):
@@ -393,16 +441,82 @@ class WordPressAnimeProvider:
                                     title["availableEpisodes"] = {"sub": 0, "dub": 0, "raw": 0}
                                 if ep_count > title["availableEpisodes"].get("sub", 0):
                                     title["availableEpisodes"]["sub"] = ep_count
+                                title["episodeCount"] = ep_count
 
-                last_ep_span = soup.find("span", class_="epcurlast")
-                if last_ep_span:
-                    nums = re.findall(r"\d+", last_ep_span.get_text(strip=True))
-                    if nums:
-                        latest_ep = int(nums[-1])
+                # 1. Detect latest released episode from div.lastend
+                last_end_node = (
+                    soup.select_one("div.lastend span.epcurlast")
+                    or soup.select_one("div.lastend .inepcx:last-child a")
+                    or soup.select_one("div.lastend .inepcx:last-child span.epcur")
+                    or soup.select_one("div.lastend a[href]:not([href='#'])")
+                )
+                latest_released_num = None
+                if last_end_node:
+                    a_tag = last_end_node if last_end_node.name == "a" else (last_end_node.find_parent("a") or last_end_node.find("a"))
+                    href_last = a_tag.get("href", "") if a_tag else ""
+                    txt_last = last_end_node.get_text(" ", strip=True)
+                    from allmanga_cli.domain.episodes import clean_episode_identifier
+                    num_str = clean_episode_identifier(href_last) or clean_episode_identifier(txt_last)
+                    try:
+                        latest_released_num = float(num_str)
                         if not title.get("availableEpisodes"):
                             title["availableEpisodes"] = {"sub": 0, "dub": 0, "raw": 0}
-                        if latest_ep > title["availableEpisodes"].get("sub", 0):
-                            title["availableEpisodes"]["sub"] = latest_ep
+                        title["availableEpisodes"]["sub"] = int(latest_released_num)
+                    except (ValueError, TypeError):
+                        pass
+
+                # Reconcile episodeCount with latest released count
+                declared_count = title.get("episodeCount")
+                if title.get("status") == "FINISHED" and latest_released_num:
+                    title["episodeCount"] = int(latest_released_num)
+                elif declared_count and latest_released_num:
+                    if declared_count < latest_released_num:
+                        # Stale / merged seasons count
+                        title["episodeCount"] = int(latest_released_num)
+
+                # 2. Check for upcoming unreleased countdown episode
+                unreleased_ep = None
+                unreleased_url = None
+                for li in soup.select("div.eplister li, div.episodelist li"):
+                    a_li = li.find("a")
+                    if not a_li:
+                        continue
+                    h_url = normalize_url(self.base_url, a_li.get("href", ""))
+                    num_tag = li.select_one(".epl-num, span")
+                    n_txt = num_tag.get_text(" ", strip=True) if num_tag else ""
+                    from allmanga_cli.domain.episodes import clean_episode_identifier
+                    cur_num_str = clean_episode_identifier(h_url) or clean_episode_identifier(n_txt)
+                    try:
+                        cur_num = float(cur_num_str)
+                    except (ValueError, TypeError):
+                        cur_num = None
+
+                    if latest_released_num is not None and cur_num is not None and cur_num > latest_released_num:
+                        unreleased_ep = cur_num
+                        unreleased_url = h_url
+                        break
+
+                if unreleased_ep is not None:
+                    title["_next_airing_ep"] = int(unreleased_ep)
+                    title["status"] = "RELEASING"
+                    if unreleased_url:
+                        try:
+                            ep_page_html = self._fetch(unreleased_url)
+                            ep_soup = BeautifulSoup(ep_page_html, "html.parser")
+                            tick = ep_soup.select_one("a.tickcounter[data-id], .tickcounter[data-id]")
+                            if tick and tick.get("data-id"):
+                                data_id = tick.get("data-id")
+                                w_url = f"https://www.tickcounter.com/widget/countdown/{data_id}"
+                                w_html = self._fetch(w_url)
+                                m_cd = re.search(r'window\.countdown\(\s*["\']([^"\']+)["\']', w_html)
+                                if m_cd:
+                                    from datetime import datetime, timezone
+                                    dt = datetime.fromisoformat(m_cd.group(1))
+                                    target_ts = int(dt.replace(tzinfo=timezone.utc).timestamp())
+                                    title["_next_airing_at"] = target_ts
+                                    title["_next_airing_time"] = target_ts
+                        except Exception:
+                            pass
         except Exception:
             pass
 

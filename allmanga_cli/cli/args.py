@@ -224,6 +224,10 @@ def _add_search_options(parser):
         help="Choose a mirror before playback",
     )
     playback.add_argument("--print-url", action="store_true", help="Print selected stream URL")
+    playback.add_argument("--aniskip", dest="aniskip", action="store_true", default=None, help="Enable AniSkip")
+    playback.add_argument("--no-aniskip", dest="aniskip", action="store_false", help="Disable AniSkip")
+    playback.add_argument("--auto-skip", dest="auto_skip", action="store_true", default=None, help="Auto-skip OP/ED")
+    playback.add_argument("--no-auto-skip", dest="auto_skip", action="store_false", help="Prompt before skipping OP/ED")
 
     tracking = parser.add_argument_group("Tracking options")
     tracking.add_argument(
@@ -238,6 +242,8 @@ def _add_search_options(parser):
     output = parser.add_argument_group("Output options")
     output.add_argument("--cover", action="store_true", help="Show cover images")
     output.add_argument("--json", action="store_true", help="Print search results as JSON")
+    output.add_argument("--history", dest="show_search_history", action="store_true", help="Print search history and exit")
+    output.add_argument("--clear-history", dest="clear_search_history", action="store_true", help="Clear search history and exit")
     if not getattr(parser, "_is_provider_parser", False):
         _add_provider_option(output)
     else:
@@ -318,6 +324,10 @@ def _add_resume_options(parser):
         help="Choose a mirror before playback",
     )
     playback.add_argument("--print-url", action="store_true", help="Print selected stream URL")
+    playback.add_argument("--aniskip", dest="aniskip", action="store_true", default=None, help="Enable AniSkip")
+    playback.add_argument("--no-aniskip", dest="aniskip", action="store_false", help="Disable AniSkip")
+    playback.add_argument("--auto-skip", dest="auto_skip", action="store_true", default=None, help="Auto-skip OP/ED")
+    playback.add_argument("--no-auto-skip", dest="auto_skip", action="store_false", help="Prompt before skipping OP/ED")
 
     tracking = parser.add_argument_group("Tracking options")
     tracking.add_argument(

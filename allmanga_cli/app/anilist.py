@@ -515,7 +515,7 @@ def handle_anilist_search_state(
             R = "\033[0m"
             parts = [""]
             parts.append(f"{C_K}Use Up/Down to browse previous searches.{R}")
-            parts.append(f"\033[38;5;250mSource: \033[1;97m{provider_name}\033[0m")
+            parts.append(f"{C_K}Provider: {provider_name}{R}")
             if ui.search_error:
                 parts.append(f"{C_K}{ui.search_error}  │  Esc={esc_action}{R}")
             else:
@@ -553,7 +553,7 @@ def handle_anilist_search_state(
                 selected_show = {}
                 parts.append("")
                 parts.append(f"{C_K}Use Up/Down to browse previous searches.{R}")
-                parts.append(f"\033[38;5;250mSource: \033[1;97m{provider_name}\033[0m")
+                parts.append(f"\033[38;5;250mProvider: \033[1;97m{provider_name}\033[0m")
             elif shows and 0 <= si < len(shows):
                 selected_show = shows[si]
                 app_core.build_info_panel(selected_show, ttype_local, w, parts)
@@ -564,7 +564,7 @@ def handle_anilist_search_state(
                     parts.append(f"{C_K}No match: {_truncate_display(filter_query, max(1, w - 11))}{R}")
                 else:
                     parts.append("")
-                parts.append(f"\033[38;5;250mSource: \033[1;97m{provider_name}\033[0m")
+                parts.append(f"\033[38;5;250mProvider: \033[1;97m{provider_name}\033[0m")
             if loading_msg:
                 parts.append(loading_msg)
             elif shows:
@@ -645,6 +645,7 @@ def handle_anilist_search_state(
             ),
             top_header_fn=_search_cover_header(get_results),
             live_fn=live_fn,
+            initial_query=ms.query_str,
             is_search=False,
             help_dict=hd4,
             auto_select_single_when_done=ms.just_searched,

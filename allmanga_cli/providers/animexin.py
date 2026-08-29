@@ -95,6 +95,9 @@ class AnimeXinProvider(WordPressAnimeProvider):
         sub_type = str(item.get("post_sub") or "sub").strip().casefold()
         latest = str(item.get("post_latest") or "").strip()
         available = _latest_episode_count(latest)
+        import re
+        is_ended = bool(re.search(r"\b\[?END\]?\b", latest, re.I))
+        status = "FINISHED" if is_ended else None
         ttype = "dub" if sub_type == "dub" else "sub"
         return build_title(
             provider=self.id,
@@ -103,8 +106,9 @@ class AnimeXinProvider(WordPressAnimeProvider):
             name=title,
             thumbnail=(item.get("post_image") or "").split("?resize=")[0],
             media_type=str(item.get("post_type") or "ONA").strip() or "ONA",
-            status="RELEASING",
-            episode_count=None,
+            media_format=str(item.get("post_type") or "ONA").strip() or "ONA",
+            status=status,
+            episode_count=available if is_ended else None,
             available_sub=available if ttype == "sub" else 0,
             available_dub=available if ttype == "dub" else 0,
             genres=item.get("post_genres") or "",

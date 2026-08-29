@@ -1,6 +1,7 @@
 """Episode catalog normalization and index helpers."""
 
 import decimal
+import re
 
 
 def normalize_episode_ids(values):
@@ -60,11 +61,63 @@ def episode_id_at(episode_ids, index):
     return episode_ids[bounded_index]
 
 
+def clean_episode_identifier(raw: str) -> str:
+    """Extract a clean episode number, special type, or short label from an identifier, URL, path, or slug."""
+    s = str(raw or "").strip()
+    if not s:
+        return ""
+
+    # 1. Clean number or standard short label like "Episode 1", "EP 1", "1"
+    m_std = re.match(r"^(?:(?:ep|episode|part)\s*)?([0-9]+(?:\.[0-9]+)?)$", s, re.I)
+    if m_std:
+        return m_std.group(1).lstrip("0") or "0"
+
+    m_spec_std = re.match(r"^(?:(ova|movie|special)\s*)([0-9]+(?:\.[0-9]+)?)?$", s, re.I)
+    if m_spec_std:
+        kind = m_spec_std.group(1).upper()
+        num = m_spec_std.group(2)
+        return f"{kind} {num}".strip() if num else kind
+
+    # 2. Query parameter like ?ep=5, ?episode=5, ?num=5, ?id=5
+    m_query = re.search(r"[?&](?:ep|episode|num|ep_num|episode_num|id)=([0-9]+(?:\.[0-9]+)?)(?:&|$)", s, re.I)
+    if m_query:
+        return m_query.group(1).lstrip("0") or "0"
+
+    # Strip query parameters, html/php/asp extensions, and trailing slashes
+    path = s.split("?")[0].rstrip("/")
+    if path.endswith((".html", ".htm", ".php", ".asp", ".aspx")):
+        path = path.rsplit(".", 1)[0]
+
+    # Extract slug from path
+    slug = path.split("/")[-1] if "/" in path else path
+
+    # 3. Explicit episode patterns like episode-5, ep-5, ep_5, ep.5, ep05
+    m = re.search(r"(?:^|[-_.])(?:episode|ep)[-_. ]?([0-9]+(?:\.[0-9]+)?)(?:[-_. ]|$)", slug, re.I)
+    if m:
+        return m.group(1).lstrip("0") or "0"
+
+    # 4. Special types (OVA / Movie / Special)
+    m_spec = re.search(r"(?:^|[-_.])(ova|movie|special)[-_. ]?([0-9]+(?:\.[0-9]+)?)?", slug, re.I)
+    if m_spec:
+        kind = m_spec.group(1).upper()
+        num = m_spec.group(2)
+        return f"{kind} {num}".strip() if num else kind
+
+    # 5. Trailing numbers like -05, -5-sub, _05_dub, etc.
+    m_num = re.search(r"[-_.]([0-9]+(?:\.[0-9]+)?)(?:[-_.](?:sub|dub|raw|eng|v\d+|end))?$", slug, re.I)
+    if m_num:
+        return m_num.group(1).lstrip("0") or "0"
+
+    return slug
+
+
 def episode_label(episode_id, labels=None):
     label = ""
     if labels:
         label = str(labels.get(str(episode_id)) or "").strip()
-    label = label or str(episode_id)
+    if not label:
+        label = clean_episode_identifier(str(episode_id or ""))
+    label = label or str(episode_id or "")
     lowered = label.casefold()
     if lowered.startswith(("episode ", "ep ", "part ", "ova", "movie", "special")):
         return label
@@ -72,16 +125,26 @@ def episode_label(episode_id, labels=None):
 
 
 def episode_progress_number(episode_id, fallback=0):
+    if not episode_id:
+        return fallback
+    clean = clean_episode_identifier(str(episode_id))
+    try:
+        value = decimal.Decimal(clean)
+        return max(0, int(value))
+    except (decimal.InvalidOperation, ValueError):
+        pass
+    m = re.search(r"([0-9]+(?:\.[0-9]+)?)", str(episode_id))
+    if m:
+        try:
+            return max(0, int(decimal.Decimal(m.group(1))))
+        except (decimal.InvalidOperation, ValueError):
+            pass
     if fallback:
         try:
             return max(0, int(fallback))
         except (TypeError, ValueError):
             pass
-    try:
-        value = decimal.Decimal(str(episode_id))
-        return max(0, int(value))
-    except decimal.InvalidOperation:
-        return fallback
+    return fallback
 
 def highest_episode_number(episode_ids):
     if not episode_ids:

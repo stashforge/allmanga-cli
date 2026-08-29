@@ -24,6 +24,27 @@ _TITLE_SCHEMA_KEYS = {
 }
 
 
+def _find_field(d: dict, *canonical_targets: str) -> Any:
+    """Case-insensitive and separator-agnostic field extractor."""
+    if not isinstance(d, dict):
+        return None
+    for target in canonical_targets:
+        if target in d and d[target] is not None:
+            return d[target]
+
+    import re
+    norm_map = {
+        re.sub(r"[^a-z0-9]", "", str(k).casefold()): v
+        for k, v in d.items()
+        if v is not None
+    }
+    for target in canonical_targets:
+        clean_target = re.sub(r"[^a-z0-9]", "", str(target).casefold())
+        if clean_target in norm_map:
+            return norm_map[clean_target]
+    return None
+
+
 def normalize_title(
     title: dict[str, Any] | None,
     *,
@@ -67,8 +88,8 @@ def normalize_title(
         score=title.get("score"),
         genres=title.get("genres") or [],
         tags=title.get("tags") or [],
-        anilist_id=title.get("aniListId"),
-        mal_id=title.get("malId"),
+        anilist_id=_find_field(title, "aniListId", "anilist_id", "anilist"),
+        mal_id=_find_field(title, "malId", "idMal", "myanimelist_id", "mal"),
         extra=extra,
     )
 

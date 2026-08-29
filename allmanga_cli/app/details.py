@@ -46,12 +46,13 @@ def handle_details_state(
         if s.get("_id") and ui.search_prev_state in (
             "HISTORY", "SEARCH", "ANILIST_SEARCH", "ANILIST_BROWSE", "ANILIST_AIRING"
         ):
-            entry = {"show": s, "translation_type": ttype_local}
-            app_core.with_loading(
-                "Fetching episode catalog...",
-                app_core.refresh_history_entry_allanime_catalog,
-                entry
-            )
+            if s.get("_episode_catalog_state") != "loaded":
+                entry = {"show": s, "translation_type": ttype_local}
+                app_core.with_loading(
+                    "Fetching episode catalog...",
+                    app_core.refresh_history_entry_allanime_catalog,
+                    entry
+                )
         ms.just_picked_anime = False
 
     episode_ids = app_core.ensure_episode_ids(s, ttype_local)
@@ -195,16 +196,22 @@ def handle_details_state(
 
     if episode_ids and (playback_status == "COMPLETED" or (total and current_num >= total)):
         opts.append("Start Rewatch")
+        if len(episode_ids) > 1 and isDesktop:
+            opts.append("Binge from Start")
     elif episode_ids and prog == 0:
         opts.append("Play")
-        if len(episode_ids) > 1 and isDesktop: opts.append("Binge")
+        if len(episode_ids) > 1 and isDesktop:
+            opts.append("Binge")
     elif episode_ids and detail_next_ep is not None:
         opts.append("Play Next")
-        if _current_idx is not None and _current_idx + 2 < len(episode_ids) and isDesktop:
+        if isDesktop:
             opts.append("Binge")
-    elif (episode_ids and detail_next_ep is None and current_ep_label == str(episode_ids[-1])
-            and api_status == "RELEASING"):
-        pass
+            if len(episode_ids) > 1:
+                opts.append("Binge from Start")
+    elif episode_ids and detail_next_ep is None and (current_ep_label == str(episode_ids[-1]) or (prog > 0 and prog >= len(episode_ids))):
+        opts.append("Replay Latest")
+        if len(episode_ids) > 1 and isDesktop:
+            opts.append("Binge from Start")
 
     if episode_ids:
         opts.append("Episodes")
@@ -217,8 +224,8 @@ def handle_details_state(
         elif show_link_action and s.get("_id") and not has_anilist_link:
             opts.append("Link AniList")
 
+    opts.append("Progress")
     if show_anilist_actions:
-        opts.append("Progress")
         opts.extend(["Status", "Rate"])
 
     opts.extend(["Back", "Quit"])
@@ -237,24 +244,27 @@ def handle_details_state(
     def clean_ep_label(ep_id, fallback_idx=None):
         if not ep_id: return ""
         labels = s.get("_episode_labels", {})
+        from allmanga_cli.domain.episodes import clean_episode_identifier
         if str(ep_id) in labels:
-            return labels[str(ep_id)]
-        try:
-            decimal.Decimal(str(ep_id))
-            return str(ep_id)
-        except decimal.InvalidOperation:
-            if fallback_idx is not None:
-                return str(fallback_idx + 1)
-            return str(ep_id)
+            return clean_episode_identifier(labels[str(ep_id)]) or clean_episode_identifier(str(ep_id)) or str(ep_id)
+        cleaned = clean_episode_identifier(str(ep_id))
+        if cleaned:
+            return cleaned
+        if fallback_idx is not None:
+            return str(fallback_idx + 1)
+        return str(ep_id)
 
     play_label = clean_ep_label(detail_play_ep, 0)
     next_label = clean_ep_label(detail_next_ep, (_current_idx + 1) if _current_idx is not None else None)
+    replay_label = clean_ep_label(current_ep_label, len(episode_ids) - 1) if current_ep_label else (clean_ep_label(episode_ids[-1]) if episode_ids else "1")
     binge_label = next_label if 'Play Next' in opts else play_label
 
     hints = {
         "Play": f"EP {play_label}",
         "Play Next": f"EP {next_label} \u2022 {gap_str}" if gap_str else f"EP {next_label}",
+        "Replay Latest": f"EP {replay_label}",
         "Binge": f"from EP {binge_label}",
+        "Binge from Start": f"from EP {play_label}",
         "Start Rewatch": f"replay from EP {play_label}",
         "Episodes": "browse all",
         "Change AllAnime Match": "link a different streaming title",
@@ -335,8 +345,8 @@ def handle_details_state(
 
     if idx >= 0:
         opt = opts[idx]
-        if opt == "Play" or opt == "Play Next" or opt == "Start Rewatch" or opt == "Binge":
-            if opt == "Binge":
+        if opt in ("Play", "Play Next", "Start Rewatch", "Replay Latest", "Binge", "Binge from Start"):
+            if opt in ("Binge", "Binge from Start"):
                 args.binge = True
             else:
                 args.binge = False
@@ -347,6 +357,9 @@ def handle_details_state(
                     ms.current_ep_index = _current_idx + 1
                 else:
                     ms.current_ep_index = min(max(int(prog), 0), max(0, ms.total_eps - 1))
+                ms.current_ep = episode_id_at(episode_ids, ms.current_ep_index)
+            elif opt == "Replay Latest":
+                ms.current_ep_index = max(0, len(episode_ids) - 1)
                 ms.current_ep = episode_id_at(episode_ids, ms.current_ep_index)
             elif opt == "Start Rewatch":
                 if use_anilist:
@@ -361,23 +374,22 @@ def handle_details_state(
                 else:
                     app_core.write_history_progress(s, 0, ttype_local, touch=False)
                 ms.current_ep_index = 0
+                ms.current_ep = episode_id_at(episode_ids, 0)
+            elif opt in ("Play", "Binge from Start"):
+                ms.current_ep_index = 0
+                ms.current_ep = episode_id_at(episode_ids, 0)
+            elif opt == "Binge":
+                if detail_next_ep is not None and _current_idx is not None and _current_idx + 1 < len(episode_ids):
+                    ms.current_ep_index = _current_idx + 1
+                else:
+                    ms.current_ep_index = 0
                 ms.current_ep = episode_id_at(episode_ids, ms.current_ep_index)
             else:
-                if use_anilist:
-                    ms.current_ep_index = 0
-                    ms.current_ep = episode_id_at(episode_ids, ms.current_ep_index)
-                else:
-                    h = app_core.get_history_entry(s, ttype_local)
-                    if h:
-                        ms.current_ep = app_core.playback_ep_from_history_entry(h, ttype_local)
-                    else:
-                        ms.current_ep = episode_id_at(episode_ids, 0)
-                    ms.current_ep_index = episode_index_for_id(
-                        episode_ids, ms.current_ep, labels=ui.ui_show_ctx.get("_episode_labels")
-                    )
-                    if ms.current_ep_index is None:
-                        ms.current_ep_index = 0
-                    ms.current_ep = episode_id_at(episode_ids, ms.current_ep_index)
+                ms.current_ep_index = 0
+                ms.current_ep = episode_id_at(episode_ids, 0)
+
+            ms.selected_stream = None
+            app_core._clear_streams()
             return "PLAY"
 
 
@@ -455,10 +467,11 @@ def handle_update_progress_state(
     ttype_local = ui.ui_ttype_ctx
     episode_ids = app_core.ensure_episode_ids(s, ttype_local)
 
+    local_p = app_core.get_local_progress(s, ttype_local)
     try:
-        prog = int(s.get("_anilist_progress") or 0)
+        prog = int(s.get("_anilist_progress") or local_p or 0)
     except ValueError:
-        prog = 0
+        prog = int(local_p or 0)
 
     released = s.get("availableEpisodes", {}).get(ttype_local, 0)
     try:
@@ -494,6 +507,10 @@ def handle_update_progress_state(
             return f"\033[38;5;244m{label}\033[0m"
         return label
 
+    al_id = app_core.get_show_anilist_id(s)
+    has_token = bool(cfg.get("anilist_token")) and not flags.incognito_mode
+    sync_active = bool(al_id and has_token)
+
     progress_opts = [_progress_label(p) for p in progress_order]
     progress_hints = {}
     for p in progress_order:
@@ -503,7 +520,7 @@ def handle_update_progress_state(
         elif p < prog:
             progress_hints[key] = "lower progress"
         else:
-            progress_hints[key] = "sync to AniList"
+            progress_hints[key] = "sync to AniList" if sync_active else "mark watched"
 
     def _progress_tab_fn(opt=None):
         nonlocal progress_order, progress_opts
@@ -518,9 +535,10 @@ def handle_update_progress_state(
         "Flip order",
         reverse_label="Flip order",
     )
+    picker_title = "Set AniList Progress" if sync_active else "Set Watch Progress"
     idx = tui_pick(
         flags, ui,
-        "Set AniList Progress", progress_opts,
+        picker_title, progress_opts,
         header_fn=_progress_hdr,
         hints=progress_hints,
         tab_fn=_progress_tab_fn,
@@ -530,24 +548,35 @@ def handle_update_progress_state(
     )
 
     if idx >= 0:
-        al_id = app_core.get_show_anilist_id(s)
         next_progress = progress_order[idx]
-        status_value = tracking_status_for_progress(s, next_progress) if next_progress > 0 else None
-        updated = app_core.with_loading(
-            f"Syncing AniList progress: EP {next_progress}…",
-            app_core.update_anilist_entry,
-            cfg["anilist_token"],
-            int(al_id),
-            progress=next_progress,
-            status=status_value,
-            show=s,
-        )
-        if updated:
-            apply_tracking_progress_local(s, next_progress, status_value)
-            s["_progress_authority"] = "AL"
-            app_core.set_action_feedback(s, f"AniList synced: EP {next_progress} watched.")
+        if sync_active:
+            status_value = tracking_status_for_progress(s, next_progress) if next_progress > 0 else None
+            updated = app_core.with_loading(
+                f"Syncing AniList progress: EP {next_progress}…",
+                app_core.update_anilist_entry,
+                cfg["anilist_token"],
+                int(al_id),
+                progress=next_progress,
+                status=status_value,
+                show=s,
+            )
+            if updated:
+                apply_tracking_progress_local(s, next_progress, status_value)
+                s["_progress_authority"] = "AL"
+                app_core.set_action_feedback(s, f"AniList synced: EP {next_progress} watched.")
+            else:
+                app_core.err("AniList sync failed.")
         else:
-            app_core.err("AniList sync failed.")
+            if episode_ids and next_progress > 0:
+                target_idx = min(next_progress - 1, len(episode_ids) - 1)
+                target_ep = episode_ids[target_idx]
+            else:
+                target_ep = str(next_progress)
+            app_core.write_history_progress(s, target_ep, ttype_local, touch=True)
+            s["_local_progress"] = next_progress
+            s["_local_episode_label"] = str(target_ep)
+            s["_progress_authority"] = "LOCAL"
+            app_core.set_action_feedback(s, f"Progress updated: EP {next_progress} watched.")
 
     return "DETAILS"
 

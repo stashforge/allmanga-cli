@@ -173,6 +173,14 @@ def enter_alt_screen():
         sys.stdout.flush()
 
 
+_INITIAL_TERMIOS_ATTRS = None
+try:
+    if sys.stdin.isatty():
+        _INITIAL_TERMIOS_ATTRS = termios.tcgetattr(sys.stdin.fileno())
+except Exception:
+    pass
+
+
 def exit_alt_screen():
     global _alt_screen_active
     if _alt_screen_active:
@@ -181,7 +189,31 @@ def exit_alt_screen():
         _alt_screen_active = False
 
 
-atexit.register(exit_alt_screen)
+def restore_terminal():
+    """Fully restore terminal echo, canonical mode, cursor, alt screen, and clear active terminal images."""
+    try:
+        terminal_images.clear_if_active()
+    except Exception:
+        pass
+    try:
+        exit_alt_screen()
+    except Exception:
+        pass
+    try:
+        if sys.stdin.isatty() and _INITIAL_TERMIOS_ATTRS is not None:
+            fd = sys.stdin.fileno()
+            termios.tcflush(fd, termios.TCIFLUSH)
+            termios.tcsetattr(fd, termios.TCSANOW, _INITIAL_TERMIOS_ATTRS)
+    except Exception:
+        pass
+    try:
+        sys.stdout.write("\033[?25h\033[0m")
+        sys.stdout.flush()
+    except Exception:
+        pass
+
+
+atexit.register(restore_terminal)
 
 
 # ---------------------------------------------------------------------------

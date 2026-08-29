@@ -52,10 +52,16 @@ def _episode_labels_for(show: dict, ttype: str) -> dict:
 
 def _display_episode_label(show: dict, episode_id, ttype: str) -> str:
     labels = _episode_labels_for(show, ttype)
-    return str(labels.get(str(episode_id)) or episode_id)
+    from allmanga_cli.domain.episodes import clean_episode_identifier
+    raw = str(labels.get(str(episode_id)) or episode_id)
+    return clean_episode_identifier(raw) or raw
+
 
 def _fmt_ep(label):
-    label_str = str(label).strip()
+    from allmanga_cli.domain.episodes import clean_episode_identifier
+    raw = str(label).strip()
+    clean = clean_episode_identifier(raw) or raw
+    label_str = clean
     if not label_str:
         return "EP ?"
     if label_str[0].isdigit():
@@ -399,6 +405,57 @@ def handle_play_state(
                     stream_name = ms.selected_stream.get("source_name", first_source_name or "Stream")
                     resolution = ms.selected_stream.get("resolution", "")
                     res_str = f" ({resolution})" if resolution else ""
+
+                    aniskip_enabled = getattr(args, "aniskip", None)
+                    if aniskip_enabled is None:
+                        aniskip_enabled = cfg.get("aniskip_enabled", True)
+
+                    if aniskip_enabled:
+                        action_show = ui.ui_show_ctx or {}
+                        mal_id = app_core.get_show_mal_id(action_show)
+                        from ..domain.episodes import episode_progress_number
+                        ep_num = episode_progress_number(ms.current_ep)
+                        if mal_id:
+                            from ..media.aniskip import fetch_skip_times
+                            skips = fetch_skip_times(mal_id, ep_num)
+                            if skips:
+                                from ..ui.player_screen import _fmt_time
+                                skip_parts = [f"{s['label']} ({_fmt_time(s['start'])} → {_fmt_time(s['end'])})" for s in skips]
+                                skip_summary = " · ".join(skip_parts)
+                                skip_msg = f"\033[38;5;120m✓ AniSkip: {skip_summary}\033[0m"
+                            else:
+                                skip_msg = f"\033[38;5;244m• AniSkip: No skip times found for EP {ep_num}\033[0m"
+                        else:
+                            skip_msg = "\033[38;5;244m• AniSkip: No MAL ID available for this title\033[0m"
+
+                        if skip_msg not in _player_ui_state["status_lines"]:
+                            if _player_ui_state["status_lines"] and _player_ui_state["status_lines"][-1] != "":
+                                _player_ui_state["status_lines"].append("")
+                            _player_ui_state["status_lines"].append(skip_msg)
+
+                    if app_core.is_termux() and aniskip_enabled:
+                        if not cfg.get("aniskip_android_hint_dismissed", False) and not getattr(ui, "aniskip_android_hint_shown", False):
+                            ui.aniskip_android_hint_shown = True
+                            app_core._exit_player_screen(close_alt=False)
+                            print()
+                            print(f"\033[1;36mAniSkip on Android (MPV):\033[0m")
+                            print(f"  \033[38;5;250m• Auto-skip is not supported via Android intents.\033[0m")
+                            print(f"  \033[38;5;250m• To view chapter marks on the seekbar, add this line to /storage/emulated/0/Mpv/mpv.conf:\033[0m")
+                            print(f"    \033[1;33mchapters-file=/storage/emulated/0/Mpv/chapters.txt\033[0m")
+                            print()
+                            try:
+                                choice = input("\033[1;97m[y=Don't show again, n=Disable AniSkip, s=Skip for now] (s): \033[0m").strip().lower()
+                            except (EOFError, KeyboardInterrupt):
+                                choice = "s"
+                            print()
+                            if choice in ("y", "yes"):
+                                cfg["aniskip_android_hint_dismissed"] = True
+                                app_core.save_config(cfg)
+                            elif choice in ("n", "no"):
+                                cfg["aniskip_enabled"] = False
+                                aniskip_enabled = False
+                                app_core.save_config(cfg)
+
                     for sec in (3, 2, 1):
                         _player_ui_state["countdown_message"] = f"\033[1;92m▶ Starting '{stream_name}'{res_str} in {sec}s ...\033[0m"
                         try:
@@ -559,6 +616,13 @@ def handle_play_state(
                     and app_core.pkg_installed("app.marlboroadvance.mpvex")):
                 player = "mpvex"
 
+        aniskip_enabled = getattr(args, "aniskip", None)
+        if aniskip_enabled is None:
+            aniskip_enabled = cfg.get("aniskip_enabled", True)
+
+        action_show = ui.ui_show_ctx or {}
+        mal_id = app_core.get_show_mal_id(action_show)
+
         result = app_core.play_android(
             ms.show_title,
             current_ep_label,
@@ -568,6 +632,8 @@ def handle_play_state(
             ms.total_eps,
             ms.show_id,
             is_binge,
+            mal_id=mal_id,
+            aniskip_enabled=aniskip_enabled,
         )
 
         if first_source_name is not None:
@@ -604,10 +670,22 @@ def handle_play_state(
 
         next_episode = episode_id_at(episode_ids, ms.current_ep_index + 1) if ms.current_ep_index + 1 < ms.total_eps else None
 
+        aniskip_enabled = getattr(args, "aniskip", None)
+        if aniskip_enabled is None:
+            aniskip_enabled = cfg.get("aniskip_enabled", True)
+
+        aniskip_auto = getattr(args, "auto_skip", None)
+        if aniskip_auto is None:
+            aniskip_auto = cfg.get("aniskip_auto", True)
+
+        action_show = ui.ui_show_ctx or {}
+        mal_id = app_core.get_show_mal_id(action_show)
+
         result, percent, time_pos, duration, played_seconds = app_core.play_desktop(
             ms.show_title, current_ep_label, ms.selected_stream, fetch_cb,
             ms.total_eps, is_binge, ms.show_id, ms.pending_osd_msg,
-            ms.current_ep_index, next_episode
+            ms.current_ep_index, next_episode,
+            mal_id=mal_id, aniskip_enabled=aniskip_enabled, aniskip_auto=aniskip_auto
         )
 
         ms.pending_osd_msg = ""
@@ -822,8 +900,8 @@ def handle_action_menu_state(
     prev_ep = episode_id_at(episode_ids, ms.current_ep_index - 1) if ms.current_ep_index > 0 else None
     episode_labels = _episode_labels_for(action_show, ttype)
     current_ep_label = _display_episode_label(action_show, ms.current_ep, ttype)
-    next_ep_label = episode_labels.get(str(next_ep), str(next_ep)) if next_ep is not None else ""
-    prev_ep_label = episode_labels.get(str(prev_ep), str(prev_ep)) if prev_ep is not None else ""
+    next_ep_label = _display_episode_label(action_show, next_ep, ttype) if next_ep is not None else ""
+    prev_ep_label = _display_episode_label(action_show, prev_ep, ttype) if prev_ep is not None else ""
 
     is_watched = False
     if getattr(ms, "_is_downloads", False):
@@ -851,16 +929,22 @@ def handle_action_menu_state(
         if not is_watched:
             if next_ep is not None:
                 opts.append("Next"); acts.append("TRACK_NEXT")
+                opts.append("Binge"); acts.append("BINGE")
             opts.append("Mark Watched"); acts.append("TRACK_ONLY")
         else:
             if next_ep is not None:
                 opts.append("Next"); acts.append("NEXT")
+                opts.append("Binge"); acts.append("BINGE")
     else:
         if next_ep is not None: 
             opts.append("Next"); acts.append("NEXT")
+            opts.append("Binge"); acts.append("BINGE")
 
-    if prev_ep is not None: opts.append("Previous"); acts.append("PREV")
-    if ms.total_eps > 1: opts.append("Episodes"); acts.append("EPISODES")
+    opts.append("Replay"); acts.append("REPLAY")
+    if prev_ep is not None:
+        opts.append("Previous"); acts.append("PREV")
+    if ms.total_eps > 1:
+        opts.append("Episodes"); acts.append("EPISODES")
 
     verification_url = action_show.get("_provider_verification_url", "")
     verification_episode = action_show.get("_provider_verification_episode")
@@ -868,11 +952,9 @@ def handle_action_menu_state(
         opts.append("Verify")
         acts.append("VERIFY")
 
-    opts += ["Replay"]
-    acts += ["REPLAY"]
     if not getattr(ms, "_is_downloads", False):
-        opts += ["Browser", "Mirror"]
-        acts += ["BROWSER_PLAY", "MIRRORS"]
+        opts += ["Mirror", "Browser"]
+        acts += ["MIRRORS", "BROWSER_PLAY"]
     opts += ["Back", "Quit"]
     acts += ["BACK", "QUIT"]
 
@@ -896,16 +978,17 @@ def handle_action_menu_state(
 
     for opt, act in zip(opts, acts):
         if act == "TRACK_ONLY": action_hints[opt] = sync_txt
-        elif act == "TRACK_NEXT": action_hints[opt] = f"{sync_txt} · play EP {next_ep_label}"
-        elif act == "NEXT":     action_hints[opt] = f"EP {next_ep_label}"
-        elif act == "PREV":   action_hints[opt] = f"EP {prev_ep_label}"
-        elif act == "EPISODES": action_hints[opt] = "browse all"
-        elif act == "VERIFY": action_hints[opt] = "verification"
-        elif act == "REPLAY": action_hints[opt] = f"{_fmt_ep(current_ep_label)} again"
-        elif act == "BROWSER_PLAY": action_hints[opt] = "open url in browser"
-        elif act == "MIRRORS":action_hints[opt] = "switch source"
-        elif act == "BACK":   action_hints[opt] = "Back"
-        elif act == "QUIT":   action_hints[opt] = "Quit"
+        elif act == "TRACK_NEXT": action_hints[opt] = f"{sync_txt} · play {_fmt_ep(next_ep_label)}"
+        elif act == "NEXT":     action_hints[opt] = _fmt_ep(next_ep_label)
+        elif act == "BINGE":    action_hints[opt] = f"auto-play from {_fmt_ep(next_ep_label)}" if next_ep is not None else "auto-play next episodes"
+        elif act == "PREV":     action_hints[opt] = _fmt_ep(prev_ep_label)
+        elif act == "EPISODES": action_hints[opt] = f"browse all (1-{ms.total_eps})" if ms.total_eps > 1 else "browse all"
+        elif act == "VERIFY":   action_hints[opt] = "verification"
+        elif act == "REPLAY":   action_hints[opt] = f"{_fmt_ep(current_ep_label)} from start"
+        elif act == "BROWSER_PLAY": action_hints[opt] = "open in browser"
+        elif act == "MIRRORS":  action_hints[opt] = "switch source / quality"
+        elif act == "BACK":     action_hints[opt] = "back to details"
+        elif act == "QUIT":     action_hints[opt] = "exit"
 
     def _action_hdr(si):
         C_T  = "\033[1;97m"
@@ -1022,6 +1105,17 @@ def handle_action_menu_state(
         ms.pending_osd_msg = marked_watched_osd(ms.current_ep, synced)
         ms.current_ep_index += 1
         ms.current_ep = episode_id_at(episode_ids, ms.current_ep_index)
+        _clear_episode_source_state(ms)
+        return "PLAY"
+
+    elif a == "BINGE":
+        args.binge = True
+        if not flags.incognito_mode and not is_watched:
+            synced = _execute_track_action()
+            ms.pending_osd_msg = marked_watched_osd(ms.current_ep, synced)
+        if next_ep is not None:
+            ms.current_ep_index += 1
+            ms.current_ep = episode_id_at(episode_ids, ms.current_ep_index)
         _clear_episode_source_state(ms)
         return "PLAY"
 

@@ -21,7 +21,13 @@ def create_mpv_runtime():
     with os.fdopen(descriptor, "w", encoding="utf-8") as config:
         config.write("SHIFT+RIGHT script-message next_ep\n")
         config.write("SHIFT+LEFT script-message prev_ep\n")
-    return runtime_dir, socket_path, config_path
+        config.write("TAB script-message skip_interval\n")
+        config.write("s script-message skip_interval\n")
+    chapters_path = os.path.join(runtime_dir, "chapters.txt")
+    with open(chapters_path, "w", encoding="utf-8") as chap:
+        chap.write(";FFMETADATA1\n")
+    os.chmod(chapters_path, 0o600)
+    return runtime_dir, socket_path, config_path, chapters_path
 
 
 def cleanup_mpv_runtime(runtime_dir):

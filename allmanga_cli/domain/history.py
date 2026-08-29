@@ -87,9 +87,23 @@ def playback_episode(
         history_index = episode_index_for_id(
             episode_ids,
             history_episode,
+            labels=show.get("_episode_labels"),
         )
         if history_index is None:
-            return None
+            import decimal
+            try:
+                hist_num = decimal.Decimal(str(history_episode))
+                for idx, eid in enumerate(episode_ids):
+                    try:
+                        if decimal.Decimal(str(eid)) == hist_num:
+                            history_index = idx
+                            break
+                    except decimal.InvalidOperation:
+                        continue
+            except decimal.InvalidOperation:
+                pass
+        if history_index is None:
+            return episode_id_at(episode_ids, 0)
         if show_id and resume_time(show_id, history_episode) > 0:
             return episode_id_at(episode_ids, history_index)
         return episode_id_at(
@@ -114,9 +128,9 @@ def history_entry_progress(
     translation_type = entry.get("translation_type", "sub")
     prepare_display_state(show, translation_type)
     label = "LOCAL"
-    progress_val = entry.get("episode")
-    if not progress_val:
-        progress_val = "0"
+    raw_val = entry.get("episode")
+    from .episodes import clean_episode_identifier
+    progress_val = clean_episode_identifier(raw_val) if raw_val else "0"
 
     import decimal
     try:
