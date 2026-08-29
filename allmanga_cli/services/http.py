@@ -14,7 +14,7 @@ SSL_CTX.check_hostname = False
 SSL_CTX.verify_mode = ssl.CERT_NONE
 SSL_CTX_SECURE = ssl.create_default_context()
 
-ANILIST_TIMEOUT = 15
+ANILIST_TIMEOUT = 8
 API_BASE = "https://api.allanime.day/api"
 CLOCK_BASE = "allanime.day"
 REFERER = "https://allmanga.to/"
@@ -40,7 +40,7 @@ def anilist_urlopen(request, data):
     )
 
 
-def request_json(url, data=None, extra_hdrs=None, timeout=15):
+def request_json(url, data=None, extra_hdrs=None, timeout=8):
     headers = {**BASE_HDRS, **(extra_hdrs or {})}
     if data:
         headers["Content-Type"] = "application/json"

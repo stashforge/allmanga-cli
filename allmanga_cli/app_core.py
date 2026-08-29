@@ -484,6 +484,11 @@ def make_single_show_info_fn(show, ui):
 
 
 def _exit_player_screen(close_alt=False):
+    try:
+        from allmanga_cli.ui.player_screen import stop_loading_ticker
+        stop_loading_ticker()
+    except Exception:
+        pass
     if close_alt:
         exit_alt_screen()
     _player_ui_state["active"] = False
@@ -1448,9 +1453,7 @@ def ensure_episode_ids(show, ttype):
         return _normalize_episode_ids(eps)
 
     if show_id:
-        # LATE ENRICHMENT: If search failed to enrich, try one last time via provider's get_title ID scraping
         enrich_show_if_missing(show)
-
         catalog = _provider_for_title(show).episode_catalog(show_id, ttype)
     else:
         catalog = {
@@ -1689,29 +1692,15 @@ def kill_active_subprocesses():
             pass
 
 def main():
-    import signal, os, sys, time
-    
-    global _last_sigint_time
-    _last_sigint_time = 0
-    
     def _force_exit(sig, frame):
-        global _last_sigint_time
-        now = time.time()
-        if now - _last_sigint_time < 3.0:
-            kill_active_subprocesses()
-            try:
-                sys.stdout.write("\033[?1049l\033[2J\033[H\033[?25h")
-                sys.stdout.flush()
-            except Exception:
-                pass
-            os._exit(1)
-        else:
-            _last_sigint_time = now
-            if _player_ui_state.get("active"):
-                _add_status("[!] Press Ctrl+C again within 3 seconds to force quit.", color="\033[93m")
-            else:
-                print("\n\033[93m[!] Press Ctrl+C again within 3 seconds to force quit.\033[0m")
-                sys.stdout.flush()
+        kill_active_subprocesses()
+        try:
+            exit_alt_screen()
+            sys.stdout.write("\033[?25h\n")
+            sys.stdout.flush()
+        except Exception:
+            pass
+        os._exit(130)
             
     signal.signal(signal.SIGINT, _force_exit)
 

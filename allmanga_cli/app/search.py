@@ -251,7 +251,6 @@ def handle_search_state(
             R = "\033[0m"
             parts = [""]
             parts.append(f"{C_K}Use Up/Down to browse previous searches.{R}")
-            parts.append(f"\033[38;5;250mSource: \033[1;97m{provider_name}\033[0m")
             if ui.search_error:
                 parts.append(f"{C_K}{ui.search_error}  │  Esc={esc_action}{R}")
             else:
@@ -289,7 +288,6 @@ def handle_search_state(
                 selected_show = {}
                 parts.append("")
                 parts.append(f"{C_K}Use Up/Down to browse previous searches.{R}")
-                parts.append(f"\033[38;5;250mSource: \033[1;97m{provider_name}\033[0m")
             elif shows and 0 <= si < len(shows):
                 selected_show = shows[si]
                 app_core.build_info_panel(selected_show, ttype_local, w, parts, main_title=selected_show.get('name'))
@@ -300,12 +298,11 @@ def handle_search_state(
                     parts.append(f"{C_K}No match: {_truncate_display(filter_query, max(1, w - 11))}{R}")
                 else:
                     parts.append("")
-                parts.append(f"\033[38;5;250mSource: \033[1;97m{provider_name}\033[0m")
             if loading_msg:
                 parts.append(loading_msg)
             elif shows:
                 footer = _footer_parts(
-                    f'{len(shows)} result(s) for "{safe_query}"',
+                    f'{len(shows)} result(s) for "{safe_query}" | {provider_name}',
                     *_session_badges(flags, args, search_context=True),
                     "Enter=select",
                     "?=Help",

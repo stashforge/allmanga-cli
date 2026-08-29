@@ -9,6 +9,7 @@ import urllib.request
 import urllib.parse
 from typing import Any
 
+from ..core import reporting
 from ..services.http import SSL_CTX_SECURE, UA, request_json
 from .shared.models import (
     normalize_episode_catalog,
@@ -72,7 +73,7 @@ def _fetch_pipe_urllib(encoded_req: str, domain: str, headers: dict[str, str]) -
         with urllib.request.urlopen(
             request,
             context=SSL_CTX_SECURE,
-            timeout=15,
+            timeout=8,
         ) as response:
             if response.status != 200:
                 return None
@@ -98,13 +99,13 @@ def _fetch_pipe(payload: dict, domains: list[str]) -> dict | None:
     for domain in domains_to_try:
         headers = _get_headers(domain)
         if curl_requests is not None:
-            for browser in ["chrome110", "chrome116", "safari15_3", "safari15_5"]:
+            for browser in ["chrome110", "chrome116"]:
                 try:
                     res = curl_requests.get(
                         f"{domain}/api/secure/pipe?e={encoded_req}",
                         headers=headers,
                         impersonate=browser,
-                        timeout=15,
+                        timeout=8,
                     )
                     if res.status_code == 200:
                         data = _decode_pipe_response(res.text.strip())
@@ -317,6 +318,7 @@ class MiruroProvider:
             if not scraper_name:
                 scraper_name = p
             scraper_name = scraper_name.title()
+            reporting.info(f"[Miruro] Querying source: {scraper_name}...")
             
             spayload = {
                 "path": "sources",
@@ -342,6 +344,7 @@ class MiruroProvider:
                             "kind": sub.get("kind", "captions")
                         })
                         
+                streams_found = 0
                 for idx, stream in enumerate(sdata.get("streams", [])):
                     if stream.get("url"):
                         url = stream["url"]
@@ -377,6 +380,14 @@ class MiruroProvider:
                         else:
                             source_dict["sourceUrl"] = url
                         grouped_streams[server_key] = source_dict
+                        streams_found += 1
+
+                if streams_found > 0:
+                    reporting.ok(f"[Miruro] {scraper_name}: Found {streams_found} stream(s)")
+                else:
+                    reporting.warn(f"[Miruro] {scraper_name}: No valid streams found")
+            else:
+                reporting.warn(f"[Miruro] {scraper_name}: Unavailable / returned 0 streams")
                 
         sourceUrls = list(grouped_streams.values())
         

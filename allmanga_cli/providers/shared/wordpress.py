@@ -40,8 +40,12 @@ class EpisodePage:
     mirrors: list[Mirror]
 
 
-def fetch_html(url: str, *, timeout: int = 25) -> str:
-    request = urllib.request.Request(url, headers={"User-Agent": UA})
+def fetch_html(url: str, *, timeout: int = 8) -> str:
+    request = urllib.request.Request(
+        url,
+        headers={"User-Agent": UA},
+        method="GET",
+    )
     with urllib.request.urlopen(request, timeout=timeout) as response:
         charset = response.headers.get_content_charset() or "utf-8"
         return response.read().decode(charset, errors="replace")

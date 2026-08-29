@@ -43,7 +43,7 @@ class AniZoneProvider:
         search_url = f"{self.base_url}/anime?search={urllib.parse.quote(query)}"
         req = urllib.request.Request(search_url, headers=self.headers)
         try:
-            html = urllib.request.urlopen(req, timeout=10).read().decode('utf-8', errors='ignore')
+            html = urllib.request.urlopen(req, timeout=7).read().decode('utf-8', errors='ignore')
             soup = BeautifulSoup(html, 'html.parser')
             results = []
             seen_ids = set()
@@ -111,7 +111,7 @@ class AniZoneProvider:
         req = urllib.request.Request(anime_url, headers=self.headers)
         description = ""
         try:
-            html = urllib.request.urlopen(req, timeout=10).read().decode('utf-8', errors='ignore')
+            html = urllib.request.urlopen(req, timeout=7).read().decode('utf-8', errors='ignore')
             soup = BeautifulSoup(html, 'html.parser')
             # AniZone/Zoro clones usually have description in .film-description or similar
             desc_tag = soup.find(class_=lambda c: c and ('desc' in c.lower() or 'synopsis' in c.lower()))
@@ -137,7 +137,7 @@ class AniZoneProvider:
         anime_url = f"{self.base_url}/anime/{provider_id}"
         req = urllib.request.Request(anime_url, headers=self.headers)
         try:
-            html = urllib.request.urlopen(req, timeout=10).read().decode('utf-8', errors='ignore')
+            html = urllib.request.urlopen(req, timeout=7).read().decode('utf-8', errors='ignore')
             soup = BeautifulSoup(html, 'html.parser')
             ids = []
             seen_ids = set()
@@ -163,7 +163,7 @@ class AniZoneProvider:
         ep_url = f"{self.base_url}/anime/{provider_id}/{episode}"
         req = urllib.request.Request(ep_url, headers=self.headers)
         try:
-            html = urllib.request.urlopen(req, timeout=10).read().decode('utf-8', errors='ignore')
+            html = urllib.request.urlopen(req, timeout=7).read().decode('utf-8', errors='ignore')
             soup = BeautifulSoup(html, 'html.parser')
             
             source_urls = []

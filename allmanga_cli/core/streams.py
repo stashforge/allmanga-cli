@@ -23,6 +23,7 @@ module global so tests can patch ``streams.resolve_source`` (or via the
 import threading
 from typing import Optional
 
+from . import reporting
 from ..media.resolver import resolve_source
 from ..media.sources import source_priority
 from .storage import get_preferred_mirror
@@ -195,12 +196,18 @@ def start_bg_resolve(ep_data, exclude_names: set):
         _bg_thread.start()
 
 
-def fetch_episode_stream(show_id, ep_number, ttype="sub", quality="best", provider_id=None, exclude_sources=None):
-    ep_data = _episode_data_fn(show_id, ep_number, ttype, provider_id=provider_id)
+def fetch_episode_stream(show_id, ep_number, ttype="sub", quality="best", provider_id=None, exclude_sources=None, ep_data=None):
+    if ep_data is None:
+        ep_data = _episode_data_fn(show_id, ep_number, ttype, provider_id=provider_id)
     if not ep_data:
+        reporting.warn("No episode metadata returned by provider.")
         return None
     sources = ep_data.get("episode", {}).get("sourceUrls", [])
     sources = expand_direct_sources(sources)
+    if not sources:
+        reporting.warn("0 streaming mirrors found for this episode.")
+        return None
+
     pref = get_preferred_mirror(show_id)
     pref_name = pref.get("source_name", "")
     pref_res = pref.get("resolution", "")
@@ -214,7 +221,24 @@ def fetch_episode_stream(show_id, ep_number, ttype="sub", quality="best", provid
     from ..media.resolver import generate_source_passes
     exclude_sources = exclude_sources or set()
     valid_sources = [s for s in sources if s.get("sourceName", "") not in exclude_sources]
-    for src, failed, _, _ in generate_source_passes(sorted(valid_sources, key=dynamic_prio), max_passes=3):
+    if not valid_sources:
+        reporting.warn("All available mirrors are excluded.")
+        return None
+
+    sorted_sources = sorted(valid_sources, key=dynamic_prio)
+    total_mirrors = len(sorted_sources)
+    mirror_names = [s.get("sourceName", "?") for s in sorted_sources]
+    reporting.info(f"Found {total_mirrors} mirror(s): {', '.join(mirror_names[:4])}{'...' if total_mirrors > 4 else ''}")
+
+    retry_announced = False
+    for attempt_idx, (src, failed, is_retry, is_final_pass) in enumerate(generate_source_passes(sorted_sources, max_passes=2), 1):
+        if is_retry and not retry_announced:
+            reporting.warn("Initial pass failed. Retrying failed mirrors (Pass 2/2)...")
+            retry_announced = True
+        src_name = src.get("sourceName", "?")
+        prefix = "Retry " if is_retry else ""
+        mirror_num = min(attempt_idx if not is_retry else len(failed) + 1, total_mirrors)
+        reporting.info(f"[{prefix}{mirror_num}/{total_mirrors}] Testing mirror: {src_name} ...")
         streams = resolve_source(src)
         if streams:
             selected_stream = streams[0]
@@ -230,7 +254,11 @@ def fetch_episode_stream(show_id, ep_number, ttype="sub", quality="best", provid
                     if quality in s.get("resolution", "") or quality == "best":
                         selected_stream = s
                         break
+            reporting.ok(f"Connected: {selected_stream.get('source_name', src_name)} ({selected_stream.get('resolution', '?')})")
             return selected_stream, src.get("sourceName", ""), ep_data, streams
         elif streams is not None:
             failed.append(src)
+            reporting.warn(f"[{prefix}{mirror_num}/{total_mirrors}] {src_name} unavailable. Trying next...")
+
+    reporting.warn("All mirrors were tested and failed.")
     return None

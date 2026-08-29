@@ -95,7 +95,7 @@ class AnikotoProvider:
             }
         )
         try:
-            html = urllib.request.urlopen(req_embed, timeout=10).read().decode('utf-8', errors='ignore')
+            html = urllib.request.urlopen(req_embed, timeout=7).read().decode('utf-8', errors='ignore')
             match = re.search(r'data-id=["\'](\d+)["\']', html)
             if not match:
                 return None
@@ -112,7 +112,7 @@ class AnikotoProvider:
                     "Accept": "application/json,text/plain,*/*"
                 }
             )
-            res_api = urllib.request.urlopen(req_api, timeout=10).read().decode('utf-8')
+            res_api = urllib.request.urlopen(req_api, timeout=7).read().decode('utf-8')
             sources_data = json.loads(res_api)
             
             source_urls = []
@@ -150,7 +150,7 @@ class AnikotoProvider:
                                 "Origin": self.base_url,
                             }
                         )
-                        m3u8_text = urllib.request.urlopen(req_m3u8, timeout=10).read().decode('utf-8')
+                        m3u8_text = urllib.request.urlopen(req_m3u8, timeout=7).read().decode('utf-8')
                         
                         # Only parse if it's a master playlist containing variants
                         if "#EXT-X-STREAM-INF" in m3u8_text:

@@ -61,6 +61,28 @@ def _hovered_show_id():
 _spinner_style = DEFAULT_SPINNER
 
 
+class suppress_terminal_echo:
+    """Context manager to disable terminal echo and flush buffered input on exit."""
+    def __enter__(self):
+        try:
+            self.fd = sys.stdin.fileno()
+            self.old_attrs = termios.tcgetattr(self.fd)
+            new_attrs = termios.tcgetattr(self.fd)
+            new_attrs[3] = new_attrs[3] & ~(termios.ECHO | termios.ICANON)
+            termios.tcsetattr(self.fd, termios.TCSANOW, new_attrs)
+        except Exception:
+            self.old_attrs = None
+        return self
+
+    def __exit__(self, *args):
+        if getattr(self, "old_attrs", None) is not None:
+            try:
+                termios.tcflush(self.fd, termios.TCIFLUSH)
+                termios.tcsetattr(self.fd, termios.TCSANOW, self.old_attrs)
+            except Exception:
+                pass
+
+
 def _configured_loading_frame():
     return _loading_frame(_spinner_style)
 
@@ -103,6 +125,16 @@ def clear_terminal_images():
 
 
 def _poster_footer_line(show, default_text, width):
+    # Inject Provider name into the footer line!
+    provider_name = ""
+    if show and isinstance(show, dict):
+        provider_name = (show.get("_provider_name") or show.get("provider_name") or show.get("_provider") or "").title()
+        
+    if provider_name and provider_name not in default_text and not default_text.startswith(f"{len(show.get('episodes', []))} result(s)"):
+        # The search UI already injects the provider name via _footer_parts
+        # For all other screens, we prepend it here
+        default_text = f"{provider_name} | {default_text}"
+        
     return _poster_manager.footer_line(show, default_text, width)
 
 

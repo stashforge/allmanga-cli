@@ -30,6 +30,7 @@ from ..playback.rules import (
 from ..ui.help import picker_help
 from ..ui import picker as _picker_mod
 from ..ui.verification import verification_page
+from ..ui.display import suppress_terminal_echo
 from ..core.terminal import truncate_display as _truncate_display
 
 # ---------------------------------------------------------------------------
@@ -205,7 +206,8 @@ def handle_episode_state(
         if feedback_msg and time.time() - feedback_time < 2.0:
             parts.append(f"\033[38;5;220m{_t(feedback_msg)}{_RST}")
         else:
-            parts.append(f"{_C_HINT}{_t(f'Enter/Right=select  Ctrl+R=flip  ? = Help  {nav_text}')}{_RST}")
+            p_name = (show.get("_provider_name") or show.get("_provider") or "").title() if show else ""
+            parts.append(f"{_C_HINT}{_t(p_name + ' | Enter/Right=select  Ctrl+R=flip  ? = Help  ' + nav_text)}{_RST}")
         return "\n".join(parts)
 
     def _ep_tab_fn(opt=None):
@@ -312,100 +314,116 @@ def handle_play_state(
         "_last_poster_key": None,
     })
 
-    # Try to trigger the render function from ui module directly if we can't use globals
-    try:
-        from ..ui.player_screen import render as _render_player_screen
-        _render_player_screen(
-            poster_manager=getattr(app_core, "_poster_manager", None),
-            ui=ui,
-        )
-    except ImportError:
-        pass
+    with suppress_terminal_echo():
+        provider_id = title_provider_key(ui.ui_show_ctx)
+        p_name = (ui.ui_show_ctx.get("_provider_name") or ui.ui_show_ctx.get("provider_name") or provider_id).title()
+        _player_ui_state["loading_provider_name"] = p_name
+        _player_ui_state["loading_start_time"] = time.time()
 
-
-    provider_id = title_provider_key(ui.ui_show_ctx)
-    _cache_key = (ms.show_id, ms.current_ep, ttype, provider_id)
-    if getattr(ms, "_is_downloads", False):
-        ep_data = {"is_local": True}
-    elif _cache_key == ms.ep_cache_key and ms.ep_cache_data:
-        ep_data = ms.ep_cache_data
-    else:
-        app_core.info(f"Loading {_fmt_ep(current_ep_label)} metadata...")
-        ep_data = app_core.get_episode_data(
-            ms.show_id,
-            ms.current_ep,
-            ttype,
-            provider_id=provider_id,
-        )
-        ms.ep_cache_key  = _cache_key
-        ms.ep_cache_data = ep_data
-
-    if not ep_data:
-        app_core._exit_player_screen()
-        _clear_episode_source_state(ms)
-        app_core.set_action_feedback(
-            ui.ui_show_ctx,
-            f"Could not load {_fmt_ep(current_ep_label)}. Check connection or try another mirror.",
-        )
-        return "ACTION_MENU"
-    if ep_data.get("_provider_error") == "browser_verification_required":
-        return _open_provider_verification(
-            flags,
-            ui,
-            ms,
-            cfg,
-            ttype,
-            "Browser verification required. Open the site in a browser, play once, then replay.",
-        )
-    ui.ui_show_ctx.pop("_provider_verification_url", None)
-    ui.ui_show_ctx.pop("_provider_verification_episode", None)
-    ui.ui_show_ctx.pop("_provider_verification_seen", None)
-
-    first_source_name = None
-    if ms.selected_stream is None:
-        app_core._clear_streams()
-
-        _ipc_player = app_core._ipc_player
+        try:
+            from ..ui.player_screen import start_loading_ticker
+            start_loading_ticker(
+                poster_manager=getattr(app_core, "_poster_manager", None),
+                ui=ui,
+            )
+        except ImportError:
+            pass
+        _cache_key = (ms.show_id, ms.current_ep, ttype, provider_id)
         if getattr(ms, "_is_downloads", False):
-            filepath = ms._download_files.get(str(ms.current_ep))
-            if filepath:
-                res = ({"link": filepath, "resolution": "Local"}, "Local File", filepath, [])
-            else:
-                res = None
-        elif _ipc_player.prefetched_ep == ms.current_ep and _ipc_player.prefetched_res:
-            res = _ipc_player.prefetched_res
-            _ipc_player.prefetched_ep = None
-            _ipc_player.prefetched_stream = None
-            _ipc_player.prefetched_res = None
+            ep_data = {"is_local": True}
+        elif _cache_key == ms.ep_cache_key and ms.ep_cache_data:
+            ep_data = ms.ep_cache_data
         else:
-            app_core.info("Finding a playable stream...")
-            res = app_core.fetch_episode_stream(
+            app_core.info(f"[{p_name}] Requesting {_fmt_ep(current_ep_label)} metadata...")
+            ep_data = app_core.get_episode_data(
                 ms.show_id,
                 ms.current_ep,
                 ttype,
-                cfg.get("quality", "best"),
                 provider_id=provider_id,
             )
+            ms.ep_cache_key  = _cache_key
+            ms.ep_cache_data = ep_data
 
-        if res:
-            ms.selected_stream, first_source_name, _, streams = res
-            app_core._extend_streams(streams)
+        if not ep_data:
+            app_core._exit_player_screen()
+            _clear_episode_source_state(ms)
+            app_core.set_action_feedback(
+                ui.ui_show_ctx,
+                f"Could not load {_fmt_ep(current_ep_label)}. Check connection or try another mirror.",
+            )
+            return "ACTION_MENU"
+        if ep_data.get("_provider_error") == "browser_verification_required":
+            return _open_provider_verification(
+                flags,
+                ui,
+                ms,
+                cfg,
+                ttype,
+                "Browser verification required. Open the site in a browser, play once, then replay.",
+            )
+        ui.ui_show_ctx.pop("_provider_verification_url", None)
+        ui.ui_show_ctx.pop("_provider_verification_episode", None)
+        ui.ui_show_ctx.pop("_provider_verification_seen", None)
 
-    if args.sources and not ui.initial_sources_prompted:
-        ui.initial_sources_prompted = True
-        if first_source_name is not None:
-            app_core.start_bg_resolve(ep_data, {first_source_name})
-        app_core._exit_player_screen()
-        return "MIRRORS"
+        first_source_name = None
+        if ms.selected_stream is None:
+            app_core._clear_streams()
 
-    if ms.selected_stream is None:
-        app_core._exit_player_screen()
-        _clear_episode_source_state(ms)
-        app_core.set_action_feedback(
-            ui.ui_show_ctx,
-            "No playable streams found. Try another mirror.",
-        )
-        return "ACTION_MENU"
+            _ipc_player = app_core._ipc_player
+            if getattr(ms, "_is_downloads", False):
+                filepath = ms._download_files.get(str(ms.current_ep))
+                if filepath:
+                    res = ({"link": filepath, "resolution": "Local"}, "Local File", filepath, [])
+                else:
+                    res = None
+            elif _ipc_player.prefetched_ep == ms.current_ep and _ipc_player.prefetched_res:
+                res = _ipc_player.prefetched_res
+                _ipc_player.prefetched_ep = None
+                _ipc_player.prefetched_stream = None
+                _ipc_player.prefetched_res = None
+            else:
+                app_core.info("Finding a playable stream...")
+                res = app_core.fetch_episode_stream(
+                    ms.show_id,
+                    ms.current_ep,
+                    ttype,
+                    cfg.get("quality", "best"),
+                    provider_id=provider_id,
+                    ep_data=ep_data,
+                )
+
+            if res:
+                ms.selected_stream, first_source_name, _, streams = res
+                app_core._extend_streams(streams)
+                if not getattr(args, 'download', False) and not getattr(args, 'print_url', False) and not (args.sources and not ui.initial_sources_prompted):
+                    stream_name = ms.selected_stream.get("source_name", first_source_name or "Stream")
+                    resolution = ms.selected_stream.get("resolution", "")
+                    res_str = f" ({resolution})" if resolution else ""
+                    for sec in (3, 2, 1):
+                        _player_ui_state["countdown_message"] = f"\033[1;92m▶ Starting '{stream_name}'{res_str} in {sec}s ...\033[0m"
+                        try:
+                            from ..ui.player_screen import render as _render
+                            _render(poster_manager=getattr(app_core, "_poster_manager", None), ui=ui)
+                        except Exception:
+                            pass
+                        time.sleep(1)
+                    _player_ui_state["countdown_message"] = ""
+
+        if args.sources and not ui.initial_sources_prompted:
+            ui.initial_sources_prompted = True
+            if first_source_name is not None:
+                app_core.start_bg_resolve(ep_data, {first_source_name})
+            app_core._exit_player_screen()
+            return "MIRRORS"
+
+        if ms.selected_stream is None:
+            app_core._exit_player_screen()
+            _clear_episode_source_state(ms)
+            app_core.set_action_feedback(
+                ui.ui_show_ctx,
+                "No playable streams found. Try another mirror.",
+            )
+            return "ACTION_MENU"
 
     if args.print_url:
         app_core._exit_player_screen(close_alt=True)
@@ -479,7 +497,8 @@ def handle_play_state(
                 ttype,
                 cfg.get("quality", "best"),
                 provider_id=provider_id,
-                exclude_sources=exclude_sources
+                exclude_sources=exclude_sources,
+                ep_data=ep_data,
             )
             if not res:
                 break
@@ -933,7 +952,8 @@ def handle_action_menu_state(
         if has_feedback:
             parts.append(f"{C_K}{_t(feedback_msg)}{R}")
         else:
-            parts.append(f"{C_K}{_t('Enter/Right=select  ? = Help  Left/Esc=back')}{R}")
+            p_name = (action_show.get("_provider_name") or action_show.get("_provider") or "").title() if action_show else ""
+            parts.append(f"{C_K}{_t(p_name + ' | Enter/Right=select  ? = Help  Left/Esc=back')}{R}")
 
         return "\n".join(parts)
 
@@ -1204,7 +1224,8 @@ def handle_browser_play_state(
         ep_str = _display_episode_label(ui.ui_show_ctx, ms.current_ep, ttype)
         app_core.build_info_panel(ui.ui_show_ctx, ttype, w, parts, override_ep_str=ep_str, local_only=getattr(ms, "_is_downloads", False))
         _t = lambda s: _truncate_display(s, max(1, w - 1))
-        parts.append(f"\033[38;5;244m{_t('Enter/Right=select  ? = Help  Left/Esc=back')}\033[0m")
+        p_name = (show.get("_provider_name") or show.get("_provider") or "").title()
+        parts.append(f"\033[38;5;244m{_t(p_name + ' | Enter/Right=select  ? = Help  Left/Esc=back')}\033[0m")
         return "\n".join(parts)
 
     idx = tui_pick(

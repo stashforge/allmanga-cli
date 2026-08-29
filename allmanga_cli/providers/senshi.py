@@ -35,7 +35,7 @@ class Senshi(Provider):
         headers["Referer"] = f"{self.base_url}/"
         req = urllib.request.Request(url, headers=headers)
         try:
-            with urllib.request.urlopen(req, timeout=10) as response:
+            with urllib.request.urlopen(req, timeout=7) as response:
                 return json.loads(response.read().decode('utf-8'))
         except urllib.error.HTTPError as e:
             if e.code == 404:

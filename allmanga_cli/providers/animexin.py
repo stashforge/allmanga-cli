@@ -72,7 +72,7 @@ class AnimeXinProvider(WordPressAnimeProvider):
             },
             method="POST",
         )
-        with urllib.request.urlopen(request, timeout=25) as response:
+        with urllib.request.urlopen(request, timeout=8) as response:
             charset = response.headers.get_content_charset() or "utf-8"
             return json.loads(response.read().decode(charset, errors="replace"))
 

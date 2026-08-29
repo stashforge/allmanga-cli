@@ -10,6 +10,8 @@ from __future__ import annotations
 from typing import Any
 
 from .schema import build_catalog, build_title
+from allmanga_cli.brain import AnimeBrain
+from allmanga_cli.brain.core.models import EpisodeToken
 
 
 _TITLE_SCHEMA_KEYS = {
@@ -37,6 +39,7 @@ def normalize_title(
         for key, value in title.items()
         if key not in _TITLE_SCHEMA_KEYS
     }
+    
     return build_title(
         provider=provider_id,
         provider_name=provider_name,
@@ -87,7 +90,37 @@ def normalize_titles(
         )
         if item is not None:
             normalized.append(item)
-    return normalized
+            
+    # Sort the results so same franchises are grouped together, 
+    # and seasons are chronologically ordered!
+    def get_sort_key(item):
+        raw_name = item.get("name") or ""
+        from allmanga_cli.brain import AnimeBrain
+        bout = AnimeBrain.process(raw_name, dict)
+        
+        year = 0
+        month = 0
+        for d in [item.get("airedStart"), item.get("startDate")]:
+            if isinstance(d, dict):
+                year = d.get("year") or 0
+                month = d.get("month") or 0
+                break
+            elif isinstance(d, str):
+                parts = d.split('-')
+                if parts[0].isdigit(): year = int(parts[0])
+                if len(parts) > 1 and parts[1].isdigit(): month = int(parts[1])
+                break
+                
+        # 1. Base Franchise (split by colon to group spin-offs and movies with the main series!)
+        franchise = bout.get("franchise", "").lower()
+        base_franchise = franchise.split(':')[0].strip() if ':' in franchise else franchise
+        
+        # 2. Year/Month (chronological watch order)
+        # 3. Season/Part (fallback for same-month releases)
+        # 4. Raw Name (alphabetical fallback for providers like AniDBApp that return 0 for all years)
+        return (base_franchise, year == 0, year, month, bout.get("season") or 0, bout.get("part") or 0, raw_name)
+        
+    return sorted(normalized, key=get_sort_key)
 
 
 def title_provider_id(title: dict[str, Any] | None) -> str:
@@ -117,7 +150,11 @@ def normalize_episode_catalog(
         error=normalized.get("error") or "",
         episodes={
             "sub": [
-                {"id": episode_id, "label": episode_id}
+                {
+                    "id": episode_id, 
+                    "label": (AnimeBrain.process(episode_id, EpisodeToken) or type("Mock", (), {"raw_label": episode_id})()).raw_label or episode_id,
+                    "number": getattr(AnimeBrain.process(episode_id, EpisodeToken), "absolute_number", 0.0) if AnimeBrain.process(episode_id, EpisodeToken) else 0.0
+                }
                 for episode_id in ids
             ],
             "dub": [],
@@ -127,7 +164,10 @@ def normalize_episode_catalog(
     built.update(normalized)
     built["ids"] = ids
     if "labels" not in built:
-        built["labels"] = {episode_id: episode_id for episode_id in ids}
+        built["labels"] = {
+            episode_id: AnimeBrain.process(episode_id, EpisodeToken).get('raw_label') or episode_id 
+            for episode_id in ids
+        }
     if "episodes" not in normalized:
         built["episodes"] = built.get("episodes") or {
             "sub": [],

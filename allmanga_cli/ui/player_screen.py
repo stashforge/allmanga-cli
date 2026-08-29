@@ -16,12 +16,23 @@ import os
 import sys
 import hashlib
 import re
+import time
+import threading
 from typing import TYPE_CHECKING
 
-from ..domain.titles import extract_title_parts as _extract_title_parts
-from ..domain.titles import get_show_display_title
-from ..domain.titles import wrap_title as _wrap_title
-from ..domain.metadata import positive_int as _positive_int
+from ..domain.titles import (
+    extract_title_parts as _extract_title_parts,
+    get_show_display_title,
+    get_display_titles,
+    wrap_title as _wrap_title,
+)
+from ..domain.metadata import (
+    positive_int as _positive_int,
+    anime_status_label,
+    anilist_list_status_label,
+    format_years,
+    format_next_airing,
+)
 from ..core.terminal import fit_terminal_line as _fit_terminal_line
 from .poster import PosterManager
 from .covers import (
@@ -31,6 +42,7 @@ from .covers import (
     poster_uses_native_protocol as _poster_uses_native_protocol,
 )
 from . import terminal_images
+from .spinner import spinner_frame
 
 if TYPE_CHECKING:
     from ..context import UiState, CliFlags
@@ -125,6 +137,64 @@ def activate(show: dict, current_ep: object, total_eps: int) -> None:
     })
 
 
+_ticker_thread: threading.Thread | None = None
+_ticker_stop_event: threading.Event = threading.Event()
+
+
+def start_loading_ticker(poster_manager=None, ui=None) -> None:
+    """Start background ticker thread that smoothly animates the spinner and timer."""
+    global _ticker_thread
+    _ticker_stop_event.clear()
+    if _ticker_thread and _ticker_thread.is_alive():
+        return
+
+    def _loop():
+        while not _ticker_stop_event.is_set():
+            s = _player_ui_state
+            if not s.get("active") or s.get("mpv_props"):
+                break
+            row_spinner = s.get("_row_loading_spinner")
+            w = s.get("_cached_w", 0)
+            if row_spinner and w:
+                try:
+                    cur_w, cur_h = os.get_terminal_size(sys.stdin.fileno())
+                except Exception:
+                    cur_w, cur_h = w, s.get("_cached_h", 0)
+
+                if cur_w == w and cur_h == s.get("_cached_h", 0):
+                    p_name = s.get("loading_provider_name", "")
+                    p_str = f" from {p_name}" if p_name else ""
+                    start_t = s.get("loading_start_time")
+                    elapsed = f" ({int(time.time() - start_t)}s)" if start_t else ""
+                    try:
+                        from .display import _spinner_style
+                        spin = spinner_frame(_spinner_style)
+                    except Exception:
+                        spin = spinner_frame()
+                    spin_line = f"\033[1;36m{spin} Loading stream{p_str}...{elapsed}\033[0m"
+                    sys.stdout.write(f"\033[{row_spinner};1H\033[2K{_fit_terminal_line(spin_line, w)}\033[?25l")
+                    sys.stdout.flush()
+                else:
+                    try:
+                        render(poster_manager=poster_manager, ui=ui)
+                    except Exception:
+                        pass
+            else:
+                try:
+                    render(poster_manager=poster_manager, ui=ui)
+                except Exception:
+                    pass
+            _ticker_stop_event.wait(0.1)
+
+    _ticker_thread = threading.Thread(target=_loop, daemon=True)
+    _ticker_thread.start()
+
+
+def stop_loading_ticker() -> None:
+    """Stop the background loading ticker thread."""
+    _ticker_stop_event.set()
+
+
 def deactivate(close_alt: bool = False) -> None:
     """Tear down the player overlay.
 
@@ -135,6 +205,7 @@ def deactivate(close_alt: bool = False) -> None:
         alt-screen mode).  Pass ``True`` when fully leaving the player,
         ``False`` when transitioning to the action menu.
     """
+    stop_loading_ticker()
     if close_alt:
         # Exit alt screen
         sys.stdout.write("\033[?1049l\033[?25h")
@@ -240,15 +311,49 @@ def render(
 
     show = s["show"]
     title = get_show_display_title(show) if show else "Unknown"
-    clean, sn, stype = _extract_title_parts(title)
+    alt_title = get_display_titles(show, title) if show else ""
 
-    info_bits = []
-    if sn:
-        info_bits.append(f"Season {sn}")
-    summary = _playback_episode_summary(show, s)
-    if summary:
-        info_bits.append(summary)
-    ep_str = " \u2022 ".join(info_bits)
+    # Target episode: e.g. "EP 1" or "EP 1/12"
+    target_ep = s.get("current_ep_label") or str(s.get("current_ep", "") or "")
+    total = _positive_int(show.get("episodeCount")) if isinstance(show, dict) else None
+
+    if target_ep:
+        target_ep_str = f"EP {target_ep}/{total}" if total else f"EP {target_ep}"
+    else:
+        target_ep_str = f"EP {total}" if total else ""
+
+    meta_parts = []
+    if isinstance(show, dict):
+        status_lbl = anilist_list_status_label(show) or anime_status_label(show)
+        if status_lbl:
+            meta_parts.append(status_lbl)
+
+    if target_ep_str:
+        meta_parts.append(f"\033[38;5;252m{target_ep_str}\033[38;5;248m")
+
+    anime_type = str(show.get("type") or show.get("format") or "").upper() if isinstance(show, dict) else ""
+    if anime_type and anime_type != "UNKNOWN":
+        meta_parts.append(anime_type)
+
+    def _ext_year(val):
+        if isinstance(val, dict): return val.get("year")
+        if isinstance(val, str):
+            import re
+            m = re.search(r'\b(20\d{2}|19\d{2})\b', val)
+            return m.group(1) if m else val
+        return None
+
+    if isinstance(show, dict):
+        years = format_years(_ext_year(show.get("airedStart")), _ext_year(show.get("airedEnd")), show.get("status"))
+        if years:
+            meta_parts.append(years)
+        score = show.get("score")
+        if score:
+            meta_parts.append(f"★ {score}")
+
+    meta_line = " \u2022 ".join(meta_parts)
+    next_air = format_next_airing(show) if isinstance(show, dict) else ""
+    next_air_line = f"\033[38;5;220m{next_air}\033[0m" if next_air else ""
 
     si = s.get("stream_info", {})
     mirror = si.get("mirror")
@@ -278,8 +383,20 @@ def render(
     except Exception:
         pass
 
+    # ── Unified Header ──
+    content.append("")
+    for tl in _wrap_title(title, w - 4, 2).splitlines():
+        content.append(f"\033[1;97m{tl}\033[0m")
+    if alt_title:
+        for atl in _wrap_title(alt_title, w - 4, 2).splitlines():
+            content.append(f"\033[38;5;248m{atl}\033[0m")
+    if meta_line:
+        content.append(f"\033[38;5;248m{meta_line}\033[0m")
+    if next_air_line:
+        content.append(next_air_line)
+
     if is_playing:
-        state_str = "\u258c\u258c Paused" if props.get("pause") else "\u25b6 Playing"
+        state_str = "\u23f8 Paused" if props.get("pause") else "\u25b6 Playing"
         pt_sec = props.get("playback-time", 0) or 0
         dur_sec = props.get("duration", 0) or 0
         rem_sec = dur_sec - pt_sec if dur_sec > 0 else 0
@@ -290,19 +407,14 @@ def render(
             time_line += f"  \u2022  -{_fmt_time(rem_sec)}"
 
         content.append("")
-        for tl in _wrap_title(clean, w - 4, 2).splitlines():
-            content.append(f"\033[1;97m{tl}\033[0m")
-        content.append("")
-        if ep_str:
-            content.append(f"\033[38;5;248m{ep_str}\033[0m")
-            content.append("")
         content.append(f"{SECTION_LABEL}CURRENTLY PLAYING{RESET}")
         label = s.get("current_ep_label") or str(s["current_ep"])
         from allmanga_cli.domain.episodes import episode_label
         ep_str = episode_label(label)
-        content.append(f"\033[38;5;250m{ep_str}\033[0m")
         if stream_str:
-            content.append(f"\033[38;5;248m{stream_str}\033[0m")
+            content.append(f"\033[38;5;250m{ep_str} \u2022 {stream_str}\033[0m")
+        else:
+            content.append(f"\033[38;5;250m{ep_str}\033[0m")
         content.append("")
         _idx_state = len(content)
         content.append(f"\033[1;36m{state_str}\033[0m")
@@ -349,17 +461,24 @@ def render(
         content.append("\033[38;5;244mQ Quit   Shift+Left Previous   Shift+Right Next\033[0m")
     else:
         content.append("")
-        for tl in _wrap_title(clean, w - 4, 2).splitlines():
-            content.append(f"\033[1;97m{tl}\033[0m")
-        content.append("")
-        if ep_str:
-            content.append(f"\033[38;5;248m{ep_str}\033[0m")
-            content.append("")
         content.append(f"{SECTION_LABEL}STATUS{RESET}")
-        content.append("\033[1;36mLoading stream...\033[0m")
+        p_name = s.get("loading_provider_name", "")
+        p_str = f" from {p_name}" if p_name else ""
+        start_t = s.get("loading_start_time")
+        elapsed = f" ({int(time.time() - start_t)}s)" if start_t else ""
+        try:
+            from .display import _spinner_style
+            spin = spinner_frame(_spinner_style)
+        except Exception:
+            spin = spinner_frame()
+        _idx_loading_spinner = len(content)
+        content.append(f"\033[1;36m{spin} Loading stream{p_str}...{elapsed}\033[0m")
         content.append("")
         for sl in s["status_lines"]:
             content.append(sl)
+        if s.get("countdown_message"):
+            content.append("")
+            content.append(s["countdown_message"])
 
     # --- Poster ---
     poster_raw = ""
@@ -411,17 +530,18 @@ def render(
     # ── Cache terminal size and dynamic row positions for partial render ──
     s["_cached_w"] = w
     s["_cached_h"] = h
+    poster_row_count = POSTER_HEIGHT if poster_raw else 0
+    content_start = poster_row_count + 1
     if is_playing:
-        # +1: terminal rows are 1-based; poster rows come first
-        poster_row_count = POSTER_HEIGHT if poster_raw else 0
-        content_start = poster_row_count + 1
         s["_row_state"] = content_start + _idx_state
         s["_row_bar"]   = content_start + _idx_bar
         s["_row_time"]  = content_start + _idx_time
+        s["_row_loading_spinner"] = None
     else:
         s["_row_state"] = None
         s["_row_bar"]   = None
         s["_row_time"]  = None
+        s["_row_loading_spinner"] = content_start + _idx_loading_spinner
 
 
 def update_mpv_props(props: dict | None) -> None:
@@ -446,7 +566,7 @@ def update_mpv_props(props: dict | None) -> None:
             cur_w, cur_h = w, s.get("_cached_h", 0)
 
         if cur_w == w and cur_h == s.get("_cached_h", 0):
-            state_str = "\u258c\u258c Paused" if props.get("pause") else "\u25b6 Playing"
+            state_str = "\u23f8 Paused" if props.get("pause") else "\u25b6 Playing"
             pt_sec  = props.get("playback-time", 0) or 0
             dur_sec = props.get("duration", 0) or 0
             rem_sec = dur_sec - pt_sec if dur_sec > 0 else 0
