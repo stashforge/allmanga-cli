@@ -212,6 +212,12 @@ def restore_terminal():
         sys.stdout.flush()
     except Exception:
         pass
+    try:
+        chapters_path = "/storage/emulated/0/Mpv/chapters.txt"
+        if os.path.exists(chapters_path):
+            os.remove(chapters_path)
+    except Exception:
+        pass
 
 
 atexit.register(restore_terminal)

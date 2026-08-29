@@ -126,11 +126,12 @@ def generate_chapters_file(skip_intervals: List[dict], filepath: str) -> str:
 
     if not skip_intervals:
         try:
-            with open(filepath, "w", encoding="utf-8") as f:
-                f.write(";FFMETADATA1\n")
+            import os
+            if os.path.exists(filepath):
+                os.remove(filepath)
         except Exception:
             pass
-        return filepath
+        return ""
 
     intervals = sorted(skip_intervals, key=lambda x: x["start"])
     points = []
