@@ -30,7 +30,7 @@ import termios
 import tty
 
 from ..context import FLAGS
-from ..core.storage import cover_cache_dir
+from ..core.storage import cover_cache_dir, cover_read_cache_dirs
 from . import terminal_images
 from .anilist_menu import loading_frame as _anilist_menu_loading_frame
 from .picker_render import (
@@ -104,6 +104,7 @@ def _request_poster_redraw():
 _poster_manager = PosterManager(
     enabled=lambda: bool(FLAGS.show_image),
     cache_dir=cover_cache_dir,
+    read_cache_dirs=cover_read_cache_dirs,
     hovered_show_id=_hovered_show_id,
     request_redraw=_request_poster_redraw,
     loading_frame=_configured_loading_frame,

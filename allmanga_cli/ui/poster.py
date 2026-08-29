@@ -22,17 +22,20 @@ class PosterManager:
             *,
             enabled,
             cache_dir,
+            read_cache_dirs=None,
             hovered_show_id,
             request_redraw,
             loading_frame):
         self.enabled = enabled
         self.cache_dir = cache_dir
+        self.read_cache_dirs = read_cache_dirs or (lambda: [cache_dir()])
         self.hovered_show_id = hovered_show_id
         self.request_redraw = request_redraw
         self.loading_frame = loading_frame
         self.poster_lock = threading.Lock()
         self.download_lock = threading.Lock()
         self.active_downloads = set()
+        self._raw_cache = {}
 
     def _mark_download(self, url_hash):
         with self.download_lock:
@@ -101,20 +104,43 @@ class PosterManager:
         with self.poster_lock:
             return show.get("_poster_status") == "loading"
 
+    @staticmethod
+    def _get_cover_url(show):
+        url = show.get("thumbnail") or show.get("image") or show.get("cover")
+        if not url or not isinstance(url, str):
+            return ""
+        url = url.strip()
+        if url.startswith("//"):
+            return f"https:{url}"
+        if url.startswith("mcovers/") or url.startswith("a_tbs/"):
+            return f"https://wp.youtube-anime.com/aln.youtube-anime.com/{url}"
+        return url
+
     def get(self, show):
         if not self.enabled():
             return None
-        if not show.get("thumbnail"):
+        url = self._get_cover_url(show)
+        if not url:
             self.set_status(show, "missing")
             return ""
         if not shutil.which("chafa"):
             self.set_status(show, "no_chafa")
             return ""
 
+        url_hash = hashlib.sha256(url.encode("utf-8")).hexdigest()[:32]
+
         with self.poster_lock:
+            cached_raw = self._raw_cache.get(url_hash)
+            if cached_raw is not None:
+                show["_poster_raw"] = cached_raw
+                show["_poster_status"] = "ready"
+                show["_poster_status_time"] = time.time()
+                return cached_raw
+
             if not show.get("_poster_failed"):
                 raw = show.get("_poster_raw")
                 if raw is not None:
+                    self._raw_cache[url_hash] = raw
                     show["_poster_status"] = "ready"
                     show["_poster_status_time"] = time.time()
                     return raw
@@ -123,45 +149,68 @@ class PosterManager:
             self.set_status(show, "failed")
             return ""
 
-        url = show["thumbnail"]
-        cache_dir = self.cache_dir()
-        url_hash = hashlib.sha256(url.encode("utf-8")).hexdigest()[:32]
-        cached_path = os.path.join(cache_dir, f"{url_hash}.jpg")
-        if os.path.exists(cached_path):
-            os.utime(cached_path, None)
-            try:
-                process = subprocess.run(
-                    chafa_cover_command(cached_path),
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                )
-                if process.returncode == 0 and process.stdout.strip():
-                    raw = process.stdout.rstrip("\n")
-                    with self.poster_lock:
-                        show["_poster_raw"] = raw
-                        show["_poster_status"] = "ready"
-                        show["_poster_status_time"] = time.time()
-                    return raw
-            except Exception:
-                pass
-            with self.poster_lock:
-                show["_poster_failed"] = True
-            self.set_status(show, "failed")
-            return ""
+        # Search existing covers across all read directories (incognito temp first, then main cache)
+        for r_dir in self.read_cache_dirs():
+            cached_ansi = os.path.join(r_dir, f"{url_hash}.ansi")
+            if os.path.exists(cached_ansi):
+                try:
+                    with open(cached_ansi, "r", encoding="utf-8") as f:
+                        raw = f.read()
+                    if raw.strip():
+                        with self.poster_lock:
+                            self._raw_cache[url_hash] = raw
+                            show["_poster_raw"] = raw
+                            show["_poster_status"] = "ready"
+                            show["_poster_status_time"] = time.time()
+                        return raw
+                except Exception:
+                    pass
 
+            cached_path = os.path.join(r_dir, f"{url_hash}.jpg")
+            if os.path.exists(cached_path):
+                try:
+                    os.utime(cached_path, None)
+                except Exception:
+                    pass
+                try:
+                    process = subprocess.run(
+                        chafa_cover_command(cached_path),
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
+                    )
+                    if process.returncode == 0 and process.stdout.strip():
+                        raw = process.stdout.rstrip("\n")
+                        try:
+                            with open(cached_ansi, "w", encoding="utf-8") as f:
+                                f.write(raw)
+                        except Exception:
+                            pass
+                        with self.poster_lock:
+                            self._raw_cache[url_hash] = raw
+                            show["_poster_raw"] = raw
+                            show["_poster_status"] = "ready"
+                            show["_poster_status_time"] = time.time()
+                        return raw
+                except Exception:
+                    pass
+
+        write_dir = self.cache_dir()
+        cached_path = os.path.join(write_dir, f"{url_hash}.jpg")
         self.set_status(show, "loading")
         if self._mark_download(url_hash):
             threading.Thread(
                 target=self._download,
-                args=(show, url, url_hash, cache_dir, cached_path),
+                args=(show, url, url_hash, write_dir, cached_path),
                 daemon=True,
             ).start()
         return ""
 
     def _download(self, show, url, url_hash, cache_dir, cached_path):
-        time.sleep(0.3)
-        if self.hovered_show_id() != show.get("_id"):
+        time.sleep(0.15)
+        hovered = self.hovered_show_id()
+        target_id = show.get("_id") or show.get("id") or show.get("title") or show.get("name")
+        if hovered and target_id and str(hovered) != str(target_id):
             self._unmark_download(url_hash)
             return
 
@@ -217,8 +266,16 @@ class PosterManager:
                 timeout=10,
             )
             if process.returncode == 0 and process.stdout.strip():
+                raw = process.stdout.rstrip("\n")
+                cached_ansi = os.path.join(cache_dir, f"{url_hash}.ansi")
+                try:
+                    with open(cached_ansi, "w", encoding="utf-8") as f:
+                        f.write(raw)
+                except Exception:
+                    pass
                 with self.poster_lock:
-                    show["_poster_raw"] = process.stdout.rstrip("\n")
+                    self._raw_cache[url_hash] = raw
+                    show["_poster_raw"] = raw
                     show["_poster_status"] = "ready"
                     show["_poster_status_time"] = time.time()
             else:

@@ -15,7 +15,7 @@ ANILIST_LISTS = (
 AUTH_ACTIONS = ("login", "logout", "status", "token")
 SHELLS = ("bash", "zsh", "fish")
 QUALITIES = ("best", "1080p", "720p", "480p")
-PLAYERS = ("mpv", "mpvex", "vlc", "next")
+PLAYERS = ("mpv", "mpvrex", "vlc", "next")
 PROVIDERS = tuple(sorted(available_providers()))
 COMMANDS = BASE_COMMANDS + PROVIDERS
 
@@ -23,19 +23,19 @@ ROOT_OPTIONS = ("-h", "--help", "--debug")
 SEARCH_OPTIONS = (
     "-e", "--episode", "-q", "--quality", "--dub", "-b", "--binge",
     "-p", "--player", "-s", "--sources", "--print-url", "-t", "--sync",
-    "--no-sync", "--cover", "--json", "-P", "--provider", "--incognito", "--debug", "-h",
+    "--no-sync", "--cover", "--no-cover", "--json", "-P", "--provider", "--incognito", "--debug", "-h",
     "--help",
 )
 DOWNLOAD_OPTIONS = (
     "-e", "--episode", "-q", "--quality", "--dub", "-s", "--sources",
-    "--cover", "-P", "--provider", "--debug", "-h", "--help",
+    "--cover", "--no-cover", "-P", "--provider", "--debug", "-h", "--help",
 )
 DOWNLOADS_OPTIONS = ("-p", "--player", "--debug", "-h", "--help")
-ANILIST_OPTIONS = ("--cover", "--json", "--incognito", "--debug", "-h", "--help")
+ANILIST_OPTIONS = ("--cover", "--no-cover", "--json", "--incognito", "--debug", "-h", "--help")
 RESUME_OPTIONS = (
     "-q", "--quality", "--dub", "-b", "--binge", "-p", "--player",
     "-s", "--sources", "--print-url", "-t", "--sync", "--no-sync",
-    "--cover", "--incognito", "--debug", "-h", "--help",
+    "--cover", "--no-cover", "--incognito", "--debug", "-h", "--help",
 )
 AUTH_OPTIONS = ("--raw", "--debug", "-h", "--help")
 COMPLETION_OPTIONS = ("install", "--debug", "-h", "--help")

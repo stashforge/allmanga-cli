@@ -375,6 +375,25 @@ def render(
     if w != s.get("_cached_w") or h != s.get("_cached_h"):
         s["_row_state"] = None  # force full render
 
+    # --- Poster ---
+    poster_raw = ""
+    if poster_manager is not None and show and getattr(poster_manager, "enabled", lambda: True)():
+        if ui is not None:
+            ui.hovered_show_id = show.get("_id") or show.get("id")
+            ui.hovered_show_obj = show
+        poster_raw = poster_manager.get(show) or ""
+
+    native_poster = poster_raw if _poster_uses_native_protocol(poster_raw) else ""
+    poster_key = (
+        hashlib.sha256(poster_raw.encode("utf-8", errors="ignore")).hexdigest()
+        if poster_raw
+        else None
+    )
+    poster_changed = poster_key != s.get("_last_poster_key")
+    s["_last_poster_key"] = poster_key
+    if native_poster and poster_changed:
+        terminal_images.mark_active()
+
     content = []
 
     try:
@@ -440,10 +459,7 @@ def render(
             description = re.sub(r"<[^>]+>", " ", description)
             description = re.sub(r"\s+", " ", description).strip()
             
-            # Calculate exactly how many lines we can safely print without causing the terminal to scroll.
-            # If the terminal scrolls, the poster image gets pushed off the screen!
-            has_poster = bool(show.get("thumbnail") or show.get("image"))
-            poster_rows = POSTER_HEIGHT if has_poster else 0
+            poster_rows = POSTER_HEIGHT if poster_raw else 0
             extra_padding = 5 if detail_lines else 4
             used_lines = poster_rows + len(content) + len(detail_lines) + extra_padding
             max_desc_lines = max(1, h - used_lines)
@@ -482,29 +498,9 @@ def render(
             content.append("")
             content.append(s["countdown_message"])
 
-    # --- Poster ---
-    poster_raw = ""
-    if poster_manager is not None and show:
-        if ui is not None:
-            ui.hovered_show_id = show.get("_id") or show.get("id")
-            ui.hovered_show_obj = show
-        poster_raw = poster_manager.get(show) or ""
-
-    native_poster = poster_raw if _poster_uses_native_protocol(poster_raw) else ""
-    poster_key = (
-        hashlib.sha256(poster_raw.encode("utf-8", errors="ignore")).hexdigest()
-        if poster_raw
-        else None
-    )
-    poster_changed = poster_key != s.get("_last_poster_key")
-    s["_last_poster_key"] = poster_key
-    if native_poster and poster_changed:
-        terminal_images.mark_active()
-    poster_lines = _poster_symbol_lines(poster_raw, POSTER_HEIGHT, w)
     out = []
-
-    has_poster = bool(show and (show.get("thumbnail") or show.get("image")))
-    if poster_raw or has_poster:
+    if poster_raw:
+        poster_lines = _poster_symbol_lines(poster_raw, POSTER_HEIGHT, w)
         for row in range(POSTER_HEIGHT):
             line = poster_lines[row] if row < len(poster_lines) else ""
             if line:

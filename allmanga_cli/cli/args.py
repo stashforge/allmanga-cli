@@ -215,9 +215,9 @@ def _add_search_options(parser):
     playback.add_argument("-b", "--binge", action="store_true", help="Continue through episodes")
     playback.add_argument(
         "-p", "--player",
-        choices=["mpv", "mpvex", "vlc", "next"],
+        choices=["mpv", "mpvrex", "vlc", "next"],
         metavar="PLAYER",
-        help="Player: mpv, mpvex, vlc, next",
+        help="Player: mpv, mpvrex, vlc, next",
     )
     playback.add_argument(
         "-s", "--sources", action="store_true",
@@ -240,7 +240,8 @@ def _add_search_options(parser):
     )
 
     output = parser.add_argument_group("Output options")
-    output.add_argument("--cover", action="store_true", help="Show cover images")
+    output.add_argument("--cover", dest="cover", action="store_true", default=None, help="Show cover images")
+    output.add_argument("--no-cover", dest="cover", action="store_false", help="Do not show cover images")
     output.add_argument("--json", action="store_true", help="Print search results as JSON")
     output.add_argument("--history", dest="show_search_history", action="store_true", help="Print search history and exit")
     output.add_argument("--clear-history", dest="clear_search_history", action="store_true", help="Clear search history and exit")
@@ -280,7 +281,8 @@ def _add_download_options(parser):
         help="Downloader to use: auto (default), yt-dlp, ffmpeg",
     )
     output = parser.add_argument_group("Output options")
-    output.add_argument("--cover", action="store_true", help="Show cover images")
+    output.add_argument("--cover", dest="cover", action="store_true", default=None, help="Show cover images")
+    output.add_argument("--no-cover", dest="cover", action="store_false", help="Do not show cover images")
     _add_provider_option(output)
     global_options = parser.add_argument_group("Global options")
     _add_debug_option(global_options, suppress_default=True)
@@ -291,7 +293,8 @@ def _add_download_options(parser):
 
 def _add_anilist_options(parser, *, search=False):
     output = parser.add_argument_group("Output options")
-    output.add_argument("--cover", action="store_true", help="Show cover images")
+    output.add_argument("--cover", dest="cover", action="store_true", default=None, help="Show cover images")
+    output.add_argument("--no-cover", dest="cover", action="store_false", help="Do not show cover images")
     output.add_argument("--json", action="store_true", help="Print results as JSON")
     global_options = parser.add_argument_group("Global options")
     global_options.add_argument(
@@ -315,9 +318,9 @@ def _add_resume_options(parser):
     playback.add_argument("-b", "--binge", action="store_true", help="Continue through episodes")
     playback.add_argument(
         "-p", "--player",
-        choices=["mpv", "mpvex", "vlc", "next"],
+        choices=["mpv", "mpvrex", "vlc", "next"],
         metavar="PLAYER",
-        help="Player: mpv, mpvex, vlc, next",
+        help="Player: mpv, mpvrex, vlc, next",
     )
     playback.add_argument(
         "-s", "--sources", action="store_true",
@@ -340,7 +343,8 @@ def _add_resume_options(parser):
     )
 
     output = parser.add_argument_group("Output options")
-    output.add_argument("--cover", action="store_true", help="Show cover images")
+    output.add_argument("--cover", dest="cover", action="store_true", default=None, help="Show cover images")
+    output.add_argument("--no-cover", dest="cover", action="store_false", help="Do not show cover images")
 
     global_options = parser.add_argument_group("Global options")
     global_options.add_argument(
@@ -471,9 +475,9 @@ def build_command_parser():
     playback = downloads.add_argument_group("Playback options")
     playback.add_argument(
         "-p", "--player",
-        choices=["mpv", "mpvex", "vlc", "next"],
+        choices=["mpv", "mpvrex", "vlc", "next"],
         metavar="PLAYER",
-        help="Player: mpv, mpvex, vlc, next",
+        help="Player: mpv, mpvrex, vlc, next",
     )
     global_options = downloads.add_argument_group("Global options")
     _add_debug_option(global_options, suppress_default=True)

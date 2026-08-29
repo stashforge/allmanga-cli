@@ -8,6 +8,7 @@ from allmanga_cli.core import streams
 from allmanga_cli.ui.picker import tui_pick
 
 import os
+import sys
 import re
 import time
 from typing import TYPE_CHECKING, Any
@@ -432,22 +433,47 @@ def handle_play_state(
                             if _player_ui_state["status_lines"] and _player_ui_state["status_lines"][-1] != "":
                                 _player_ui_state["status_lines"].append("")
                             _player_ui_state["status_lines"].append(skip_msg)
+                            try:
+                                from ..ui.player_screen import render as _render
+                                _render(poster_manager=getattr(app_core, "_poster_manager", None), ui=ui)
+                            except Exception:
+                                pass
 
                     if app_core.is_termux() and aniskip_enabled:
                         if not cfg.get("aniskip_android_hint_dismissed", False) and not getattr(ui, "aniskip_android_hint_shown", False):
                             ui.aniskip_android_hint_shown = True
-                            app_core._exit_player_screen(close_alt=False)
-                            print()
-                            print(f"\033[1;36mAniSkip on Android (MPV):\033[0m")
-                            print(f"  \033[38;5;250m• Auto-skip is not supported via Android intents.\033[0m")
-                            print(f"  \033[38;5;250m• To view chapter marks on the seekbar, add this line to /storage/emulated/0/Mpv/mpv.conf:\033[0m")
-                            print(f"    \033[1;33mchapters-file=/storage/emulated/0/Mpv/chapters.txt\033[0m")
-                            print()
                             try:
-                                choice = input("\033[1;97m[y=Don't show again, n=Disable AniSkip, s=Skip for now] (s): \033[0m").strip().lower()
+                                from ..ui.player_screen import stop_loading_ticker
+                                stop_loading_ticker()
+                            except Exception:
+                                pass
+
+                            # Switch to dedicated alt screen buffer and restore terminal echo for prompt
+                            sys.stdout.write("\033[?1049h\033[2J\033[H\033[?25h")
+                            sys.stdout.flush()
+
+                            orig_termios = None
+                            try:
+                                if sys.stdin.isatty():
+                                    import termios
+                                    orig_termios = termios.tcgetattr(sys.stdin.fileno())
+                                    from ..ui.display import _INITIAL_TERMIOS_ATTRS
+                                    if _INITIAL_TERMIOS_ATTRS is not None:
+                                        termios.tcflush(sys.stdin.fileno(), termios.TCIFLUSH)
+                                        termios.tcsetattr(sys.stdin.fileno(), termios.TCSANOW, _INITIAL_TERMIOS_ATTRS)
+                            except Exception:
+                                pass
+
+                            print("\033[1;36mAniSkip on Android (MPV)\033[0m\n")
+                            print("  \033[38;5;250m• Auto-skip is not supported via Android intents.\033[0m")
+                            print("  \033[38;5;250m• To view chapter marks on the seekbar, add this line to /storage/emulated/0/Mpv/mpv.conf:\033[0m")
+                            print("    \033[1;33mchapters-file=/storage/emulated/0/Mpv/chapters.txt\033[0m\n")
+
+                            try:
+                                choice = input("\033[1;97m[y = Don't show again, n = Disable AniSkip, s = Skip for now] (s): \033[0m").strip().lower()
                             except (EOFError, KeyboardInterrupt):
                                 choice = "s"
-                            print()
+
                             if choice in ("y", "yes"):
                                 cfg["aniskip_android_hint_dismissed"] = True
                                 app_core.save_config(cfg)
@@ -455,6 +481,22 @@ def handle_play_state(
                                 cfg["aniskip_enabled"] = False
                                 aniskip_enabled = False
                                 app_core.save_config(cfg)
+
+                            try:
+                                if sys.stdin.isatty() and orig_termios is not None:
+                                    import termios
+                                    termios.tcsetattr(sys.stdin.fileno(), termios.TCSANOW, orig_termios)
+                            except Exception:
+                                pass
+
+                            # Clear dialog screen, re-render player screen before countdown
+                            sys.stdout.write("\033[2J\033[H\033[?25l")
+                            sys.stdout.flush()
+                            try:
+                                from ..ui.player_screen import render as _render
+                                _render(poster_manager=getattr(app_core, "_poster_manager", None), ui=ui)
+                            except Exception:
+                                pass
 
                     for sec in (3, 2, 1):
                         _player_ui_state["countdown_message"] = f"\033[1;92m▶ Starting '{stream_name}'{res_str} in {sec}s ...\033[0m"
@@ -610,11 +652,10 @@ def handle_play_state(
     is_binge = args.binge or cfg.get("binge", False)
 
     if app_core.is_termux():
-        player = args.player or cfg.get("player","mpv")
-        if player=="mpv" and not args.player:
-            if (not app_core.pkg_installed("is.xyz.mpv")
-                    and app_core.pkg_installed("app.marlboroadvance.mpvex")):
-                player = "mpvex"
+        player = args.player or cfg.get("player", "mpvrex" if app_core.pkg_installed("xyz.mpv.rex") and not app_core.pkg_installed("is.xyz.mpv") else "mpv")
+        if player == "mpv" and not args.player:
+            if not app_core.pkg_installed("is.xyz.mpv") and app_core.pkg_installed("xyz.mpv.rex"):
+                player = "mpvrex"
 
         aniskip_enabled = getattr(args, "aniskip", None)
         if aniskip_enabled is None:

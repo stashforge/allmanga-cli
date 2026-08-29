@@ -16,10 +16,7 @@ from ..media.urls import validate_optional_referer, validate_stream_url
 
 PLAYERS = {
     "mpv": ("is.xyz.mpv", "is.xyz.mpv.MPVActivity"),
-    "mpvex": (
-        "app.marlboroadvance.mpvex",
-        ".ui.player.PlayerActivity",
-    ),
+    "mpvrex": ("xyz.mpv.rex", None),
     "vlc": (
         "org.videolan.vlc",
         "org.videolan.vlc.gui.video.VideoPlayerActivity",
@@ -149,7 +146,7 @@ def play_android(
                 title=media_title,
             )
             replace_active_local_proxy(proxy_server)
-            intent_type = "application/vnd.apple.mpegurl"
+            intent_type = "video/*"
         except Exception as exc:
             _error(f"Could not prepare split audio stream: {exc}")
             return False
@@ -167,7 +164,7 @@ def play_android(
                 title=media_title,
             )
             replace_active_local_proxy(proxy_server)
-            intent_type = "application/vnd.apple.mpegurl"
+            intent_type = "video/*"
         except Exception as exc:
             _error(f"Could not prepare Dailymotion stream: {exc}")
             return False
@@ -175,17 +172,6 @@ def play_android(
             stream.get("dash_video")
             or (stream.get("split_video_url") and stream.get("split_audio_url"))
             or (stream.get("dailymotion_video") and stream.get("dailymotion_audio"))):
-        # Always proxy everything else, unconditionally -- do NOT gate this
-        # on stream.get("type") == "hls". start_local_proxy auto-detects
-        # playlists vs plain files from the ACTUAL response (URL/Content-Type
-        # at fetch time), so it doesn't need to be told in advance. Branching
-        # on a metadata "type" string is fragile: if an extractor labels a
-        # stream anything other than the exact string "hls", it silently
-        # falls through with NO proxying and NO error, handing the player
-        # the raw origin URL with no header control at all. Always calling
-        # start_local_proxy here removes that failure mode entirely and
-        # matches how the aiohttp prototype behaved (always proxy, let the
-        # response itself decide rewrite vs passthrough).
         _info(f"{player}: starting local HTTP proxy...")
         try:
             url, proxy_server = start_local_proxy(
@@ -196,8 +182,7 @@ def play_android(
                 title=media_title,
             )
             replace_active_local_proxy(proxy_server)
-            if url.lower().endswith(".m3u8"):
-                intent_type = "application/x-mpegURL"
+            intent_type = "video/*"
         except Exception as exc:
             _error(f"Could not start local stream proxy: {exc}")
             return False
@@ -212,12 +197,16 @@ def play_android(
         url,
         "-t",
         intent_type,
-        "-n",
-        f"{package}/{activity}",
+    ]
+    if activity:
+        command.extend(["-n", f"{package}/{activity}"])
+    else:
+        command.extend(["-p", package])
+    command.extend([
         "--es",
         "title",
         media_title,
-    ]
+    ])
 
     launched = False
     try:
@@ -230,7 +219,31 @@ def play_android(
             _ok(f"{player} opened.")
             launched = True
         else:
-            _error(f"Could not open {player}.")
+            fallback_cmd = [
+                "am",
+                "start",
+                "-a",
+                "android.intent.action.VIEW",
+                "-d",
+                url,
+                "-t",
+                intent_type,
+                "-p",
+                package,
+                "--es",
+                "title",
+                media_title,
+            ]
+            r2 = subprocess.run(
+                fallback_cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            if r2.returncode == 0:
+                _ok(f"{player} opened.")
+                launched = True
+            else:
+                _error(f"Could not open {player}.")
     except Exception as exc:
         _error(f"Could not open {player}: {exc}")
     if not launched and proxy_server is not None:

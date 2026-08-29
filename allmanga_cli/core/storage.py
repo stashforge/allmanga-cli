@@ -107,13 +107,31 @@ def cleanup_incognito_cache():
 
 
 def cover_cache_dir():
+    """Return the directory to write new cover downloads into."""
     global _incognito_cache_dir
     if not is_incognito():
-        return os.path.expanduser("~/.cache/allmanga-cli/covers/")
+        path = os.path.expanduser("~/.cache/allmanga-cli/covers/")
+        try:
+            os.makedirs(path, exist_ok=True)
+        except Exception:
+            pass
+        return path
     if not _incognito_cache_dir:
         _incognito_cache_dir = tempfile.mkdtemp(prefix="allmanga-cli-incognito-")
         os.chmod(_incognito_cache_dir, 0o700)
     return _incognito_cache_dir
+
+
+def cover_read_cache_dirs():
+    """Return all directories to read existing covers from (temp first in incognito, then main cache)."""
+    dirs = []
+    global _incognito_cache_dir
+    if is_incognito() and _incognito_cache_dir and os.path.exists(_incognito_cache_dir):
+        dirs.append(_incognito_cache_dir)
+    main_dir = os.path.expanduser("~/.cache/allmanga-cli/covers/")
+    if os.path.exists(main_dir):
+        dirs.append(main_dir)
+    return dirs
 
 
 # ---------------------------------------------------------------------------

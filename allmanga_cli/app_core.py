@@ -1900,7 +1900,10 @@ def main():
         args.no_sync = True
     runtime_flags.sync_force_on = bool(args.sync and not args.no_sync)
     runtime_flags.sync_force_off = bool(args.no_sync)
-    runtime_flags.show_image = args.cover or cfg.get("cover", False)
+    if getattr(args, "cover", None) is not None:
+        runtime_flags.show_image = bool(args.cover)
+    else:
+        runtime_flags.show_image = bool(cfg.get("cover", False))
 
     if args.json:
         q = " ".join(args.query)
