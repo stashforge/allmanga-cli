@@ -17,13 +17,13 @@ orchestrator/picker state owned by app_core (the app layer writes
 it, so it reads through the hook instead of display importing upward.
 
 Alt-screen state is mutated from outside (picker enters the alt screen
-itself, the verification page toggles it around browser hand-off) — those
-callers use :func:`set_alt_screen_active` rather than poking module
+itself) — those callers use :func:`set_alt_screen_active` rather than poking module
 globals, so there is exactly one owner of the flag.
 """
 
 import atexit
 import os
+import re
 import sys
 import threading
 import termios
@@ -126,16 +126,20 @@ def clear_terminal_images():
 
 
 def _poster_footer_line(show, default_text, width):
-    # Inject Provider name into the footer line!
+    # If default_text is a toast feedback message (not navigation shortcuts), show only the message
+    clean_text = re.sub(r'\033\[[0-9;]*m', '', str(default_text or "")).strip()
+    is_nav_footer = any(k in clean_text for k in ("Enter=", "Enter/Right=", "Left=", "Left/Esc=", "result(s)"))
+    if not is_nav_footer or clean_text.startswith('*') or clean_text.startswith('✓'):
+        return _poster_manager.footer_line(show, default_text, width)
+
+    # Inject Provider name into navigation footer line only when show is actually linked to a provider
     provider_name = ""
-    if show and isinstance(show, dict):
-        provider_name = (show.get("_provider_name") or show.get("provider_name") or show.get("_provider") or "").title()
-        
-    if provider_name and provider_name not in default_text and not default_text.startswith(f"{len(show.get('episodes', []))} result(s)"):
-        # The search UI already injects the provider name via _footer_parts
-        # For all other screens, we prepend it here
-        default_text = f"{provider_name} | {default_text}"
-        
+    if show and isinstance(show, dict) and show.get("_provider") and show.get("_has_provider_link") is not False:
+        provider_name = show.get("_provider_name") or (show.get("_provider") or "").title()
+
+    if provider_name and provider_name not in default_text and "result(s)" not in default_text:
+        default_text = f"{provider_name} • {default_text}"
+
     return _poster_manager.footer_line(show, default_text, width)
 
 
@@ -156,7 +160,7 @@ _alt_screen_active = False
 
 
 def set_alt_screen_active(active):
-    """External callers (picker, verification page) record alt-screen state
+    """External callers (e.g. picker) record alt-screen state
     changes they perform themselves."""
     global _alt_screen_active
     _alt_screen_active = bool(active)
@@ -235,24 +239,41 @@ def with_loading(msg, fn, *args, **kwargs):
     except OSError:
         w, h = 80, 24
 
+    current_msg = [str(msg)]
+
+    def set_status(new_msg):
+        if new_msg:
+            current_msg[0] = str(new_msg)
+
     fd = sys.stdin.fileno()
     old = termios.tcgetattr(fd)
     result = {}
 
     def _runner():
         try:
+            import inspect
+            try:
+                sig = inspect.signature(fn)
+                if "status_cb" in sig.parameters:
+                    kwargs["status_cb"] = set_status
+            except Exception:
+                pass
             result["value"] = fn(*args, **kwargs)
         except BaseException as exc:
             result["error"] = exc
 
     try:
-        tty.setcbreak(fd)
+        termios.tcflush(fd, termios.TCIFLUSH)
+        cbreak_attr = termios.tcgetattr(fd)
+        cbreak_attr[3] = cbreak_attr[3] & ~(termios.ECHO | termios.ICANON)
+        termios.tcsetattr(fd, termios.TCSANOW, cbreak_attr)
+
         thread = threading.Thread(target=_runner, daemon=True)
         thread.start()
         while thread.is_alive():
             sys.stdout.write(
                 f"\033[{h};1H\033[2K"
-                f"{_loading_line(msg, w, spinner_style)}"
+                f"{_loading_line(current_msg[0], w, spinner_style)}"
                 "\033[?25l"
             )
             sys.stdout.flush()

@@ -7,7 +7,7 @@ import logging
 import urllib.parse
 from typing import Any
 
-from ..core.api import ProviderVerificationRequired, SearchFailure
+from ..core.api import SearchFailure
 from ..domain.episodes import normalize_episode_ids
 from ..media.decryption import decrypt_tobeparsed
 from ..media.urls import validate_http_url
@@ -150,10 +150,8 @@ def get_episode_data(request_json, show_id, episode, ttype="sub"):
             "Referer": "https://allmanga.to/",
         },
     )
-    if _needs_browser_verification(response):
-        raise ProviderVerificationRequired(
-            "AllAnime requires browser verification."
-        )
+    if not response or response.get("errors"):
+        return None
     raw = response.get("data", {}).get("tobeparsed")
     if not raw:
         episode_data = response.get("data", {}).get("episode") or {}
@@ -163,19 +161,13 @@ def get_episode_data(request_json, show_id, episode, ttype="sub"):
     decoded = decrypt_tobeparsed(raw)
     return json.loads(decoded) if decoded else None
 
-def _needs_browser_verification(response):
-    for error in response.get("errors") or []:
-        message = str((error or {}).get("message") or "").upper()
-        if "CAPTCHA" in message or "VERIFICATION" in message:
-            return True
-    return False
-
 def get_clock_links(request_json, path):
     return request_json(f"https://{CLOCK_BASE}{path}").get("links", [])
 
 
 class AllAnimeProvider:
     id = "allanime"
+    audio_mode = "separate_catalogs"
 
     def __init__(self, request_json_fn=request_json):
         self._request_json = request_json_fn

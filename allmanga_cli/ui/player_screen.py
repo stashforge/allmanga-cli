@@ -324,18 +324,29 @@ def render(
     else:
         target_ep_str = f"EP {total}" if total else ""
 
+    ttype = s.get("ttype") or (getattr(ui, "ui_ttype_ctx", None) if ui else None) or "sub"
+
     meta_parts = []
     if isinstance(show, dict):
         status_lbl = anilist_list_status_label(show) or anime_status_label(show)
         if status_lbl:
             meta_parts.append(status_lbl)
 
-    if target_ep_str:
-        meta_parts.append(f"\033[38;5;252m{target_ep_str}\033[38;5;248m")
-
     anime_type = str(show.get("type") or show.get("format") or "").upper() if isinstance(show, dict) else ""
     if anime_type and anime_type != "UNKNOWN":
         meta_parts.append(anime_type)
+
+    if ttype:
+        meta_parts.append(str(ttype).upper())
+
+    if target_ep_str:
+        meta_parts.append(f"\033[38;5;252m{target_ep_str}\033[38;5;248m")
+
+    if isinstance(show, dict):
+        from ..domain.metadata import format_available_episodes
+        avail_str = format_available_episodes(show, ttype)
+        if avail_str:
+            meta_parts.append(avail_str)
 
     def _ext_year(val):
         if isinstance(val, dict): return val.get("year")
@@ -355,7 +366,7 @@ def render(
 
     meta_line = " \u2022 ".join(meta_parts)
     next_air = format_next_airing(show) if isinstance(show, dict) else ""
-    next_air_line = f"\033[38;5;220m{next_air}\033[0m" if next_air else ""
+    next_air_line = f"\033[38;5;117m{next_air}\033[0m" if next_air else ""
 
     si = s.get("stream_info", {})
     mirror = si.get("mirror")

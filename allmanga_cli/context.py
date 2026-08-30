@@ -107,6 +107,9 @@ class UiState:
     ui_ttype_ctx: str = "sub"
     """Translation type (``"sub"`` or ``"dub"``) for the current show."""
 
+    ui_provider_ctx: str = "miruro"
+    """Active streaming provider ID."""
+
     # Persistent filter / sort prefs (survive state transitions)
     history_filter: str = "Active"
     """Current history filter mode: ``"Active"``, ``"Completed"``, or ``"All"``."""

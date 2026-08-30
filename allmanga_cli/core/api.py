@@ -15,10 +15,6 @@ class SearchFailure(RuntimeError):
     pass
 
 
-class ProviderVerificationRequired(RuntimeError):
-    pass
-
-
 class ProviderDependencyError(RuntimeError):
     pass
 

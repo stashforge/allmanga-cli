@@ -133,21 +133,49 @@ def clear_pending_completion(preferences, show_id):
 
 
 def anilist_match(preferences, anilist_id):
-    return preferences.get(f"al:{anilist_id}", {}).get("al_match", {})
+    entry = preferences.get(f"al:{anilist_id}", {})
+    return entry.get("al_match", {})
 
 
 def save_anilist_match(preferences, anilist_id, source_show):
-    key = f"al:{anilist_id}"
+    al_id = str(anilist_id or "")
+    if not al_id:
+        return preferences
+
+    key = f"al:{al_id}"
     current = preferences.get(key, {})
+    current.pop("provider_matches", None)  # Purge any legacy bloated maps
+
+    provider = str(source_show.get("_provider") or source_show.get("provider") or "").lower()
+    source_id = str(source_show.get("_id") or source_show.get("id") or "")
+    title_name = source_show.get("name") or source_show.get("englishName") or ""
+    match_source = source_show.get("_match_source") or "unknown"
+
+    # Clean old reverse provider link if switching to a new provider show
+    old_match = current.get("al_match", {})
+    old_sid = str(old_match.get("_id") or "")
+    if old_sid and old_sid != source_id and old_sid in preferences:
+        preferences[old_sid].pop("anilist_match", None)
+
+    # 1:1 Minimal Essential Record for AniList -> Provider
     current["al_match"] = {
-        "_id": source_show.get("_id"),
-        "name": source_show.get("name", ""),
-        "englishName": source_show.get("englishName", ""),
-        "thumbnail": source_show.get("thumbnail"),
-        "aniListId": source_show.get("aniListId") or "",
-        "match_source": source_show.get("_match_source") or "unknown",
+        "_id": source_id,
+        "_provider": provider,
+        "name": title_name,
+        "match_source": match_source,
     }
     preferences[key] = current
+
+    # 1:1 Minimal Reverse Record for Provider -> AniList
+    if source_id:
+        p_current = preferences.get(source_id, {})
+        p_current["anilist_match"] = {
+            "_id": al_id,
+            "name": title_name,
+            "match_source": match_source,
+        }
+        preferences[source_id] = p_current
+
     return preferences
 
 
@@ -156,24 +184,20 @@ def source_anilist_match(preferences, show_id):
 
 
 def save_source_anilist_match(preferences, source_show, anilist_show):
-    show_id = str((source_show or {}).get("_id") or "")
-    anilist_id = str((anilist_show or {}).get("_id") or "")
+    show_id = str((source_show or {}).get("_id") or (source_show or {}).get("id") or "")
+    anilist_id = str((anilist_show or {}).get("_id") or (anilist_show or {}).get("id") or "")
     if not show_id or not anilist_id:
         return preferences
-    current = preferences.get(show_id, {})
-    current["anilist_match"] = {
-        "_id": anilist_id,
-        "name": anilist_show.get("name", ""),
-        "englishName": anilist_show.get("englishName", ""),
-        "match_source": source_show.get("_match_source") or "unknown",
-    }
-    preferences[show_id] = current
     return save_anilist_match(preferences, anilist_id, source_show)
 
 
 def clear_anilist_match(preferences, anilist_id):
     key = f"al:{anilist_id}"
     if key in preferences:
+        old_match = preferences[key].get("al_match", {})
+        old_sid = str(old_match.get("_id") or "")
+        if old_sid and old_sid in preferences:
+            preferences[old_sid].pop("anilist_match", None)
         preferences[key].pop("al_match", None)
         if not preferences[key]:
             del preferences[key]

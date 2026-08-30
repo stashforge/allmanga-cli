@@ -18,6 +18,7 @@ except Exception:
 
 
 _SKIPPED_MODULES = {"shared"}
+_DISABLED_PROVIDERS = {"senshi", "allanime"}
 _DEFAULT_PROVIDER_ID = "miruro"
 
 
@@ -58,15 +59,17 @@ def discover_provider_factories(
         module = importlib.import_module(f"{package_name}.{name}")
         for provider_class in _provider_classes_from_module(module):
             provider_id = str(provider_class.id).casefold()
+            if provider_id in _DISABLED_PROVIDERS:
+                continue
             factories[provider_id] = provider_class
     return factories
 
 
 PROVIDER_FACTORIES = discover_provider_factories()
 if _DEFAULT_PROVIDER_ID not in PROVIDER_FACTORIES:
-    from .allanime import AllAnimeProvider
+    from .miruro import MiruroProvider
 
-    PROVIDER_FACTORIES[_DEFAULT_PROVIDER_ID] = AllAnimeProvider
+    PROVIDER_FACTORIES[_DEFAULT_PROVIDER_ID] = MiruroProvider
 
 PROVIDERS = {
     provider_id: factory()
@@ -94,9 +97,23 @@ def get_provider_registry() -> Dict[str, Any]:
     return PROVIDER_REGISTRY
 
 
+def is_provider_active(provider_id: str) -> bool:
+    if not provider_id:
+        return False
+    key = str(provider_id).casefold()
+    if key in _DISABLED_PROVIDERS or key not in PROVIDERS:
+        return False
+    status = PROVIDER_REGISTRY.get(key, {}).get("status", "active")
+    if status in ("broken", "disabled", "deprecated"):
+        return False
+    return True
+
+
 def provider_key(provider_id=_DEFAULT_PROVIDER_ID):
     key = str(provider_id or "").casefold()
-    return key if key in PROVIDERS else _DEFAULT_PROVIDER_ID
+    if is_provider_active(key):
+        return key
+    return _DEFAULT_PROVIDER_ID
 
 
 def get_provider(provider_id=_DEFAULT_PROVIDER_ID, request_json_fn=None):
@@ -112,3 +129,22 @@ def get_provider(provider_id=_DEFAULT_PROVIDER_ID, request_json_fn=None):
         inst.metadata = {}
         inst.domains = []
     return inst
+
+
+def provider_translation_capability(
+    provider_id: str,
+    show: dict[str, Any] | None = None,
+    current_ttype: str = "sub",
+    target_ttype: str = "dub",
+) -> tuple[bool, str | None]:
+    prov = get_provider(provider_id)
+    if hasattr(prov, "translation_switch_capability") and callable(prov.translation_switch_capability):
+        return prov.translation_switch_capability(show, current_ttype, target_ttype)
+
+    audio_mode = getattr(prov, "audio_mode", "separate_catalogs")
+    p_name = getattr(prov, "name", str(provider_id).title())
+    if audio_mode == "embedded_multi_audio":
+        return False, "Multi-audio embedded in stream. Switch audio inside player (# in mpv)."
+    if audio_mode == "sub_only":
+        return False, f"Releases are sub-only on {p_name}."
+    return True, None

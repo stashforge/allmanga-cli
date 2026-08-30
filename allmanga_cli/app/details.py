@@ -4,6 +4,7 @@ Details and Update state handlers for allmanga-cli.
 
 from __future__ import annotations
 import os
+import time
 import decimal
 from typing import TYPE_CHECKING, Any
 from allmanga_cli import app_core
@@ -41,24 +42,39 @@ def handle_details_state(
     s = ui.ui_show_ctx
     ttype_local = ui.ui_ttype_ctx
 
-    _just_entered = ms.just_picked_anime
-    if _just_entered:
+    has_provider_link = bool(s.get("_provider") and s.get("_has_provider_link") is not False)
+    _just_entered = bool(ms.just_picked_anime)
+    if _just_entered and has_provider_link:
         if s.get("_id") and ui.search_prev_state in (
             "HISTORY", "SEARCH", "ANILIST_SEARCH", "ANILIST_BROWSE", "ANILIST_AIRING"
         ):
             if s.get("_episode_catalog_state") != "loaded":
                 entry = {"show": s, "translation_type": ttype_local}
                 app_core.with_loading(
-                    "Fetching episode catalog...",
+                    "Loading episodes…",
                     app_core.refresh_history_entry_allanime_catalog,
                     entry
                 )
-        ms.just_picked_anime = False
 
-    episode_ids = app_core.ensure_episode_ids(s, ttype_local)
-    ms.total_eps = len(episode_ids) or ms.total_eps
+    if has_provider_link:
+        episode_ids = app_core.ensure_episode_ids(s, ttype_local)
+        if not episode_ids and ttype_local in ("dub", "sub"):
+            alt_ttype = "sub" if ttype_local == "dub" else "dub"
+            alt_ids = app_core.ensure_episode_ids(s, alt_ttype)
+            if alt_ids:
+                missing_mode = ttype_local.upper()
+                ttype_local = alt_ttype
+                ui.ui_ttype_ctx = ttype_local
+                episode_ids = alt_ids
+                app_core.set_action_feedback(
+                    s,
+                    f"{missing_mode} unavailable • Switched to {ttype_local.upper()}"
+                )
+    else:
+        episode_ids = []
+    ms.total_eps = len(episode_ids) or (ms.total_eps if has_provider_link else 0)
 
-    if _just_entered and s.get("_id"):
+    if _just_entered and s.get("_id") and has_provider_link:
         app_core.patch_history_entry_show(s.get("_id"), ttype_local, s)
 
     ms.current_ep_index = episode_index_for_id(
@@ -73,22 +89,44 @@ def handle_details_state(
         "ANILIST_BROWSE", "ANILIST_SEARCH", "ANILIST_AIRING"
     )
     s["_anilist_context"] = from_anilist_context
-    use_anilist = bool(resolve_tracking_fn(ui.search_prev_state, args, cfg, s) and app_core.get_show_anilist_id(s))
 
     has_token = bool(cfg.get("anilist_token")) and not flags.incognito_mode
-    has_anilist_link = bool(app_core.get_show_anilist_id(s))
+    sync_enabled_flag = bool(args.sync and not args.no_sync)
 
+    if has_token and sync_enabled_flag and not from_anilist_context:
+        if _just_entered or not app_core.get_show_anilist_id(s):
+            matched = app_core.with_loading(
+                "Finding AniList match…",
+                app_core.match_allanime_show_to_anilist,
+                flags,
+                ui,
+                s,
+                cfg["anilist_token"],
+                False,
+            )
+            if not matched:
+                matched = app_core._run_manual_anilist_match(
+                    flags, ui, s, cfg["anilist_token"]
+                )
+            if matched:
+                s = matched
+                ui.ui_show_ctx = s
+                s["_anilist_media_synced"] = True
+
+    use_anilist = bool(resolve_tracking_fn(ui.search_prev_state, args, cfg, s) and (app_core.get_show_anilist_id(s) or s.get("_id")))
+    has_anilist_link = bool(app_core.get_show_anilist_id(s))
     should_use_anilist_data = has_token and has_anilist_link and (from_anilist_context or use_anilist)
 
-    if should_use_anilist_data:
+    if should_use_anilist_data and not s.get("_anilist_media_synced"):
         media = app_core.with_loading(
-            "Refreshing AniList entry…",
+            "Syncing AniList data…",
             app_core.fetch_anilist_media,
             cfg.get("anilist_token"),
             app_core.get_show_anilist_id(s),
         )
         if media:
             app_core.update_anime_from_anilist_media(s, media)
+        s["_anilist_media_synced"] = True
 
     if from_anilist_context:
         s.pop("_sync_conflict", None)
@@ -215,14 +253,20 @@ def handle_details_state(
 
     if episode_ids:
         opts.append("Episodes")
-    elif not s.get("_action_feedback"):
+    elif has_provider_link and not s.get("_action_feedback"):
         app_core.set_action_feedback(s, app_core.episode_catalog_error(s))
 
     if not getattr(ms, "_is_downloads", False):
-        if from_anilist_context and has_anilist_link:
-            opts.append("Change AllAnime Match")
-        elif show_link_action and s.get("_id") and not has_anilist_link:
-            opts.append("Link AniList")
+        if from_anilist_context:
+            if has_provider_link:
+                opts.append("Change Match")
+            else:
+                opts.append("Link Provider")
+        elif has_token and s.get("_id"):
+            if has_anilist_link:
+                opts.append("Change Match")
+            else:
+                opts.append("Link AniList")
 
     opts.append("Progress")
     if show_anilist_actions:
@@ -267,8 +311,9 @@ def handle_details_state(
         "Binge from Start": f"from EP {play_label}",
         "Start Rewatch": f"replay from EP {play_label}",
         "Episodes": "browse all",
-        "Change AllAnime Match": "link a different streaming title",
-        "Link AniList": "link a different tracking title",
+        "Change Match": ("link a different streaming title / provider" if from_anilist_context else "link a different tracking title"),
+        "Link Provider": "link a streaming provider to watch",
+        "Link AniList": "link a tracking title",
         "Progress": prog_hint,
         "Status": al_status,
         "Rate": score_str,
@@ -286,18 +331,46 @@ def handle_details_state(
             and len(ms.shows) <= 1
             and ms.just_searched
         )
-        nav_text = "Left=search  Esc=quit" if direct_single else "Left/Esc=back"
+        nav_text = "Left=search • Esc=quit" if direct_single else "Left/Esc=back"
         if direct_single and ui.search_prev_state == "ANILIST_SEARCH":
             nav_text = (
-                "Left=search  Esc="
+                "Left=search • Esc="
                 + ("back" if ms.anilist_search_parent != "QUIT" else "quit")
             )
-        full_nav_text = f"Enter/Right=select  ? = Help  {nav_text}"
-        if has_gaps:
-            full_nav_text = f"{len(episode_ids)} listed  {full_nav_text}"
-
+        feedback = app_core.get_active_feedback(s)
+        if feedback:
+            full_nav_text = f"\033[38;5;222m{feedback}\033[0m"
+        else:
+            full_nav_text = f"Tab=Sub/Dub • Enter=select • ?=Help • {nav_text}"
+            if has_gaps:
+                full_nav_text = f"{len(episode_ids)} listed • {full_nav_text}"
         parts.append(app_core._poster_footer_line(s, full_nav_text, w))
         return "\n".join(parts)
+
+    def _details_tab_fn(opt=None, direction=1):
+        nonlocal ttype_local, episode_ids
+        target_ttype = "dub" if ttype_local == "sub" else "sub"
+        allowed, reason = app_core.check_translation_switch_capability(s, ttype_local, target_ttype)
+        if not allowed:
+            if reason:
+                app_core.set_action_feedback(s, reason)
+            return (opts, _details_hdr(0))
+
+        new_ids = app_core.with_loading(
+            f"Switching to {target_ttype.upper()}…",
+            app_core.ensure_episode_ids,
+            s,
+            target_ttype,
+        )
+        if new_ids:
+            ttype_local = target_ttype
+            ui.ui_ttype_ctx = ttype_local
+            episode_ids = new_ids
+            ms.total_eps = len(episode_ids)
+        else:
+            p_name = (s.get("_provider_name") or (s.get("_provider") or "").title() or "this provider") if s else "this provider"
+            app_core.set_action_feedback(s, f"{target_ttype.upper()} unavailable on {p_name}")
+        return (opts, _details_hdr(0))
 
     direct_single = (
         ui.search_prev_state in ("SEARCH", "ANILIST_SEARCH")
@@ -314,13 +387,19 @@ def handle_details_state(
             and ui.search_prev_state == "ANILIST_SEARCH"
             and ms.anilist_search_parent != "QUIT"
             else "Quit"
-        ) if direct_single else "Go back"
+        ) if direct_single else "Go back",
+        tab_label="Toggle Sub/Dub",
     )
+
+    if s.get("_action_feedback") and _just_entered:
+        ms.just_picked_anime = False
+        s["_action_feedback_time"] = time.time()
 
     idx = tui_pick(
         flags, ui,
         f"Anime Details", opts,
         header_fn=_details_hdr,
+        tab_fn=_details_tab_fn,
         hints=hints,
         info_fn=app_core.make_single_show_info_fn(s, ui),
         help_dict=hd5
@@ -364,7 +443,7 @@ def handle_details_state(
             elif opt == "Start Rewatch":
                 if use_anilist:
                     reset_result = app_core.with_loading(
-                        "Starting AniList rewatch…",
+                        "Resetting progress…",
                         app_core._push_local_progress,
                         s, ttype_local, cfg.get("anilist_token"), 0
                     )
@@ -397,9 +476,17 @@ def handle_details_state(
             ui.ep_prev_state = "DETAILS"
             return "EPISODE"
 
-        elif opt == "Change AllAnime Match":
+        elif opt in ("Change Match", "Change AllAnime Match", "Link Provider"):
+            if not from_anilist_context:
+                matched = app_core._run_anilist_match_search(flags, ui, s, cfg["anilist_token"])
+                if matched:
+                    app_core.set_title_sync(s, True)
+                    app_core.prepare_show_display_state(s, ttype_local, True)
+                    ms.show_title = get_show_display_title(s, sync_enabled=True)
+                return "DETAILS"
+            al_id = app_core.get_show_anilist_id(s) or str(s.get("_id") or s.get("id") or "")
             al_show = {
-                "_id": app_core.get_show_anilist_id(s),
+                "_id": al_id,
                 "name": s.get("_display_name") or s.get("name", ""),
                 "englishName": s.get("_display_english_name") or s.get("englishName", ""),
                 "_anilist_list": s.get("_anilist_list"),
@@ -409,25 +496,30 @@ def handle_details_state(
                 "_next_airing_at": s.get("_next_airing_at"),
                 "thumbnail": s.get("thumbnail")
             }
-            new_match = app_core._run_manual_match_search(flags, ui, al_show, ttype_local)
+            target_pid = s.get("_provider") or getattr(args, "provider", None) or (cfg or {}).get("provider")
+            new_match = app_core._run_manual_match_search(flags, ui, al_show, ttype_local, provider_id=target_pid, allow_provider_change=True)
             if new_match:
+                new_match["_has_provider_link"] = True
+                new_match["_anilist_media_synced"] = True
+                new_match["_anilist_context"] = from_anilist_context
                 app_core.set_title_sync(new_match, use_anilist)
                 app_core.prepare_show_display_state(new_match, ttype_local, use_anilist)
                 ui.ui_show_ctx = new_match
                 ui.ui_ttype_ctx = ttype_local
+                ms.shows = [new_match]
 
                 ms.show_id = new_match.get("_id")
                 ms.show_title = get_show_display_title(new_match)
                 ms.total_eps = new_match.get("availableEpisodes", {}).get(ttype_local, 0)
 
-                episode_ids = app_core.ensure_episode_ids(new_match, ttype_local)
+                episode_ids = app_core.with_loading("Linking title…", app_core.ensure_episode_ids, new_match, ttype_local)
                 ms.total_eps = len(episode_ids) or ms.total_eps
                 ms.current_ep_index = 0
                 ms.current_ep = episode_id_at(episode_ids, ms.current_ep_index)
             return "DETAILS"
 
         elif opt == "Link AniList":
-            matched = app_core._run_manual_anilist_match(flags, ui, s, cfg["anilist_token"])
+            matched = app_core._run_anilist_match_search(flags, ui, s, cfg["anilist_token"])
             if matched:
                 app_core.set_title_sync(s, True)
                 app_core.prepare_show_display_state(s, ttype_local, True)
@@ -552,7 +644,7 @@ def handle_update_progress_state(
         if sync_active:
             status_value = tracking_status_for_progress(s, next_progress) if next_progress > 0 else None
             updated = app_core.with_loading(
-                f"Syncing AniList progress: EP {next_progress}…",
+                "Syncing to AniList…",
                 app_core.update_anilist_entry,
                 cfg["anilist_token"],
                 int(al_id),
@@ -563,7 +655,7 @@ def handle_update_progress_state(
             if updated:
                 apply_tracking_progress_local(s, next_progress, status_value)
                 s["_progress_authority"] = "AL"
-                app_core.set_action_feedback(s, f"AniList synced: EP {next_progress} watched.")
+                app_core.set_action_feedback(s, f"✓ Synced EP {next_progress} to AniList")
             else:
                 app_core.err("AniList sync failed.")
         else:
@@ -576,7 +668,7 @@ def handle_update_progress_state(
             s["_local_progress"] = next_progress
             s["_local_episode_label"] = str(target_ep)
             s["_progress_authority"] = "LOCAL"
-            app_core.set_action_feedback(s, f"Progress updated: EP {next_progress} watched.")
+            app_core.set_action_feedback(s, f"✓ Saved progress: EP {next_progress}")
 
     return "DETAILS"
 
@@ -631,7 +723,7 @@ def handle_update_status_state(
                     return "DETAILS"
 
             updated = app_core.with_loading(
-                f"Updating AniList status: {label}",
+                "Updating status…",
                 app_core.update_anilist_entry,
                 cfg["anilist_token"],
                 int(al_id),
@@ -647,7 +739,7 @@ def handle_update_status_state(
                     s["_progress_authority"] = "AL"
                     app_core.set_action_feedback(
                         s,
-                        f"AniList completed: EP {progress_value} watched."
+                        f"✓ Synced status to AniList"
                     )
             else:
                 app_core.err(f"Could not update AniList status to {label}.")
@@ -689,7 +781,7 @@ def handle_update_score_state(
         al_id = app_core.get_show_anilist_id(s)
         if al_id:
             updated = app_core.with_loading(
-                f"Updating AniList score: {opts[idx]}/10",
+                "Updating score…",
                 app_core.update_anilist_entry,
                 cfg["anilist_token"],
                 int(al_id),

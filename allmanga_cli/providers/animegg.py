@@ -24,6 +24,7 @@ HEADERS = {
 
 class AnimeGG(Provider):
     id = "animegg"
+    audio_mode = "separate_catalogs"
 
     def __init__(self, request_json_fn=None):
         self._request_json = request_json_fn
@@ -48,10 +49,10 @@ class AnimeGG(Provider):
             with urllib.request.urlopen(req) as response:
                 return response.read().decode("utf-8")
         except urllib.error.HTTPError as e:
-            log.warning(f"AnimeGG fetch failed {url}: {e.code}")
+            log.debug(f"AnimeGG fetch failed {url}: {e.code}")
             return ""
         except Exception as e:
-            log.warning(f"AnimeGG fetch failed {url}: {e}")
+            log.debug(f"AnimeGG fetch failed {url}: {e}")
             return ""
 
     def search(self, query: str, ttype: str = "sub") -> list[dict[str, Any]]:
@@ -262,7 +263,7 @@ class AnimeGG(Provider):
                 try:
                     parsed = json.loads(json_str)
                 except Exception as e:
-                    log.warning(f"AnimeGG JSON Parse Error: {e}")
+                    log.debug(f"AnimeGG JSON Parse Error: {e}")
                     continue
                     
                 for s in parsed:

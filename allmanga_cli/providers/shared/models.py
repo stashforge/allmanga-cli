@@ -61,7 +61,7 @@ def normalize_title(
         if key not in _TITLE_SCHEMA_KEYS
     }
     
-    return build_title(
+    res = build_title(
         provider=provider_id,
         provider_name=provider_name,
         provider_id=source_id,
@@ -92,6 +92,18 @@ def normalize_title(
         mal_id=_find_field(title, "malId", "idMal", "myanimelist_id", "mal"),
         extra=extra,
     )
+    if res is not None:
+        raw_name = res.get("name") or res.get("englishName") or ""
+        if raw_name:
+            bout = AnimeBrain.process(raw_name, dict)
+            res["_franchise"] = bout.get("franchise") or raw_name
+            res["_season"] = bout.get("season")
+            res["_part"] = bout.get("part")
+        else:
+            res["_franchise"] = ""
+            res["_season"] = None
+            res["_part"] = None
+    return res
 
 
 def normalize_titles(
@@ -116,30 +128,52 @@ def normalize_titles(
     # and seasons are chronologically ordered!
     def get_sort_key(item):
         raw_name = item.get("name") or ""
-        from allmanga_cli.brain import AnimeBrain
-        bout = AnimeBrain.process(raw_name, dict)
+        franchise = str(item.get("_franchise") or "").lower()
+        season = item.get("_season")
+        part = item.get("_part")
+        if not franchise and raw_name:
+            bout = AnimeBrain.process(raw_name, dict)
+            franchise = str(bout.get("franchise") or "").lower()
+            season = bout.get("season")
+            part = bout.get("part")
         
         year = 0
         month = 0
-        for d in [item.get("airedStart"), item.get("startDate")]:
+        date_candidates = [
+            item.get("airedStart"),
+            item.get("startDate"),
+            item.get("season") if isinstance(item.get("season"), dict) else None,
+            item.get("year"),
+            item.get("releaseDate"),
+            item.get("airedEnd"),
+            item.get("endDate"),
+        ]
+        for d in date_candidates:
             if isinstance(d, dict):
-                year = d.get("year") or 0
-                month = d.get("month") or 0
+                y = d.get("year")
+                m = d.get("month") or 0
+                if y and str(y).isdigit() and int(y) > 0:
+                    year = int(y)
+                    month = int(m) if str(m).isdigit() else 0
+                    break
+            elif isinstance(d, (int, float)) and d > 1900:
+                year = int(d)
                 break
-            elif isinstance(d, str):
-                parts = d.split('-')
-                if parts[0].isdigit(): year = int(parts[0])
-                if len(parts) > 1 and parts[1].isdigit(): month = int(parts[1])
-                break
+            elif isinstance(d, str) and d.strip():
+                parts = d.strip().split('-')
+                if parts[0].isdigit() and int(parts[0]) > 1900:
+                    year = int(parts[0])
+                    if len(parts) > 1 and parts[1].isdigit():
+                        month = int(parts[1])
+                    break
                 
         # 1. Base Franchise (split by colon to group spin-offs and movies with the main series!)
-        franchise = bout.get("franchise", "").lower()
         base_franchise = franchise.split(':')[0].strip() if ':' in franchise else franchise
         
         # 2. Year/Month (chronological watch order)
         # 3. Season/Part (fallback for same-month releases)
         # 4. Raw Name (alphabetical fallback for providers like AniDBApp that return 0 for all years)
-        return (base_franchise, year == 0, year, month, bout.get("season") or 0, bout.get("part") or 0, raw_name)
+        return (base_franchise, year == 0, year, month, season or 0, part or 0, raw_name)
         
     return sorted(normalized, key=get_sort_key)
 

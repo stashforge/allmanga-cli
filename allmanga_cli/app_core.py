@@ -11,7 +11,6 @@ from typing import Optional
 
 from allmanga_cli.core.api import (
     MAX_API_JSON_BYTES,
-    ProviderVerificationRequired,
     ProviderDependencyError,
     SearchFailure,
     anilist_account_cache_key,
@@ -192,7 +191,7 @@ from allmanga_cli.services.http import (
     is_alive,
     request_json as _req,
 )
-from allmanga_cli.providers import ALLANIME, get_provider, provider_key
+from allmanga_cli.providers import ALLANIME, get_provider, provider_key, get_provider_registry, is_provider_active, _DEFAULT_PROVIDER_ID
 from allmanga_cli.providers.shared.models import title_provider_id, title_provider_key
 from allmanga_cli.providers import allanime as allanime_service
 from allmanga_cli.services import anilist as anilist_service
@@ -202,7 +201,7 @@ from allmanga_cli.core import reporting
 from allmanga_cli.core import storage
 from allmanga_cli.core import anilist
 from allmanga_cli.core import streams
-from allmanga_cli.ui import display
+from allmanga_cli.ui import display, render_header_card, render_modal_card, render_search_header
 
 # Persistence lives in core.storage; these aliases keep app_core callers and
 # the many tests that reach for app_core.<fn> working unchanged.
@@ -321,9 +320,21 @@ sync_progress_and_checkpoint = anilist.sync_progress_and_checkpoint
 sync_watched_to_anilist = anilist.sync_watched_to_anilist
 save_and_sync_watched = anilist.save_and_sync_watched
 
+ACTION_FEEDBACK_DURATION = 2.5
+
 def set_action_feedback(show, msg):
-    show["_action_feedback"] = msg
-    show["_action_feedback_time"] = time.time()
+    if isinstance(show, dict):
+        show["_action_feedback"] = msg
+        show["_action_feedback_time"] = time.time()
+
+def get_active_feedback(show):
+    if not isinstance(show, dict):
+        return ""
+    msg = str(show.get("_action_feedback") or "").strip()
+    t = float(show.get("_action_feedback_time") or 0)
+    if msg and (time.time() - t) < ACTION_FEEDBACK_DURATION:
+        return msg
+    return ""
 
 def build_info_panel(
         show,
@@ -334,28 +345,19 @@ def build_info_panel(
         main_title=None,
         local_only=False,
         hide_anilist_status=None):
-    C_T  = "\033[1;97m"
-    C_D  = "\033[38;5;248m"
-    R    = "\033[0m"
-
     prepare_show_display_state(show, ttype, show.get("_sync_enabled") if "_sync_enabled" in show else None)
-    title = main_title if main_title else get_show_display_title(show)
-    alt = get_display_titles(show, title)
-
-    _t = lambda s: _truncate_display(s, max(1, w - 1))
-    info_title_line = f"{C_T}{_t(title)}{R}"
-    info_alt_title_line = f"{C_D}{_t(alt)}{R}" if alt else f"{C_D}No alternative title{R}"
-
-    metadata = buildInfoMetadataLine(
+    card_lines = render_header_card(
         show,
-        ttype,
-        override_ep_str,
+        ttype=ttype,
+        width=w,
+        footer_text=None,
+        override_ep_str=override_ep_str,
+        main_title=main_title,
         local_only=local_only,
         hide_anilist_status=hide_anilist_status,
     )
-    info_metadata_line = f"{C_D}{_t(metadata)}{R}"
-
-    parts.extend([info_title_line, info_alt_title_line, info_metadata_line])
+    # The first 3 lines are Title, Alt Title, and Metadata
+    parts.extend(card_lines[:3])
 
 
 # ── Display (posters / spinner / alt-screen / loading) → ui.display ──────────────
@@ -463,7 +465,7 @@ def make_info_fn(shows_getter, ui):
         shows = shows_getter()
         if not shows or not (0 <= idx < len(shows)):
             return
-        with_loading("Fetching details...", enrich_show_if_missing, shows[idx])
+        with_loading("Loading title info…", enrich_show_if_missing, shows[idx])
         show_info_screen(
             shows[idx],
             poster_manager=_poster_manager,
@@ -478,7 +480,7 @@ def make_single_show_info_fn(show, ui):
     def _info_fn(idx: int) -> None:
         if not show:
             return
-        with_loading("Fetching details...", enrich_show_if_missing, show)
+        with_loading("Loading title info…", enrich_show_if_missing, show)
         from allmanga_cli.ui.info_screen import show_info_screen
         show_info_screen(
             show,
@@ -987,8 +989,8 @@ def make_provider_oneshot_search(query, ttype, provider_id=None):
     return live_fn, get_results, get_loading, get_error
 
 
-def make_allanime_oneshot_search(query, ttype):
-    return make_provider_oneshot_search(query, ttype, "allanime")
+def make_allanime_oneshot_search(query, ttype, provider_id=None):
+    return make_provider_oneshot_search(query, ttype, provider_id)
 
 def make_anilist_oneshot_search(token, initial_query):
     results = []
@@ -1030,7 +1032,7 @@ def _search_input_header(source_name, esc_action="quit"):
         R = "\033[0m"
         parts = [""]
         parts.append(f"{C_K}Use Up/Down to browse previous searches.{R}")
-        parts.append(f"{C_K}Provider: {source_name}{R}")
+        parts.append(f"\033[38;5;250mProvider: \033[1;97m{source_name}{R}")
         if globals().get("_search_error"):
             parts.append(f"{C_K}{globals()['_search_error']}  │  Esc={esc_action}{R}")
         else:
@@ -1112,96 +1114,417 @@ def _remember_search_results(query_str, shows, query_key, shows_key):
         globals()[query_key] = query_str
         globals()[shows_key] = shows
 
-def _manual_match_input_header(anilist_title, error=""):
+def _manual_match_input_header(show, p_name="Provider", error=""):
     def _hdr(si):
         C_K = "\033[38;5;244m"
         C_T = "\033[1;97m"
         R = "\033[0m"
-        parts = [""]
-        parts.append(f"{C_K}Search AllAnime and choose the correct stream title.{R}")
-        parts.append(f"{C_T}{_truncate_display(anilist_title, 80)}{R}")
-        parts.append(
-            f"{C_K}{error}  │  Esc=cancel{R}"
-            if error else f"{C_K}Enter=search  Esc=cancel{R}"
-        )
-        return "\n".join(parts)
-    return _hdr
-
-def _manual_anilist_input_header(source_title, error=""):
-    def _hdr(si):
-        C_K = "\033[38;5;244m"
-        C_T = "\033[1;97m"
-        R = "\033[0m"
+        anilist_title = show.get("name") or show.get("englishName") or "" if isinstance(show, dict) else str(show or "")
+        try:
+            w = os.get_terminal_size().columns
+        except OSError:
+            w = 80
         parts = [
             "",
-            f"{C_K}Search AniList and choose the correct tracking title.{R}",
-            f"{C_T}{_truncate_display(source_title, 80)}{R}",
+            f"{C_K}Search {p_name} and choose the correct stream title.{R}",
+            f"{C_T}{_truncate_display(anilist_title, w)}{R}",
         ]
-        if error:
-            parts.append(f"{C_K}{error}  │  Esc=cancel{R}")
-        else:
-            parts.append(f"{C_K}Enter=search  Esc=cancel{R}")
+        footer_text = f"{error} • Esc=cancel" if error else "Enter=search • Esc=cancel"
+        parts.append(_poster_footer_line(show, footer_text, w))
         return "\n".join(parts)
     return _hdr
 
-def _run_manual_match_search(flags, ui, anilist_show, ttype):
+def _manual_anilist_input_header(show, error=""):
+    def _hdr(si):
+        C_K = "\033[38;5;244m"
+        C_T = "\033[1;97m"
+        R = "\033[0m"
+        source_title = show.get("_allanime_name") or show.get("name") or "" if isinstance(show, dict) else str(show or "")
+        try:
+            w = os.get_terminal_size().columns
+        except OSError:
+            w = 80
+        parts = [
+            "",
+            f"{C_K}Search AniList and select tracking title.{R}",
+            f"{C_T}{_truncate_display(source_title, w)}{R}",
+        ]
+        footer_text = f"\033[38;5;222m{error}\033[0m • Enter=search • Esc=cancel" if error else "Enter=search • Esc=cancel"
+        parts.append(_poster_footer_line(show, footer_text, w))
+        return "\n".join(parts)
+    return _hdr
+
+def _select_provider_for_match(flags, ui, current_pid, anilist_show, ttype="sub"):
+    from allmanga_cli.providers import available_providers
+    provs = available_providers()
+    if not provs:
+        return current_pid
+
+    current_key = provider_key(current_pid)
+    ordered_keys = [current_key] if current_key in provs else []
+    for k in sorted(provs.keys()):
+        if k not in ordered_keys:
+            ordered_keys.append(k)
+
+    opts = [provider_display_name(k) for k in ordered_keys]
+
+    def _hdr(idx):
+        try:
+            w = os.get_terminal_size().columns
+        except OSError:
+            w = 80
+
+        C_W = "\033[1;37m"
+        C_S = "\033[38;5;250m"
+        C_K = "\033[38;5;244m"
+        C_Y = "\033[38;5;222m"
+        C_C = "\033[36m"
+        R = "\033[0m"
+
+        # Line 1: Primary Title (Romaji)
+        t_romaji = _truncate_display(anilist_show.get("name") or anilist_show.get("englishName") or "Unknown Title", w)
+        line1 = f"{C_W}{t_romaji}{R}"
+
+        # Line 2: English Title or AL metadata fallback
+        t_eng = anilist_show.get("englishName")
+        if t_eng and t_eng.strip().lower() != (anilist_show.get("name") or "").strip().lower():
+            line2 = f"{C_S}{_truncate_display(t_eng, w)}{R}"
+        else:
+            al_list = str(anilist_show.get("_anilist_list") or "").upper() or "WATCHING"
+            al_prog = anilist_show.get("_anilist_progress", 0)
+            line2 = f"{C_K}AL {al_list} \u2022 EP {al_prog} \u2022 {ttype.upper()}{R}"
+
+        # Line 3: Current Provider vs Target (Hovered) Provider with Type/Language tags
+        curr_name = provider_display_name(current_key)
+        hov_key = ordered_keys[idx] if (0 <= idx < len(ordered_keys)) else current_key
+        hov_name = provider_display_name(hov_key)
+        hov_info = get_provider_registry().get(hov_key, {})
+        ptype = str(hov_info.get("type") or "anime").title()
+        langs = "/".join(l.upper() for l in hov_info.get("languages", ["sub"]))
+        badge = f" [{ptype} \u2022 {langs}]" if ptype else ""
+        line3 = f"{C_Y}Current: {curr_name}{R}  {C_K}\u2502{R}  {C_C}Target: {hov_name}{badge}{R}"
+
+        # Line 4: Action Hints
+        line4 = f"{C_K}Enter=select  Left/Esc=cancel{R}"
+
+        return f"{line1}\n{line2}\n{line3}\n{line4}"
+
+    idx = tui_pick(
+        flags, ui, "Select Provider",
+        opts,
+        header_fn=_hdr,
+        help_dict={"Enter": "Select provider", "Esc": "Cancel"}
+    )
+    if idx is None or idx < 0 or idx >= len(ordered_keys):
+        return None
+    return ordered_keys[idx]
+
+
+def _confirm_auto_match(flags, ui, current_pid, target_pid, anilist_show, matched_show, ttype="sub"):
+    opts = [
+        f'Link "{matched_show.get("name") or matched_show.get("englishName") or "Matched Title"}"',
+        "Search Manually",
+        "Back to Providers",
+    ]
+    target_title = matched_show.get("name") or matched_show.get("englishName") or "Unknown Stream Title"
     al_title = anilist_show.get("name") or anilist_show.get("englishName") or ""
-    al_id = str(anilist_show.get("_id") or "")
-    query = al_title
-    search_error = ""
+    al_eng = anilist_show.get("englishName")
+
+    def _hdr(idx):
+        try:
+            w = os.get_terminal_size().columns
+        except OSError:
+            w = 80
+
+        if al_eng and al_eng.strip().lower() != (target_title or "").strip().lower():
+            secondary = al_eng
+        else:
+            secondary = f"AniList: {al_title}" if al_title and al_title.lower() != target_title.lower() else ""
+
+        curr_name = provider_display_name(current_pid)
+        t_name = provider_display_name(target_pid)
+        trans_line = f"\033[38;5;222m{curr_name}\033[0m  \033[38;5;244m➔\033[0m  \033[36m{t_name}\033[0m"
+
+        t_info = get_provider_registry().get(target_pid, {})
+        langs = "/".join(l.upper() for l in t_info.get("languages", ["sub", "dub"]))
+        avail_eps = matched_show.get("availableEpisodes", {}).get(ttype) or 0
+        eps_badge = f"Avail {avail_eps} EPs • " if avail_eps else ""
+        source = matched_show.get("_match_source")
+        match_tag = "✓ Matched by ID" if source == "id" else ("✓ Saved link" if source in ("stored", "manual") else "✓ Suggested match")
+        status_line = f"\033[38;5;250m{match_tag} • {eps_badge}{langs}\033[0m"
+
+        return render_modal_card(target_title, secondary, trans_line, status_line, width=w)
+
+    hints = {"Link Title": target_title}
+    idx = tui_pick(
+        flags, ui, "Confirm Match",
+        opts,
+        header_fn=_hdr,
+        hints=hints,
+        help_dict={"Enter": "Select", "Esc": "Cancel"}
+    )
+    if idx is None or idx in (-2, -3) or idx == 2:
+        return "back"
+    elif idx == 1:
+        return "search"
+    elif idx == 0:
+        return "link"
+    return "back"
+
+
+def _no_match_prompt(flags, ui, current_pid, target_pid, anilist_show, ttype="sub"):
+    opts = [
+        "Search Manually",
+        "Back to Providers",
+    ]
+
+    def _hdr(idx):
+        try:
+            w = os.get_terminal_size().columns
+        except OSError:
+            w = 80
+
+        t_romaji = anilist_show.get("name") or anilist_show.get("englishName") or "Unknown Title"
+        t_eng = anilist_show.get("englishName")
+        if t_eng and t_eng.strip().lower() != (anilist_show.get("name") or "").strip().lower():
+            secondary = t_eng
+        else:
+            al_list = str(anilist_show.get("_anilist_list") or "").upper() or "WATCHING"
+            al_prog = anilist_show.get("_anilist_progress", 0)
+            secondary = f"\033[38;5;244mAL {al_list} • EP {al_prog} • {ttype.upper()}\033[0m"
+
+        curr_name = provider_display_name(current_pid)
+        t_name = provider_display_name(target_pid)
+        trans_line = f"\033[38;5;222m{curr_name}\033[0m  \033[38;5;244m➔\033[0m  \033[36m{t_name}\033[0m"
+        status_line = "\033[38;5;222m* No match found\033[0m"
+
+        return render_modal_card(t_romaji, secondary, trans_line, status_line, width=w)
+
+    idx = tui_pick(
+        flags, ui, "Select Option",
+        opts,
+        header_fn=_hdr,
+        help_dict={"Enter": "Select", "Esc": "Back"}
+    )
+    if idx is None or idx in (-2, -3) or idx == 1:
+        return "back"
+    elif idx == 0:
+        return "search"
+    return "back"
+
+
+def _run_manual_match_search(flags, ui, anilist_show, ttype, provider_id=None, allow_provider_change=False):
+    al_title = anilist_show.get("name") or anilist_show.get("englishName") or ""
+    al_id = str(anilist_show.get("_id") or anilist_show.get("id") or "")
+    current_pid = provider_key(provider_id or anilist_show.get("_provider") or getattr(ui, "ui_provider_ctx", None))
+    target_pid = current_pid
+
     while True:
-        query = tui_pick(
-            flags, ui, "Match AllAnime",
-            [],
-            header_fn=_manual_match_input_header(al_title, search_error),
-            return_query_on_enter=True,
-            initial_query=query,
-            is_search=True,
-            help_dict=search_input_help()
-        )
-        if query == -2 or not query:
-            return None
-        query = str(query).strip()
-        if not query:
-            continue
+        if allow_provider_change:
+            chosen_pid = _select_provider_for_match(flags, ui, target_pid, anilist_show, ttype)
+            if not chosen_pid:
+                return None
+            target_pid = chosen_pid
+            p_name = provider_display_name(target_pid)
+
+            # Auto-match on selected provider
+            matched = with_loading(
+                f"Matching title on {p_name}...",
+                match_anilist_show_to_provider,
+                anilist_show,
+                ttype,
+                provider_id=target_pid,
+            )
+            if matched:
+                choice = _confirm_auto_match(flags, ui, current_pid, target_pid, anilist_show, matched, ttype)
+                if choice == "link":
+                    matched["_match_source"] = matched.get("_match_source") or "auto"
+                    if al_id:
+                        save_al_match(al_id, matched)
+                    return _merge_anilist_into_allanime(matched, anilist_show)
+                elif choice == "back":
+                    continue
+            else:
+                choice = _no_match_prompt(flags, ui, current_pid, target_pid, anilist_show, ttype)
+                if choice == "back":
+                    continue
+
+        p_name = provider_display_name(target_pid)
+        query = extract_franchise_query(al_title) or al_title
         search_error = ""
 
-        live_fn, get_results, get_loading, get_error = make_allanime_oneshot_search(query, ttype)
-        initial_opts = [s.get("name", "Unknown") for s in get_results()]
-        idx = tui_pick(
-            flags, ui, "Match AllAnime",
-            initial_opts,
-            header_fn=_search_result_header("AllAnime", query, ttype, get_results, get_loading, get_error_fn=get_error),
-            top_header_fn=_search_cover_header(get_results),
-            live_fn=live_fn,
-            help_dict=picker_help("Link title", "Search again", "Cancel")
-        )
-        if idx == -2:
-            return None
-        if idx == -3:
-            continue
-        if idx == -4:
-            search_error = get_error() or f'No results found for "{query}"'
-            continue
-        if idx >= 0:
-            shows = get_results()
-            if idx >= len(shows):
+        while True:
+            query = tui_pick(
+                flags, ui, f"Match {p_name}",
+                [],
+                header_fn=_manual_match_input_header(anilist_show, p_name=p_name, error=search_error),
+                return_query_on_enter=True,
+                initial_query=query,
+                is_search=True,
+                help_dict=search_input_help()
+            )
+            if query == -2 or not query:
+                if allow_provider_change:
+                    break  # Break out to provider selection loop
+                return None
+            query = str(query).strip()
+            if not query:
                 continue
-            chosen = shows[idx]
-            chosen["_match_source"] = "manual"
-            if al_id:
-                save_al_match(al_id, chosen)
-            return _merge_anilist_into_allanime(chosen, anilist_show)
+            search_error = ""
 
-def _run_manual_anilist_match(flags, ui, allanime_show, token):
+            live_fn, get_results, get_loading, get_error = make_provider_oneshot_search(query, ttype, target_pid)
+            initial_opts = [s.get("name", "Unknown") for s in get_results()]
+            idx = tui_pick(
+                flags, ui, f"Match {p_name}",
+                initial_opts,
+                header_fn=_search_result_header(p_name, query, ttype, get_results, get_loading, get_error_fn=get_error),
+                top_header_fn=_search_cover_header(get_results),
+                live_fn=live_fn,
+                help_dict=picker_help("Link title", "Search again", "Cancel")
+            )
+            if idx == -2:
+                if allow_provider_change:
+                    break
+                return None
+            if idx == -3:
+                continue
+            if idx == -4:
+                search_error = get_error() or f'No results found for "{query}"'
+                continue
+            if idx >= 0:
+                shows = get_results()
+                if idx >= len(shows):
+                    continue
+                chosen = shows[idx]
+                chosen["_match_source"] = "manual"
+                if al_id:
+                    save_al_match(al_id, chosen)
+                return _merge_anilist_into_allanime(chosen, anilist_show)
+
+def _confirm_auto_anilist_match(flags, ui, provider_show, anilist_show):
+    al_romaji = anilist_show.get("name") or anilist_show.get("englishName") or "Unknown Title"
+    al_eng = anilist_show.get("englishName")
+    al_id = str(anilist_show.get("_id") or anilist_show.get("id") or "")
+    p_title = provider_show.get("name") or ""
+    p_name = (provider_show.get("_provider_name") or (provider_show.get("_provider") or "").title()) or "Provider"
+
+    opts = [
+        "Link Title",
+        "Search Manually",
+        "Back",
+    ]
+
+    def _hdr(idx):
+        try:
+            w = os.get_terminal_size().columns
+        except OSError:
+            w = 80
+
+        if al_eng and al_eng.strip().lower() != al_romaji.strip().lower():
+            secondary = al_eng
+        elif p_title and p_title.lower() != al_romaji.lower():
+            secondary = f"Source: {p_title}"
+        else:
+            secondary = ""
+
+        id_badge = f" (ID: {al_id})" if al_id else ""
+        trans_line = f"\033[38;5;222m{p_name}\033[0m  \033[38;5;244m➔\033[0m  \033[36mAniList{id_badge}\033[0m"
+
+        al_status = str(anilist_show.get("status") or "").title() or "Finished"
+        al_fmt = str(anilist_show.get("format") or anilist_show.get("type") or "TV").upper()
+        al_eps = anilist_show.get("episodeCount")
+        eps_str = f" • EP {al_eps}" if al_eps else ""
+        al_score = anilist_show.get("score") or anilist_show.get("averageScore")
+        score_str = f" • ★ {al_score}" if al_score else ""
+        source = anilist_show.get("_match_source")
+        tag = "✓ Matched by ID" if source == "id" else "✓ Suggested match"
+        status_line = f"\033[38;5;250m{tag} • {al_status} • {al_fmt}{eps_str}{score_str}\033[0m"
+
+        return render_modal_card(al_romaji, secondary, trans_line, status_line, width=w)
+
+    hints = {"Link Title": al_romaji}
+    idx = tui_pick(
+        flags, ui, "Confirm Match",
+        opts,
+        header_fn=_hdr,
+        hints=hints,
+        help_dict={"Enter": "Select", "Esc": "Cancel"}
+    )
+    if idx is None or idx in (-2, -3) or idx == 2:
+        return "back"
+    elif idx == 1:
+        return "search"
+    elif idx == 0:
+        return "link"
+    return "back"
+
+
+def _find_fuzzy_anilist_candidate(allanime_show, token):
+    # Step 1: Exact provider aniListId
+    provider_al_id = str(allanime_show.get("aniListId") or "")
+    if provider_al_id:
+        try:
+            media = fetch_anilist_media(token, provider_al_id)
+            if media:
+                norm = anilist_normalize.normalize_media(media)
+                norm["_match_source"] = "id"
+                return norm
+        except Exception:
+            pass
+
+    # Step 2: Intelligent search across title variants
+    queries = [
+        allanime_show.get("name"),
+        allanime_show.get("englishName"),
+    ]
+    seen = set()
+    for query in queries:
+        query = str(query or "").strip()
+        if not query or query.lower() in seen:
+            continue
+        seen.add(query.lower())
+        results = search_anilist(token, query)
+        matched = _choose_confident_match(allanime_show, results)
+        if matched:
+            matched["_match_source"] = "title"
+            return matched
+    return None
+
+
+def _run_anilist_match_search(flags, ui, allanime_show, token):
+    candidate = with_loading(
+        "Finding AniList match…",
+        _find_fuzzy_anilist_candidate,
+        allanime_show,
+        token,
+    )
+    if candidate:
+        choice = _confirm_auto_anilist_match(flags, ui, allanime_show, candidate)
+        if choice == "link":
+            save_source_anilist_match(allanime_show, candidate)
+            merged = _merge_anilist_into_allanime(allanime_show, candidate)
+            src = candidate.get("_match_source")
+            tag = "✓ Matched by ID" if src == "id" else "✓ Suggested match"
+            set_action_feedback(merged, tag)
+            return merged
+        elif choice == "search":
+            return _run_manual_anilist_match(flags, ui, allanime_show, token)
+        elif choice == "back":
+            return None
+
+    # Step 3: Directly enter manual search with info message in footer
+    return _run_manual_anilist_match(flags, ui, allanime_show, token, initial_error="No matching title found")
+
+
+def _run_manual_anilist_match(flags, ui, allanime_show, token, initial_error=""):
     source_title = allanime_show.get("_allanime_name") or allanime_show.get("name") or ""
     query = source_title
-    search_error = ""
+    search_error = initial_error
     while True:
         query = tui_pick(
             flags, ui, "Match AniList",
             [],
-            header_fn=_manual_anilist_input_header(source_title, search_error),
+            header_fn=_manual_anilist_input_header(allanime_show, error=search_error),
             return_query_on_enter=True,
             initial_query=query,
             is_search=True,
@@ -1215,7 +1538,7 @@ def _run_manual_anilist_match(flags, ui, allanime_show, token):
         search_error = ""
         try:
             results = with_loading(
-                f"Searching AniList: {query}",
+                "Searching AniList…",
                 search_anilist,
                 token,
                 query,
@@ -1246,14 +1569,32 @@ def _run_manual_anilist_match(flags, ui, allanime_show, token):
             chosen = results[idx]
             chosen["_match_source"] = "manual"
             save_source_anilist_match(allanime_show, chosen)
-            return _merge_anilist_into_allanime(allanime_show, chosen)
+            merged = _merge_anilist_into_allanime(allanime_show, chosen)
+            set_action_feedback(merged, "✓ Linked title")
+            return merged
 
 def match_allanime_show_to_anilist(flags, ui, allanime_show, token, manual_on_fail=False):
-    provider_al_id = str(allanime_show.get("aniListId") or "")
-    stored = get_source_anilist_match(allanime_show.get("_id"))
+    show_id = str(allanime_show.get("_id") or allanime_show.get("id") or "")
+    stored = get_source_anilist_match(show_id) if show_id else {}
     stored_id = str(stored.get("_id") or "")
+    provider_al_id = str(allanime_show.get("aniListId") or "")
 
-    # Priority 1: Exact provider aniListId
+    # Priority 1: Stored 1:1 match from local storage
+    if stored_id:
+        try:
+            media = fetch_anilist_media(token, stored_id)
+            if media:
+                match_source = stored.get("match_source") or "stored"
+                allanime_show["_match_source"] = match_source
+                normalized_media = anilist_normalize.normalize_media(media)
+                save_source_anilist_match(allanime_show, normalized_media)
+                merged = _merge_anilist_into_allanime(allanime_show, normalized_media)
+                set_action_feedback(merged, "✓ Found saved match")
+                return merged
+        except Exception:
+            pass
+
+    # Priority 2: Exact provider aniListId
     if provider_al_id:
         try:
             media = fetch_anilist_media(token, provider_al_id)
@@ -1261,12 +1602,14 @@ def match_allanime_show_to_anilist(flags, ui, allanime_show, token, manual_on_fa
                 allanime_show["_match_source"] = "id"
                 normalized_media = anilist_normalize.normalize_media(media)
                 save_source_anilist_match(allanime_show, normalized_media)
-                return _merge_anilist_into_allanime(allanime_show, normalized_media)
+                merged = _merge_anilist_into_allanime(allanime_show, normalized_media)
+                set_action_feedback(merged, "✓ Matched by ID")
+                return merged
         except Exception:
             pass # fallback to title search if fetching exact media fails
 
+    # Priority 3: Title search & fuzzy match
     queries = [
-        stored.get("name"),
         allanime_show.get("name"),
         allanime_show.get("englishName"),
     ]
@@ -1277,23 +1620,13 @@ def match_allanime_show_to_anilist(flags, ui, allanime_show, token, manual_on_fa
             continue
         seen.add(query.lower())
         results = search_anilist(token, query)
-
-        # Priority 2: Stored Match
-        if stored_id:
-            match_source = stored.get("match_source") or "stored"
-            if not provider_al_id or stored_id == provider_al_id or match_source == "manual":
-                matched = next((show for show in results if str(show.get("_id") or "") == stored_id), None)
-                if matched:
-                    allanime_show["_match_source"] = match_source
-                    save_source_anilist_match(allanime_show, matched)
-                    return _merge_anilist_into_allanime(allanime_show, matched)
-
-        # Priority 3: Fuzzy Confident Match
         matched = _choose_confident_match(allanime_show, results)
         if matched:
             allanime_show["_match_source"] = "fuzzy"
             save_source_anilist_match(allanime_show, matched)
-            return _merge_anilist_into_allanime(allanime_show, matched)
+            merged = _merge_anilist_into_allanime(allanime_show, matched)
+            set_action_feedback(merged, "✓ Suggested match")
+            return merged
 
     # Priority 4: Manual Picker
     if manual_on_fail:
@@ -1314,54 +1647,146 @@ def check_deps():
 
 # ── HTTP helpers ──────────────────────────────────────────────────────────────
 
-def match_anilist_show_to_allanime(anilist_show, ttype):
-    al_id = str(anilist_show.get("_id") or "")
-    stored = get_al_match(al_id) if al_id else {}
+def extract_franchise_query(title: str) -> str:
+    if not title:
+        return ""
+    from allmanga_cli.brain import AnimeBrain
+    try:
+        bout = AnimeBrain.process(str(title).strip(), dict)
+        franchise = bout.get("franchise")
+        if franchise:
+            clean = franchise.split(":")[0].split(" - ")[0].strip()
+            clean = re.sub(r"^[-\s_:]+|[-\s_:]+$", "", clean).strip()
+            if clean and len(clean) >= 3:
+                return clean
+    except Exception:
+        pass
 
+    t = str(title).strip()
+    t = re.sub(r"(?i)\s*\((?:season|part|cour|tv|the)\b.*?\)", "", t)
+    t = re.sub(r"(?i)\s*[:–-]\s*(?:season|part|cour|the final|s\d+)\b.*$", "", t)
+    t = re.sub(r"(?i)\s+(?:\d+(?:st|nd|rd|th)?\s+season|season\s+\d+|part\s+\d+|cour\s+\d+|s\d+)\b.*$", "", t)
+    t = re.sub(r"(?i)\s+(?:[ivx]+|\d+)\s*$", "", t)
+    return t.strip()
+
+
+def extract_matching_queries(anilist_show: dict) -> list[str]:
     queries = []
-    if anilist_show.get("name"):
-        queries.append(anilist_show["name"])
-    if anilist_show.get("englishName"):
-        queries.append(anilist_show["englishName"])
 
+    # 1. Franchise base queries (both Romaji and English)
+    for key in ("name", "englishName"):
+        val = str(anilist_show.get(key) or "").strip()
+        franchise = extract_franchise_query(val)
+        if franchise and franchise not in queries and len(franchise) >= 3:
+            queries.append(franchise)
+
+    # 2. Full primary and english names
+    for key in ("name", "englishName"):
+        val = str(anilist_show.get(key) or "").strip()
+        if val and val not in queries:
+            queries.append(val)
+
+    # 3. Native title
+    nat = str(anilist_show.get("nativeName") or "").strip()
+    if nat and nat not in queries:
+        queries.append(nat)
+
+    # 4. Synonyms / AltNames
+    for alt in (anilist_show.get("altNames") or anilist_show.get("synonyms") or []):
+        alt_str = str(alt or "").strip()
+        if not alt_str:
+            continue
+        alt_franchise = extract_franchise_query(alt_str)
+        if alt_franchise and alt_franchise not in queries and len(alt_franchise) >= 3:
+            queries.append(alt_franchise)
+        if alt_str not in queries:
+            queries.append(alt_str)
+
+    return queries
+
+
+def match_anilist_show_to_provider(anilist_show, ttype="sub", provider_id=None, status_cb=None):
+    def _notify(msg):
+        if callable(status_cb):
+            try:
+                status_cb(msg)
+            except Exception:
+                pass
+
+    al_id = str(anilist_show.get("_id") or anilist_show.get("id") or "")
+    stored = get_al_match(al_id) if al_id else {}
+    stored_pid = stored.get("_provider") or stored.get("provider")
+
+    # If stored provider is inactive, broken, or disabled, ignore it to trigger default provider fallback
+    if stored_pid and not is_provider_active(stored_pid):
+        stored_pid = None
+
+    if not provider_id:
+        provider_id = stored_pid or _DEFAULT_PROVIDER_ID
+
+    provider_id = provider_key(provider_id)
+    p_name = provider_display_name(provider_id)
+
+    # Priority 1: Check saved 1:1 match for this provider
+    if al_id and stored and stored.get("_id") and stored_pid == provider_id:
+        _notify("Locating saved match…")
+        direct = get_show_by_id(stored["_id"], provider_id=stored_pid)
+        if direct:
+            direct_name = str(direct.get("name") or "").strip()
+            if direct_name and direct_name != al_id:
+                _notify("Match found")
+                direct["_match_source"] = stored.get("match_source") or "stored"
+                return _merge_anilist_into_allanime(direct, anilist_show)
+
+    # Priority 2: Direct AniList ID lookup (for AniList-native providers like Anikoto, Miruro)
+    if al_id and provider_id in ("anikoto", "miruro"):
+        _notify("Verifying ID…")
+        try:
+            direct = get_show_by_id(al_id, provider_id=provider_id)
+            if direct:
+                d_al = str(direct.get("aniListId") or "")
+                d_id = str(direct.get("_id") or "")
+                if (d_al and d_al == al_id) or (d_id and d_id == al_id):
+                    _notify("Match found")
+                    direct["_match_source"] = "id"
+                    save_al_match(al_id, direct)
+                    return _merge_anilist_into_allanime(direct, anilist_show)
+        except Exception:
+            pass
+
+    # Priority 3: Search queries on provider catalog
+    queries = extract_matching_queries(anilist_show)
     seen_queries = set()
-    aa_shows = []
-
-    # Priority 1: Fresh exact AllAnime aniListId
+    p_shows = []
+    query_count = 0
     for query in queries:
         q_lower = query.strip().lower()
         if not q_lower or q_lower in seen_queries:
             continue
         seen_queries.add(q_lower)
+        query_count += 1
 
-        results = search_anime(query, ttype)
+        if query_count == 1:
+            _notify(f"Finding streams on {p_name}…")
+        else:
+            _notify("Trying alternate titles…")
+
+        results = search_anime(query, ttype, provider_id=provider_id)
         if results:
-            exact = next((aa for aa in results if str(aa.get("aniListId") or "") == al_id), None)
+            exact = next((p for p in results if al_id and str(p.get("aniListId") or "") == al_id), None)
             if exact:
+                _notify("Match found")
                 exact["_match_source"] = "id"
                 save_al_match(al_id, exact)
                 return _merge_anilist_into_allanime(exact, anilist_show)
-            aa_shows.extend(results)
+            p_shows.extend(results)
 
-    # Priority 2: Stored match, if valid
-    if al_id and stored and stored.get("_id"):
-        direct = get_allanime_show(stored["_id"])
-        if direct:
-            direct_al_id = str(direct.get("aniListId") or "")
-            match_source = stored.get("match_source") or "stored"
-
-            # Use it if the ID matches, or if it has no ID (we fallback to it since no fresh exact ID found),
-            # or if the user explicitly picked it manually despite ID mismatch.
-            if direct_al_id == al_id or not direct_al_id or match_source == "manual":
-                direct["_match_source"] = match_source
-                return _merge_anilist_into_allanime(direct, anilist_show)
-
-    # Priority 3: Fuzzy confident match
-    if aa_shows:
-        # Deduplicate candidates by _id
+    # Priority 4: Fuzzy scored match
+    if p_shows:
+        _notify("Finding the best match…")
         seen_ids = set()
         unique_shows = []
-        for show in aa_shows:
+        for show in p_shows:
             sid = show.get("_id")
             if sid and sid not in seen_ids:
                 seen_ids.add(sid)
@@ -1369,16 +1794,18 @@ def match_anilist_show_to_allanime(anilist_show, ttype):
 
         matched = _best_allanime_match(anilist_show, unique_shows)
         if matched:
+            _notify("Match found")
             matched["_match_source"] = "fuzzy"
             save_al_match(al_id, matched)
             return _merge_anilist_into_allanime(matched, anilist_show)
 
-    # Priority 4: None / Manual picker fallback
     return None
+
+match_anilist_show_to_allanime = match_anilist_show_to_provider
 
 # ── API ───────────────────────────────────────────────────────────────────────
 def _allanime_provider():
-    return get_provider("allanime", _req)
+    return get_provider(provider_key(), _req)
 
 
 def _provider_for_title(show):
@@ -1394,22 +1821,24 @@ def search_anime(query, ttype="sub", raise_errors=False, provider_id=None):
         debug_warn(f"{provider_name} search failed", e)
         if raise_errors:
             raise
-        err(f"Search failed: {e}")
         return []
     except Exception as e:
         debug_warn(f"{provider_name} search failed", e)
-        failure = SearchFailure(search_failure_message(provider_name, e))
         if raise_errors:
+            failure = SearchFailure(search_failure_message(provider_name, e))
             raise failure from e
-        err(f"Search failed: {failure}")
         return []
 
-def get_allanime_show(show_id):
+def get_show_by_id(show_id, provider_id=None):
+    provider_id = provider_key(provider_id)
     try:
-        return _allanime_provider().get_title(show_id)
+        return get_provider(provider_id, _req).get_title(show_id)
     except Exception as e:
-        debug_warn("AllAnime show fetch failed", e)
+        debug_warn(f"{provider_id} show fetch failed", e)
         return None
+
+def get_allanime_show(show_id):
+    return get_show_by_id(show_id)
 
 def fetch_episode_catalog(show_id, ttype="sub", provider_id=None):
     return get_provider(provider_id, _req).episode_catalog(show_id, ttype)
@@ -1523,6 +1952,12 @@ def ensure_episode_ids(show, ttype):
     show["_episode_catalog_state"] = "unavailable"
     return []
 
+def check_translation_switch_capability(show, current_ttype, target_ttype):
+    p_id = (show or {}).get("_provider") or (show or {}).get("_provider_name")
+    from allmanga_cli.providers import provider_translation_capability
+    return provider_translation_capability(p_id, show, current_ttype, target_ttype)
+
+
 def episode_catalog_needs_fetch(show, ttype):
     if not show:
         return False
@@ -1545,20 +1980,16 @@ def load_episode_ids_for_selection(show, ttype):
     return ensure_episode_ids(show, ttype)
 
 def episode_catalog_error(show):
+    p_name = (show.get("_provider_name") or show.get("_provider") or "").title() if show else "this provider"
     return str(
         (show or {}).get("_episode_catalog_error")
-        or "Episode catalog is unavailable. Try again later."
+        or f"No episodes available on {p_name}. Try another provider."
     )
 
 def get_episode_data(show_id, ep, ttype="sub", provider_id=None):
     provider_id = provider_key(provider_id)
     try:
         return get_provider(provider_id, _req).episode_sources(show_id, ep, ttype)
-    except ProviderVerificationRequired:
-        return {
-            "_provider_error": "browser_verification_required",
-            "episode": {"sourceUrls": []},
-        }
     except ProviderDependencyError as exc:
         from allmanga_cli.ui.display import exit_alt_screen
         import sys
@@ -2044,6 +2475,9 @@ def main():
         ttype = "sub"
     else:
         ttype = cfg.get("translation_type", "sub")
+    ui.ui_ttype_ctx = ttype
+    active_provider = getattr(args, "provider", None) or cfg.get("provider") or cfg.get("default_provider") or _DEFAULT_PROVIDER_ID
+    ui.ui_provider_ctx = provider_key(active_provider)
     quality = args.quality or cfg.get("quality","1080p")
 
     ms = MachineState(
@@ -2100,41 +2534,40 @@ def main():
         state = "HISTORY"
 
     while state != "QUIT":
+        cur_ttype = ui.ui_ttype_ctx if ui.ui_ttype_ctx is not None else ttype
         if state == "DOWNLOADS":
             from allmanga_cli.app.downloads import handle_downloads_state
-            state = handle_downloads_state(flags, ui, ms, cfg, args, ttype, resolveTracking)
+            state = handle_downloads_state(flags, ui, ms, cfg, args, cur_ttype, resolveTracking)
         elif state == "SEARCH":
-            state = handlers.handle_search_state(flags, ui, ms, cfg, args, ttype, resolveTracking)
+            state = handlers.handle_search_state(flags, ui, ms, cfg, args, cur_ttype, resolveTracking)
         elif state == "HISTORY":
-            state = handlers.handle_history_state(flags, ui, ms, cfg, args, ttype, resolveTracking)
+            state = handlers.handle_history_state(flags, ui, ms, cfg, args, cur_ttype, resolveTracking)
         elif state == "ANILIST_MENU":
-            state = handlers.handle_anilist_menu_state(flags, ui, ms, cfg, args, ttype, resolveTracking)
+            state = handlers.handle_anilist_menu_state(flags, ui, ms, cfg, args, cur_ttype, resolveTracking)
         elif state == "ANILIST_AIRING":
-            state = handlers.handle_anilist_airing_state(flags, ui, ms, cfg, args, ttype, resolveTracking)
+            state = handlers.handle_anilist_airing_state(flags, ui, ms, cfg, args, cur_ttype, resolveTracking)
         elif state == "ANILIST_BROWSE":
-            state = handlers.handle_anilist_browse_state(flags, ui, ms, cfg, args, ttype, resolveTracking)
+            state = handlers.handle_anilist_browse_state(flags, ui, ms, cfg, args, cur_ttype, resolveTracking)
         elif state == "ANILIST_SEARCH":
-            state = handlers.handle_anilist_search_state(flags, ui, ms, cfg, args, ttype, resolveTracking)
+            state = handlers.handle_anilist_search_state(flags, ui, ms, cfg, args, cur_ttype, resolveTracking)
         elif state == "DETAILS":
-            state = handlers.handle_details_state(flags, ui, ms, cfg, args, ttype, resolveTracking)
+            state = handlers.handle_details_state(flags, ui, ms, cfg, args, cur_ttype, resolveTracking)
         elif state == "UPDATE_PROGRESS":
-            state = handlers.handle_update_progress_state(flags, ui, ms, cfg, args, ttype, resolveTracking)
+            state = handlers.handle_update_progress_state(flags, ui, ms, cfg, args, cur_ttype, resolveTracking)
         elif state == "UPDATE_STATUS":
-            state = handlers.handle_update_status_state(flags, ui, ms, cfg, args, ttype, resolveTracking)
+            state = handlers.handle_update_status_state(flags, ui, ms, cfg, args, cur_ttype, resolveTracking)
         elif state == "UPDATE_SCORE":
-            state = handlers.handle_update_score_state(flags, ui, ms, cfg, args, ttype, resolveTracking)
+            state = handlers.handle_update_score_state(flags, ui, ms, cfg, args, cur_ttype, resolveTracking)
         elif state == "EPISODE":
-            state = handlers.handle_episode_state(flags, ui, ms, cfg, args, ttype, resolveTracking)
+            state = handlers.handle_episode_state(flags, ui, ms, cfg, args, cur_ttype, resolveTracking)
         elif state == "PLAY":
-            state = handlers.handle_play_state(flags, ui, ms, cfg, args, ttype, quality, resolveTracking)
+            state = handlers.handle_play_state(flags, ui, ms, cfg, args, cur_ttype, quality, resolveTracking)
         elif state == "ACTION_MENU":
-            state = handlers.handle_action_menu_state(flags, ui, ms, cfg, args, ttype, resolveTracking)
-        elif state == "PROVIDER_VERIFY":
-            state = handlers.handle_provider_verify_state(flags, ui, ms, cfg, args, ttype, resolveTracking)
+            state = handlers.handle_action_menu_state(flags, ui, ms, cfg, args, cur_ttype, resolveTracking)
         elif state == "MIRRORS":
-            state = handlers.handle_mirrors_state(flags, ui, ms, cfg, args, ttype, resolveTracking)
+            state = handlers.handle_mirrors_state(flags, ui, ms, cfg, args, cur_ttype, resolveTracking)
         elif state == "BROWSER_PLAY":
-            state = handlers.handle_browser_play_state(flags, ui, ms, cfg, args, ttype, resolveTracking)
+            state = handlers.handle_browser_play_state(flags, ui, ms, cfg, args, cur_ttype, resolveTracking)
         else:
             err(f"Unknown state: {state}")
             state = "QUIT"

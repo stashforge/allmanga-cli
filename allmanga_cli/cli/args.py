@@ -159,6 +159,7 @@ def _set_cli_defaults(parser):
         episode=None,
         quality=None,
         dub=False,
+        sub=False,
         binge=False,
         player=None,
         sources=False,
@@ -212,6 +213,7 @@ def _add_search_options(parser):
         help="Preferred quality: best, 1080p, 720p, 480p",
     )
     playback.add_argument("--dub", action="store_true", help="Prefer dubbed episodes")
+    playback.add_argument("--sub", action="store_true", help="Prefer subtitled episodes")
     playback.add_argument("-b", "--binge", action="store_true", help="Continue through episodes")
     playback.add_argument(
         "-p", "--player",
@@ -270,6 +272,7 @@ def _add_download_options(parser):
         help="Preferred quality: best, 1080p, 720p, 480p",
     )
     download.add_argument("--dub", action="store_true", help="Prefer dubbed episodes")
+    download.add_argument("--sub", action="store_true", help="Prefer subtitled episodes")
     download.add_argument(
         "-s", "--sources", action="store_true",
         help="Choose a mirror before downloading",
@@ -292,6 +295,16 @@ def _add_download_options(parser):
     parser.set_defaults(download=True)
 
 def _add_anilist_options(parser, *, search=False):
+    provider_group = parser.add_argument_group("Provider options")
+    provider_group.add_argument(
+        "-P", "--provider",
+        choices=sorted(available_providers()),
+        metavar="PROVIDER",
+        help=_provider_help(),
+    )
+    provider_group.add_argument("--dub", action="store_true", help="Prefer dubbed episodes")
+    provider_group.add_argument("--sub", action="store_true", help="Prefer subtitled episodes")
+
     output = parser.add_argument_group("Output options")
     output.add_argument("--cover", dest="cover", action="store_true", default=None, help="Show cover images")
     output.add_argument("--no-cover", dest="cover", action="store_false", help="Do not show cover images")
@@ -315,6 +328,7 @@ def _add_resume_options(parser):
         help="Preferred quality: best, 1080p, 720p, 480p",
     )
     playback.add_argument("--dub", action="store_true", help="Prefer dubbed episodes")
+    playback.add_argument("--sub", action="store_true", help="Prefer subtitled episodes")
     playback.add_argument("-b", "--binge", action="store_true", help="Continue through episodes")
     playback.add_argument(
         "-p", "--player",
@@ -718,6 +732,24 @@ def build_anilist_search_parser():
 def parse_cli_args(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     meaningful = [arg for arg in argv if arg != "--debug"]
+
+    # Support: allmanga-cli <provider> anilist ...
+    if meaningful and meaningful[0] in _provider_command_names() and len(meaningful) > 1 and meaningful[1] == "anilist":
+        p_id = meaningful[0]
+        rest = meaningful[2:]
+        if rest and rest[0] == "search":
+            parser = build_anilist_search_parser()
+            parsed_args = parser.parse_args(rest[1:] + ["--provider", p_id] + (["--debug"] if "--debug" in argv else []))
+            return parsed_args, parser
+        else:
+            parser = build_command_parser()
+            parsed_args, _ = parser.parse_known_args(["anilist"] + rest + ["--provider", p_id] + (["--debug"] if "--debug" in argv else []))
+            target = str(getattr(parsed_args, "target", "menu") or "menu").lower()
+            parsed_args.anilist = ANILIST_COMMAND_TARGETS.get(target, target)
+            if hasattr(parsed_args, "target"):
+                del parsed_args.target
+            return parsed_args, parser
+
     if meaningful[:2] == ["anilist", "search"]:
         debug_enabled = "--debug" in argv
         nested_argv = meaningful[2:]

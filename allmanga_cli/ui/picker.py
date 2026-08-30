@@ -522,6 +522,13 @@ def tui_pick(
                     if _poster_needs_tick(show_obj) and now - last_poster_tick >= 0.1:
                         last_poster_tick = now
                         _needs_redraw = True
+            elif header_fn is not None and now - last_poster_tick >= 0.1:
+                show_ctx = getattr(ui, "ui_show_ctx", None) or getattr(ui, "hovered_show_obj", None)
+                if show_ctx and isinstance(show_ctx, dict):
+                    fb_time = float(show_ctx.get("_action_feedback_time") or 0)
+                    if fb_time > 0 and (now - fb_time) <= 3.0:
+                        last_poster_tick = now
+                        _needs_redraw = True
 
             if _needs_redraw:
                 render(filt)

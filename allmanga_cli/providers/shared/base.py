@@ -33,5 +33,5 @@ class Provider(Protocol):
         ttype: str = "sub",
         cfg: dict[str, Any] | None = None,
     ) -> str:
-        """Return a provider browser URL for verification or fallback."""
+        """Return a provider browser URL for web fallback."""
 

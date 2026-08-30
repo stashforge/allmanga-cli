@@ -20,16 +20,14 @@ LIST_STATUSES = {
 }
 
 
-def menu_header():
-    hint = "\033[38;5;244m"
-    detail = "\033[38;5;248m"
-    reset = "\033[0m"
-    return "\n".join([
-        "",
-        f"{detail}Choose an AniList list.{reset}",
-        f"{hint}Titles are matched to AllAnime before playback.{reset}",
-        f"{hint}Enter/Right=select  Left=search  Esc=quit{reset}",
-    ])
+def menu_header(width=80):
+    from .panels import render_menu_card
+    return render_menu_card(
+        "Choose an AniList list.",
+        "Titles are matched to streaming providers before playback.",
+        "Enter/Right=select  Left=search  Esc=quit",
+        width=width,
+    )
 
 
 def menu_navigation(result):

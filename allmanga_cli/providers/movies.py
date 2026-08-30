@@ -13,6 +13,7 @@ from allmanga_cli.providers.shared.models import normalize_episode_sources
 
 class MoviesProvider(MovieProvider):
     id = "movies"
+    audio_mode = "embedded_multi_audio"
     
     HEADERS = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",

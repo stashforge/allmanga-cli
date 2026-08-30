@@ -34,7 +34,7 @@ YELLOW  = "\033[1;33m"
 
 
 def _footer_parts(*parts):
-    return " | ".join(str(part) for part in parts if part)
+    return " • ".join(str(part) for part in parts if part)
 
 
 def _session_badges(flags, args, *, search_context=False):
@@ -356,7 +356,7 @@ def handle_search_state(
             else:
                 parts.append(f"{C_K}Use Up/Down to browse previous searches.{R}")
             if provider_name:
-                parts.append(f"{C_K}Provider: {provider_name}{R}")
+                parts.append(f"\033[38;5;250mProvider: \033[1;97m{provider_name}{R}")
             nav = f"Enter=search  ? = Help  Esc={esc_action}"
             if flags.incognito_mode:
                 nav = f"\033[38;2;155;125;185mINCOGNITO\033[0m | {nav}"
@@ -382,56 +382,18 @@ def handle_search_state(
 
     def _search_result_header(provider_name, base_query, ttype_local, get_results_fn, get_loading_fn, esc_action="quit", get_error_fn=None):
         def _hdr(si):
-            C_K = "\033[38;5;244m"
-            R = "\033[0m"
-            try:
-                w = os.get_terminal_size().columns
-            except OSError:
-                w = 80
-            parts = []
-            safe_query = _sanitize_terminal_text(base_query)
-            filter_query = _sanitize_terminal_text(ui.active_picker_query or "")
-            shows = get_results_fn()
-            loading_msg = get_loading_fn()
-            if loading_msg:
-                selected_show = {}
-                parts.append("")
-                if flags.incognito_mode:
-                    parts.append(f"{C_K}Search & watch history is paused.{R}")
-                else:
-                    parts.append(f"{C_K}Use Up/Down to browse previous searches.{R}")
-                if provider_name:
-                    parts.append(f"{C_K}Provider: {provider_name}{R}")
-            elif shows and 0 <= si < len(shows):
-                selected_show = shows[si]
-                app_core.build_info_panel(selected_show, ttype_local, w, parts, main_title=selected_show.get('name'))
-            else:
-                selected_show = {}
-                parts.append("")
-                if shows and filter_query:
-                    parts.append(f"{C_K}No match: {_truncate_display(filter_query, max(1, w - 11))}{R}")
-                else:
-                    parts.append("")
-            if loading_msg:
-                parts.append(loading_msg)
-            elif shows:
-                footer = _footer_parts(
-                    f'"{safe_query}"',
-                    provider_name,
-                    *_session_badges(flags, args, search_context=True),
-                    "Enter=select",
-                    "?=Help",
-                    "Left=search",
-                    f"Esc={esc_action}",
-                )
-                parts.append(app_core._poster_footer_line(selected_show, footer, w))
-            else:
-                err_msg = get_error_fn() if get_error_fn else ""
-                if err_msg:
-                    parts.append(f'\033[38;5;196m{err_msg}{R}  │  Left=new search  Esc={esc_action}')
-                else:
-                    parts.append(f'{C_K}No results for "{safe_query}"  │  Left=new search  Esc={esc_action}{R}')
-            return "\n".join(parts)
+            return app_core.render_search_header(
+                provider_name,
+                base_query,
+                ttype_local,
+                get_results_fn,
+                get_loading_fn,
+                selected_idx=si,
+                esc_action=esc_action,
+                get_error_fn=get_error_fn,
+                filter_query=ui.active_picker_query or "",
+                badges=_session_badges(flags, args, search_context=True),
+            )
         return _hdr
 
     # Step 1: Input Page
@@ -521,29 +483,11 @@ def handle_search_state(
         return "SEARCH"
     else:
         s = shows[idx]
-        if args.sync and not args.no_sync and cfg.get("anilist_token"):
-            matched = app_core.with_loading(
-                "Matching title on AniList...",
-                app_core.match_allanime_show_to_anilist,
-                flags,
-                ui,
-                s,
-                cfg["anilist_token"],
-                False,
-            )
-            if not matched:
-                matched = app_core._run_manual_anilist_match(
-                    flags, ui, s, cfg["anilist_token"]
-                )
-            if matched:
-                s = matched
-
         ms.show_id = s["_id"]
-        sync_enabled = bool(args.sync and not args.no_sync and app_core.get_show_anilist_id(s))
-        ms.show_title = get_show_display_title(s, sync_enabled=sync_enabled)
         ms.total_eps = s.get("availableEpisodes", {}).get(ttype, 0)
         episode_ids = app_core.load_episode_ids_for_selection(s, ttype)
         ms.total_eps = len(episode_ids) or ms.total_eps
+        ms.show_title = get_show_display_title(s)
 
         ui.ui_show_ctx = s
         ui.ui_ttype_ctx = ttype
@@ -567,7 +511,7 @@ def handle_search_state(
             if episode_ids:
                 app_core.set_action_feedback(
                     s,
-                    f"EP {requested_ep} is not available • Choose an episode",
+                    f"EP {requested_ep} not found • Select an episode",
                 )
             else:
                 app_core.set_action_feedback(s, app_core.episode_catalog_error(s))

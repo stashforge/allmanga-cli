@@ -96,14 +96,13 @@ def fetch_skip_times(
                 else:
                     log.debug(f"[aniskip] No skip times recorded on AniSkip for MAL ID {mal_id_int} EP {ep_num}.")
     except urllib.error.HTTPError as exc:
-        if exc.code == 404:
-            log.debug(f"[aniskip] No skip times recorded on AniSkip for MAL ID {mal_id_int} EP {ep_num}.")
+        if exc.code in (404, 500, 502, 503):
+            log.debug(f"[aniskip] No skip times recorded on AniSkip for MAL ID {mal_id_int} EP {ep_num} (HTTP {exc.code}).")
         else:
             log.debug(f"[aniskip] AniSkip HTTP error {exc.code}: {exc.reason}")
             debug_warn("AniSkip HTTP error", exc)
     except Exception as exc:
         log.debug(f"[aniskip] AniSkip request error: {exc}")
-        debug_warn("AniSkip request error", exc)
 
     _ANISKIP_CACHE[cache_key] = results
     return results

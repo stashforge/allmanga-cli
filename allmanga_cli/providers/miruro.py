@@ -122,6 +122,7 @@ def _fetch_pipe(payload: dict, domains: list[str]) -> dict | None:
 
 class MiruroProvider:
     id = "miruro"
+    audio_mode = "separate_catalogs"
 
     def __init__(self, request_json_fn=request_json):
         self._request_json = request_json_fn

@@ -59,7 +59,7 @@ ANILIST_LIST_LABELS = {
 
 
 def _footer_parts(*parts):
-    return " | ".join(str(part) for part in parts if part)
+    return " • ".join(str(part) for part in parts if part)
 
 
 def _anilist_badges(flags, args):
@@ -153,19 +153,51 @@ def _open_anilist_show_from_picker(
     ttype,
     source_show,
     parent_state,
+    cfg=None,
 ):
+    p_id = getattr(args, "provider", None) or (cfg or {}).get("provider")
+
+    # Check if a previous provider link exists for this AniList ID
+    al_id = str(source_show.get("_id") or source_show.get("id") or "")
+    if al_id:
+        stored = app_core.get_al_match(al_id)
+        stored_pid = stored.get("_provider") or stored.get("provider")
+        if stored_pid:
+            p_id = stored_pid
+
+    p_name = app_core.provider_display_name(p_id)
     matched = app_core.with_loading(
-        "Matching title on AllAnime...",
-        app_core.match_anilist_show_to_allanime,
+        f"Finding streams on {p_name}…",
+        app_core.match_anilist_show_to_provider,
         source_show,
         ttype,
+        provider_id=p_id,
     )
 
     if not matched:
-        matched = app_core._run_manual_match_search(flags, ui, source_show, ttype)
-    if not matched:
-        return parent_state
+        # Non-intrusive entry: open directly into Details view without forced prompt
+        unlinked = dict(source_show)
+        unlinked["_has_provider_link"] = False
+        unlinked["_anilist_context"] = True
+        unlinked["_anilist_media_synced"] = True
 
+        ui.ui_show_ctx = unlinked
+        ui.ui_ttype_ctx = ttype
+        ms.shows = [unlinked]
+        ms.show_id = str(unlinked.get("_id") or unlinked.get("id") or "")
+        ms.show_title = get_show_display_title(unlinked)
+        ms.total_eps = 0
+        ms.current_ep = None
+        ms.current_ep_index = None
+
+        ui.search_prev_state = parent_state
+        ui.ep_prev_state = parent_state
+        ui.action_prev_state = parent_state
+        ms.just_picked_anime = True
+        return "DETAILS"
+
+    matched["_has_provider_link"] = True
+    matched["_anilist_context"] = True
     ms.shows = [matched]
     ui.ui_show_ctx = matched
     ui.ui_ttype_ctx = ttype
@@ -174,7 +206,7 @@ def _open_anilist_show_from_picker(
     ms.show_title = get_show_display_title(matched)
     ms.total_eps = matched.get("availableEpisodes", {}).get(ttype, 0)
 
-    episode_ids = app_core.load_episode_ids_for_selection(matched, ttype)
+    episode_ids = app_core.with_loading("Loading episodes…", app_core.load_episode_ids_for_selection, matched, ttype)
     ms.total_eps = len(episode_ids) or ms.total_eps
 
     if args.episode:
@@ -260,7 +292,6 @@ def handle_anilist_airing_state(
                 _fit_terminal_line(f"{_C_HINT}Use Tab/Ctrl+N to switch tabs or Ctrl+R to refresh.{_RST}", w),
             ])
         footer_text = _footer_parts(
-            f"{len(shows)} airing",
             *_anilist_badges(flags, args),
             "Enter/Right open",
             "Tab/Ctrl+N next tab",
@@ -370,7 +401,6 @@ def handle_anilist_browse_state(
         parts.append(app_core._poster_footer_line(
             selected_show,
             _footer_parts(
-                f"{len(al_shows)} results",
                 *_anilist_badges(flags, args),
                 "Enter/Right open",
                 "Tab/Ctrl+N next sort",
@@ -431,69 +461,7 @@ def handle_anilist_browse_state(
         return "ANILIST_BROWSE"
 
     s = al_shows[idx]
-    matched = app_core.with_loading(
-        "Matching title on AllAnime...",
-        app_core.match_anilist_show_to_allanime,
-        s,
-        ttype,
-    )
-
-    if matched:
-        ms.shows = [matched]
-        ui.ui_show_ctx = matched
-        ui.ui_ttype_ctx = ttype
-
-        ms.show_id = matched["_id"]
-        ms.show_title = get_show_display_title(matched)
-        ms.total_eps = matched.get("availableEpisodes", {}).get(ttype, 0)
-
-        episode_ids = app_core.load_episode_ids_for_selection(matched, ttype)
-        ms.total_eps = len(episode_ids) or ms.total_eps
-
-        if args.episode:
-            ms.current_ep = str(args.episode)
-            ms.current_ep_index = episode_index_for_id(
-                episode_ids, ms.current_ep, labels=ui.ui_show_ctx.get("_episode_labels") if ui.ui_show_ctx else None
-            )
-            args.episode = None
-            if not episode_ids:
-                app_core.err(app_core.episode_catalog_error(matched))
-                return "DETAILS"
-            elif ms.current_ep_index is None:
-                app_core.err(f"EP {ms.current_ep} is not available from this provider.")
-                return "EPISODE"
-            else:
-                ms.current_ep = episode_id_at(episode_ids, ms.current_ep_index)
-                return "PLAY"
-        else:
-            ui.search_prev_state = "ANILIST_BROWSE"
-            ui.ep_prev_state = "ANILIST_BROWSE"
-            ui.action_prev_state = "ANILIST_BROWSE"
-            ms.just_picked_anime = True
-            return "DETAILS"
-    else:
-        matched = app_core._run_manual_match_search(flags, ui, s, ttype)
-        if matched:
-            ms.shows = [matched]
-            ui.ui_show_ctx = matched
-            ui.ui_ttype_ctx = ttype
-
-            ms.show_id = matched["_id"]
-            ms.show_title = get_show_display_title(matched)
-            ms.total_eps = matched.get("availableEpisodes", {}).get(ttype, 0)
-
-            episode_ids = app_core.ensure_episode_ids(matched, ttype)
-            ms.total_eps = len(episode_ids) or ms.total_eps
-            ms.current_ep_index = 0
-            ms.current_ep = episode_id_at(episode_ids, ms.current_ep_index)
-
-            ui.search_prev_state = "ANILIST_BROWSE"
-            ui.ep_prev_state = "ANILIST_BROWSE"
-            ui.action_prev_state = "ANILIST_BROWSE"
-            ms.just_picked_anime = True
-            return "DETAILS"
-
-    return "ANILIST_BROWSE"
+    return _open_anilist_show_from_picker(flags, ui, ms, args, ttype, s, "ANILIST_BROWSE", cfg)
 
 
 def handle_anilist_search_state(
@@ -515,7 +483,7 @@ def handle_anilist_search_state(
             R = "\033[0m"
             parts = [""]
             parts.append(f"{C_K}Use Up/Down to browse previous searches.{R}")
-            parts.append(f"{C_K}Provider: {provider_name}{R}")
+            parts.append(f"\033[38;5;250mProvider: \033[1;97m{provider_name}{R}")
             if ui.search_error:
                 parts.append(f"{C_K}{ui.search_error}  │  Esc={esc_action}{R}")
             else:
@@ -538,51 +506,18 @@ def handle_anilist_search_state(
 
     def _search_result_header(provider_name, base_query, ttype_local, get_results_fn, get_loading_fn, esc_action="quit", get_error_fn=None):
         def _hdr(si):
-            C_K = "\033[38;5;244m"
-            R = "\033[0m"
-            try:
-                w = os.get_terminal_size().columns
-            except OSError:
-                w = 80
-            parts = []
-            safe_query = _sanitize_terminal_text(base_query)
-            filter_query = _sanitize_terminal_text(ui.active_picker_query or "")
-            shows = get_results_fn()
-            loading_msg = get_loading_fn()
-            if loading_msg:
-                selected_show = {}
-                parts.append("")
-                parts.append(f"{C_K}Use Up/Down to browse previous searches.{R}")
-                parts.append(f"\033[38;5;250mProvider: \033[1;97m{provider_name}\033[0m")
-            elif shows and 0 <= si < len(shows):
-                selected_show = shows[si]
-                app_core.build_info_panel(selected_show, ttype_local, w, parts)
-            else:
-                selected_show = {}
-                parts.append("")
-                if shows and filter_query:
-                    parts.append(f"{C_K}No match: {_truncate_display(filter_query, max(1, w - 11))}{R}")
-                else:
-                    parts.append("")
-                parts.append(f"\033[38;5;250mProvider: \033[1;97m{provider_name}\033[0m")
-            if loading_msg:
-                parts.append(loading_msg)
-            elif shows:
-                footer = _footer_parts(
-                    f'{len(shows)} result(s) for "{safe_query}"',
-                    *_anilist_badges(flags, args),
-                    "Enter=select",
-                    "?=Help",
-                    "Left=search",
-                    f"Esc={esc_action}",
-                )
-            else:
-                err_msg = get_error_fn() if get_error_fn else ""
-                if err_msg:
-                    parts.append(f'\033[38;5;196m{err_msg}{R}  │  Left=new search  Esc={esc_action}')
-                else:
-                    parts.append(f'{C_K}No results for "{safe_query}"  │  Left=new search  Esc={esc_action}{R}')
-            return "\n".join(parts)
+            return app_core.render_search_header(
+                provider_name,
+                base_query,
+                ttype_local,
+                get_results_fn,
+                get_loading_fn,
+                selected_idx=si,
+                esc_action=esc_action,
+                get_error_fn=get_error_fn,
+                filter_query=ui.active_picker_query or "",
+                badges=_anilist_badges(flags, args),
+            )
         return _hdr
 
     # Step 1: Input Page
@@ -672,79 +607,6 @@ def handle_anilist_search_state(
         return "ANILIST_SEARCH"
     else:
         s = shows[idx]
-        matched = app_core.with_loading(
-            "Matching title on AllAnime...",
-            app_core.match_anilist_show_to_allanime,
-            s,
-            ttype,
-        )
-
-        if matched:
-            ui.ui_show_ctx = matched
-            ui.ui_ttype_ctx = ttype
-
-            ms.total_eps = matched.get("availableEpisodes", {}).get(ttype, 0)
-            ms.show_id = matched.get("_id")
-            ms.show_title = get_show_display_title(matched)
-
-            episode_ids = app_core.load_episode_ids_for_selection(matched, ttype)
-            ms.total_eps = len(episode_ids) or ms.total_eps
-
-            try:
-                al_progress = max(0, int(matched.get("_anilist_progress") or 0))
-            except (TypeError, ValueError):
-                al_progress = 0
-            current_label = (
-                app_core.episode_id_for_progress(matched, ttype, al_progress)
-                if al_progress > 0 else None
-            )
-            current_idx = (
-                episode_index_for_id(
-                    episode_ids, current_label, labels=ui.ui_show_ctx.get("_episode_labels") if ui.ui_show_ctx else None
-                )
-                if current_label
-                else None
-            )
-            if current_idx is not None and current_idx + 1 < len(episode_ids):
-                ms.current_ep = episode_id_at(episode_ids, current_idx + 1)
-            elif current_idx is not None:
-                ms.current_ep = episode_id_at(episode_ids, current_idx)
-            else:
-                ms.current_ep = episode_id_at(episode_ids, 0)
-
-            ms.current_ep_index = episode_index_for_id(
-                episode_ids, ms.current_ep, labels=ui.ui_show_ctx.get("_episode_labels") if ui.ui_show_ctx else None
-            )
-            if episode_ids and ms.current_ep_index is not None:
-                ms.current_ep = episode_id_at(episode_ids, ms.current_ep_index)
-            elif episode_ids:
-                ms.current_ep_index = 0
-                ms.current_ep = episode_id_at(episode_ids, 0)
-
-            ui.search_prev_state = "ANILIST_SEARCH"
-            ui.ep_prev_state = "ANILIST_SEARCH"
-            ui.action_prev_state = "ANILIST_SEARCH"
-            ms.just_picked_anime = True
-            return "DETAILS"
-        else:
-            matched = app_core._run_manual_match_search(flags, ui, s, ttype)
-            if matched:
-                ui.ui_show_ctx = matched
-                ui.ui_ttype_ctx = ttype
-
-                ms.total_eps = matched.get("availableEpisodes", {}).get(ttype, 0)
-                ms.show_id = matched.get("_id")
-                ms.show_title = get_show_display_title(matched)
-
-                episode_ids = app_core.load_episode_ids_for_selection(matched, ttype)
-                ms.total_eps = len(episode_ids) or ms.total_eps
-                ms.current_ep_index = 0
-                ms.current_ep = episode_id_at(episode_ids, ms.current_ep_index)
-
-                ui.search_prev_state = "ANILIST_SEARCH"
-                ui.ep_prev_state = "ANILIST_SEARCH"
-                ui.action_prev_state = "ANILIST_SEARCH"
-                ms.just_picked_anime = True
-                return "DETAILS"
+        return _open_anilist_show_from_picker(flags, ui, ms, args, ttype, s, "ANILIST_SEARCH", cfg)
 
     return "ANILIST_SEARCH"

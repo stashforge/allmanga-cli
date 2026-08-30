@@ -46,6 +46,7 @@ XHR_HEADERS = {
 
 class AniDBApp(Provider):
     id = "anidbapp"
+    audio_mode = "separate_catalogs"
 
     def __init__(self, request_json_fn=None):
         self._request_json = request_json_fn
@@ -65,7 +66,7 @@ class AniDBApp(Provider):
     def _fetch(self, url, headers):
         req = urllib.request.Request(url, headers=headers)
         try:
-            with urllib.request.urlopen(req) as response:
+            with urllib.request.urlopen(req, timeout=8) as response:
                 return response.status, response.read().decode("utf-8")
         except urllib.error.HTTPError as e:
             return e.code, e.read().decode("utf-8")
@@ -79,7 +80,7 @@ class AniDBApp(Provider):
 
         status, html = self._fetch(url, headers=headers)
         if status != 200:
-            log.warning(f"AniDBApp search failed: HTTP {status}")
+            log.debug(f"AniDBApp search failed: HTTP {status}")
             return []
             
         results = []
@@ -141,12 +142,48 @@ class AniDBApp(Provider):
         title_match = re.search(r'<h1\b[^>]*>([\s\S]*?)</h1>', text, re.IGNORECASE)
         title = re.sub(r'<[^>]+>', '', title_match.group(1)).strip() if title_match else provider_id.replace('-', ' ')
         
-        anilist_match = re.search(r'href=["\']https?://anilist\.co/anime/(\d+)["\']', text, re.IGNORECASE)
-        mal_match = re.search(r'href=["\']https?://myanimelist\.net/anime/(\d+)["\']', text, re.IGNORECASE)
+        anilist_match = re.search(r'href=["\']https?://anilist\.co/anime/(\d+)/?["\']', text, re.IGNORECASE)
+        mal_match = re.search(r'href=["\']https?://myanimelist\.net/anime/(\d+)/?["\']', text, re.IGNORECASE)
+        
+        description = ""
+        alt_names = []
+        thumbnail = ""
+        genres = []
+        
+        # Parse ld+json metadata
+        ld_match = re.search(r'<script\b[^>]*type=["\']application/ld\+json["\'][^>]*>([\s\S]*?)</script>', text, re.IGNORECASE)
+        if ld_match:
+            try:
+                ld_data = json.loads(ld_match.group(1))
+                if ld_data.get("description"):
+                    description = ld_data["description"]
+                if ld_data.get("alternateName"):
+                    alt_names.append(ld_data["alternateName"])
+                if ld_data.get("image"):
+                    thumbnail = ld_data["image"]
+                if ld_data.get("genre"):
+                    g = ld_data["genre"]
+                    genres = g if isinstance(g, list) else [g]
+            except Exception:
+                pass
+
+        if not description:
+            desc_meta = re.search(r'<meta\b[^>]*name=["\']description["\'][^>]*content=["\']([\s\S]*?)["\']', text, re.IGNORECASE)
+            if desc_meta:
+                description = desc_meta.group(1).strip()
+
+        if not thumbnail:
+            img_meta = re.search(r'<meta\b[^>]*property=["\']og:image["\'][^>]*content=["\']([\s\S]*?)["\']', text, re.IGNORECASE)
+            if img_meta:
+                thumbnail = img_meta.group(1).strip()
         
         result = {
             "id": provider_id,
             "name": title,
+            "altNames": alt_names,
+            "description": description,
+            "thumbnail": thumbnail,
+            "genres": genres,
         }
         if anilist_match:
             result["aniListId"] = int(anilist_match.group(1))
@@ -159,7 +196,7 @@ class AniDBApp(Provider):
         # Extract siteId from the slug
         m = re.search(r'-(\d+)$', provider_id)
         if not m:
-            log.warning(f"Could not extract siteId from slug: {provider_id}")
+            log.debug(f"Could not extract siteId from slug: {provider_id}")
             return normalize_episode_catalog({"state": "error", "error": "Invalid siteId"}, provider_id=self.id, provider_title_id=provider_id)
             
         site_id = m.group(1)
@@ -169,7 +206,7 @@ class AniDBApp(Provider):
         
         status, text = self._fetch(url, headers=headers)
         if status != 200:
-            log.warning(f"AniDBApp episode catalog failed: HTTP {status}")
+            log.debug(f"AniDBApp episode catalog failed: HTTP {status}")
             return normalize_episode_catalog({"state": "error", "error": "API failed"}, provider_id=self.id, provider_title_id=provider_id)
             
         try:
@@ -185,19 +222,50 @@ class AniDBApp(Provider):
         labels = {}
         
         for ep in episodes_list:
-            # We map string episode numbers to internal ids
             ep_num = str(ep.get("number"))
             if ep_num and ep_num not in episodes_map:
                 episodes_map[ep_num] = ep.get("id")
                 ids.append(ep_num)
                 labels[ep_num] = f"Episode {ep_num}"
                 eps_formatted.append({"id": ep_num, "label": labels[ep_num]})
-                
+
+        # If DUB is requested, verify if Episode 1 actually has English language
+        if ttype == "dub" and ids:
+            first_ep_id = episodes_map.get(ids[0])
+            if first_ep_id:
+                lang_url = f"{self.base_url}/api/frontend/episode/{first_ep_id}/languages"
+                lang_status, lang_text = self._fetch(lang_url, headers=dict(XHR_HEADERS))
+                has_dub = False
+                if lang_status == 200:
+                    try:
+                        lang_data = json.loads(lang_text)
+                        for l in lang_data.get("languages", []):
+                            code = str(l.get("code", "")).lower()
+                            name = str(l.get("name", "")).lower()
+                            if code in ("eng", "en") or "english" in name:
+                                has_dub = True
+                                break
+                    except Exception:
+                        pass
+                if not has_dub:
+                    return normalize_episode_catalog({
+                        "state": "loaded",
+                        "ids": [],
+                        "error": "No English DUB available for this title on AniDB.app",
+                        "detail": {"sub": ids, "dub": [], "raw": []},
+                    }, provider_id=self.id, provider_title_id=provider_id)
+
+        detail = {
+            "sub": ids,
+            "dub": ids if ttype == "dub" else [],
+            "raw": [],
+        }
         catalog = {
             "state": "loaded",
             "ids": ids,
             "labels": labels,
             "episodes": {ttype: eps_formatted},
+            "detail": detail,
             "_internal_map": episodes_map,
         }
             
@@ -216,7 +284,7 @@ class AniDBApp(Provider):
         ep_id = internal_map.get(str(episode))
         
         if not ep_id:
-            log.warning(f"Episode {episode} not found in AniDBApp catalog for {provider_id}")
+            log.debug(f"Episode {episode} not found in AniDBApp catalog for {provider_id}")
             return None
             
         # Fetch languages for the episode
@@ -226,7 +294,7 @@ class AniDBApp(Provider):
         
         status, text = self._fetch(url, headers=headers)
         if status != 200:
-            log.warning(f"AniDBApp episode languages failed: HTTP {status}")
+            log.debug(f"AniDBApp episode languages failed: HTTP {status}")
             return None
             
         try:
@@ -245,13 +313,8 @@ class AniDBApp(Provider):
                 matched_lang = lang
                 break
                 
-        # Fallback to the first available if exact sub/dub doesn't match perfectly, 
-        # though usually it's correct.
-        if not matched_lang and languages:
-            matched_lang = languages[0]
-            
         if not matched_lang or not matched_lang.get("embed_url"):
-            log.warning(f"No embed URL found for {ttype} in {languages}")
+            log.debug(f"No embed URL found for {ttype} in {languages}")
             return None
             
         embed_url = matched_lang["embed_url"]
@@ -262,7 +325,7 @@ class AniDBApp(Provider):
         
         embed_status, html = self._fetch(embed_url, headers=embed_headers)
         if embed_status != 200:
-            log.warning(f"AniDBApp embed fetch failed: HTTP {embed_status}")
+            log.debug(f"AniDBApp embed fetch failed: HTTP {embed_status}")
             return None
             
         hls_url = None
@@ -280,7 +343,7 @@ class AniDBApp(Provider):
                 break
                 
         if not hls_url:
-            log.warning(f"Could not extract HLS URL from embed: {embed_url}")
+            log.debug(f"Could not extract HLS URL from embed: {embed_url}")
             return None
             
         stream_referer = f"{urllib.parse.urlparse(embed_url).scheme}://{urllib.parse.urlparse(embed_url).netloc}/"

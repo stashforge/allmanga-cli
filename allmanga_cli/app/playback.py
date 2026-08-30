@@ -30,7 +30,6 @@ from ..playback.rules import (
 )
 from ..ui.help import picker_help
 from ..ui import picker as _picker_mod
-from ..ui.verification import verification_page
 from ..ui.display import suppress_terminal_echo
 from ..core.terminal import truncate_display as _truncate_display
 
@@ -95,84 +94,6 @@ def format_mirror_label(stream: dict, *, prefix: str = "", safe_tag: str = "") -
     return re.sub(r"\s+", " ", " ".join(parts)).strip()
 
 
-def _handle_verification_page(
-    flags: "CliFlags",
-    ui: "UiState",
-    ms: "MachineState",
-    cfg: dict,
-    ttype: str,
-) -> str:
-    show = ui.ui_show_ctx or {}
-    episode_url = show.get("_provider_verification_url", "")
-    fallback_url = app_core.allanime_frontend_domain(cfg)
-    status_msg = ""
-
-    while True:
-        result = verification_page(
-            get_show_display_title(show) if show else ms.show_title,
-            ms.current_ep,
-            ttype,
-            episode_url,
-            fallback_url,
-            legacy_url="https://allmanga.to",
-            status_message=status_msg,
-        )
-        if result == "back":
-            return "ACTION_MENU"
-        if result == "open_episode":
-            if episode_url and app_core.open_external_url(episode_url):
-                status_msg = "Opened episode page. Verify, then choose retry."
-            elif episode_url:
-                status_msg = "Could not open browser. Copy the episode URL manually."
-            else:
-                status_msg = "Episode URL is unavailable."
-        elif result == "open_site":
-            if app_core.open_external_url(fallback_url):
-                status_msg = "Opened provider site. Verify, then choose retry."
-            else:
-                status_msg = "Could not open browser. Copy the site URL manually."
-        elif result == "retry":
-            _clear_episode_source_state(ms)
-            ep_label = _display_episode_label(show, ms.current_ep, ttype)
-            app_core.set_action_feedback(show, f"Retrying EP {ep_label} after verification.")
-            return "PLAY"
-
-
-def _open_provider_verification(
-    flags: "CliFlags",
-    ui: "UiState",
-    ms: "MachineState",
-    cfg: dict,
-    ttype: str,
-    feedback: str,
-) -> str:
-    app_core._exit_player_screen()
-    _clear_episode_source_state(ms)
-    verification_url = app_core.allanime_episode_url(
-        ms.show_id,
-        ms.current_ep,
-        ttype,
-        cfg,
-    )
-    ui.ui_show_ctx["_provider_verification_url"] = verification_url
-    ui.ui_show_ctx["_provider_verification_episode"] = str(ms.current_ep)
-    app_core.set_action_feedback(ui.ui_show_ctx, feedback)
-    return "PROVIDER_VERIFY"
-
-
-def handle_provider_verify_state(
-    flags: "CliFlags",
-    ui: "UiState",
-    ms: "MachineState",
-    cfg: dict,
-    args: Any,
-    ttype: str,
-    resolve_tracking_fn,
-) -> str:
-    del args, resolve_tracking_fn
-    return _handle_verification_page(flags, ui, ms, cfg, ttype)
-
-
 def handle_episode_state(
     flags: CliFlags,
     ui: UiState,
@@ -183,6 +104,19 @@ def handle_episode_state(
     resolve_tracking_fn,) -> str:
     show = ui.ui_show_ctx
     episode_ids = app_core.ensure_episode_ids(show, ttype)
+    if not episode_ids and ttype in ("dub", "sub"):
+        alt_ttype = "sub" if ttype == "dub" else "dub"
+        alt_ids = app_core.ensure_episode_ids(show, alt_ttype)
+        if alt_ids:
+            p_name = (show.get("_provider_name") or (show.get("_provider") or "").title() or "provider") if show else "provider"
+            missing_mode = ttype.upper()
+            ttype = alt_ttype
+            ui.ui_ttype_ctx = ttype
+            episode_ids = alt_ids
+            app_core.set_action_feedback(
+                show,
+                f"No {missing_mode} available for this title on {p_name}. Switched to {ttype.upper()}."
+            )
     if not episode_ids:
         app_core.err(app_core.episode_catalog_error(show))
         if ui.ep_prev_state in ("SEARCH", "ANILIST_SEARCH", "ANILIST_BROWSE", "ANILIST_AIRING"):
@@ -206,22 +140,52 @@ def handle_episode_state(
 
         _t = lambda s: _truncate_display(s, max(1, w - 1))
         direct_single = ui.ep_prev_state == "SEARCH" and len(ms.shows) <= 1 and ms.just_searched
-        nav_text = "Left=search  Esc=quit" if direct_single else "Left/Esc=back"
-        feedback_time = float((show or {}).get("_action_feedback_time") or 0)
-        feedback_msg = (show or {}).get("_action_feedback") or ""
-
-        if feedback_msg and time.time() - feedback_time < 2.0:
-            parts.append(f"\033[38;5;220m{_t(feedback_msg)}{_RST}")
+        feedback = app_core.get_active_feedback(show)
+        if feedback:
+            parts.append(f"\033[38;5;222m{_t(feedback)}{_RST}")
         else:
-            p_name = (show.get("_provider_name") or show.get("_provider") or "").title() if show else ""
-            parts.append(f"{_C_HINT}{_t(p_name + ' | Enter/Right=select  Ctrl+R=flip  ? = Help  ' + nav_text)}{_RST}")
+            p_name = (show.get("_provider_name") or (show.get("_provider") or "").title()) if show else ""
+            prefix = f"{p_name} • " if p_name else ""
+            parts.append(f"{_C_HINT}{_t(prefix + 'Tab=Sub/Dub • Ctrl+R=flip • Enter=play • ?=Help • ' + nav_text)}{_RST}")
         return "\n".join(parts)
 
-    def _ep_tab_fn(opt=None):
+    def _ep_tab_fn(opt=None, direction=1):
+        nonlocal ttype, episode_ids, episode_labels, display_order, ep_opts
+        target_ttype = "dub" if ttype == "sub" else "sub"
+        allowed, reason = app_core.check_translation_switch_capability(show, ttype, target_ttype)
+        if not allowed:
+            if reason:
+                app_core.set_action_feedback(show, reason)
+            return (ep_opts, _ep_hdr(0))
+
+        new_ids = app_core.with_loading(
+            f"Switching to {target_ttype.upper()}…",
+            app_core.ensure_episode_ids,
+            show,
+            target_ttype,
+        )
+        if new_ids:
+            ttype = target_ttype
+            ui.ui_ttype_ctx = ttype
+            episode_ids = new_ids
+            ms.total_eps = len(episode_ids)
+            episode_labels = _episode_labels_for(show, ttype)
+            display_order = list(range(len(episode_ids)))
+            if app_core.get_episode_order(ms.show_id, cfg.get("episode_order", "asc")) == "desc":
+                display_order.reverse()
+            ep_opts = [episode_label(episode_ids[i], episode_labels) for i in display_order]
+        else:
+            p_name = (show.get("_provider_name") or (show.get("_provider") or "").title() or "this provider") if show else "this provider"
+            app_core.set_action_feedback(show, f"{target_ttype.upper()} unavailable on {p_name}")
+        return (ep_opts, _ep_hdr(0))
+
+    def _ep_reverse_fn(opt=None):
         nonlocal ep_opts, display_order
         app_core.toggle_episode_order(ms.show_id, cfg.get("episode_order", "asc"))
         display_order.reverse()
         ep_opts = [episode_label(episode_ids[i], episode_labels) for i in display_order]
+        new_order = app_core.get_episode_order(ms.show_id, cfg.get("episode_order", "asc"))
+        app_core.set_action_feedback(show, f"Order: {'Newest first (N → 1)' if new_order == 'desc' else 'Oldest first (1 → N)'}")
         return (ep_opts, _ep_hdr(0))
 
     if ms.total_eps <= 1:
@@ -232,7 +196,7 @@ def handle_episode_state(
             "Play episode",
             "New search" if direct_single else "Go back",
             "Quit" if direct_single else "Go back",
-            "Flip order",
+            "Toggle Sub/Dub",
             reverse_label="Flip order",
         )
         idx = tui_pick(
@@ -240,7 +204,7 @@ def handle_episode_state(
             "Select episode", ep_opts,
             header_fn=_ep_hdr,
             tab_fn=_ep_tab_fn,
-            reverse_fn=_ep_tab_fn,
+            reverse_fn=_ep_reverse_fn,
             info_fn=app_core.make_single_show_info_fn(ui.ui_show_ctx, ui),
             help_dict=hd6
         )
@@ -311,6 +275,7 @@ def handle_play_state(
     _player_ui_state.update({
         "active": True,
         "show": ui.ui_show_ctx,
+        "ttype": ttype,
         "current_ep": ms.current_ep,
         "current_ep_label": current_ep_label,
         "total_eps": ms.total_eps,
@@ -354,23 +319,16 @@ def handle_play_state(
         if not ep_data:
             app_core._exit_player_screen()
             _clear_episode_source_state(ms)
+            p_name = (ui.ui_show_ctx.get("_provider_name") or (ui.ui_show_ctx.get("_provider") or "").title() or "this provider") if ui.ui_show_ctx else "this provider"
+            if ttype == "dub":
+                msg = f"No DUB stream available for {_fmt_ep(current_ep_label)} on {p_name}."
+            else:
+                msg = f"No stream available for {_fmt_ep(current_ep_label)} on {p_name}."
             app_core.set_action_feedback(
                 ui.ui_show_ctx,
-                f"Could not load {_fmt_ep(current_ep_label)}. Check connection or try another mirror.",
+                msg,
             )
             return "ACTION_MENU"
-        if ep_data.get("_provider_error") == "browser_verification_required":
-            return _open_provider_verification(
-                flags,
-                ui,
-                ms,
-                cfg,
-                ttype,
-                "Browser verification required. Open the site in a browser, play once, then replay.",
-            )
-        ui.ui_show_ctx.pop("_provider_verification_url", None)
-        ui.ui_show_ctx.pop("_provider_verification_episode", None)
-        ui.ui_show_ctx.pop("_provider_verification_seen", None)
 
         first_source_name = None
         if ms.selected_stream is None:
@@ -518,9 +476,15 @@ def handle_play_state(
         if ms.selected_stream is None:
             app_core._exit_player_screen()
             _clear_episode_source_state(ms)
+            p_name = (ui.ui_show_ctx.get("_provider_name") or (ui.ui_show_ctx.get("_provider") or "").title() or "this provider") if ui.ui_show_ctx else "this provider"
+            ep_label = _display_episode_label(ui.ui_show_ctx, ms.current_ep, ttype)
+            if ttype == "dub":
+                msg = f"No DUB stream available for {_fmt_ep(ep_label)} on {p_name}."
+            else:
+                msg = f"No stream available for {_fmt_ep(ep_label)} on {p_name}."
             app_core.set_action_feedback(
                 ui.ui_show_ctx,
-                "No playable streams found. Try another mirror.",
+                msg,
             )
             return "ACTION_MENU"
 
@@ -695,12 +659,6 @@ def handle_play_state(
             app_core._clear_streams()
             return "PLAY"
 
-        verification_url = ui.ui_show_ctx.get("_provider_verification_url", "")
-        verification_episode = ui.ui_show_ctx.get("_provider_verification_episode")
-        if verification_url and str(verification_episode) == str(ms.current_ep):
-            app_core._exit_player_screen()
-            return "PROVIDER_VERIFY"
-
         app_core._exit_player_screen()
         return "ACTION_MENU"
 
@@ -753,9 +711,9 @@ def handle_play_state(
                     new_status = tracking_status_for_progress(show_ctx, pending_progress)
 
                     def _pending_sync_success(ep=pending_ep, ctx=show_ctx):
-                        app_core.set_action_feedback(ctx, f"AniList synced: EP {ep} watched.")
+                        app_core.set_action_feedback(ctx, f"✓ Synced EP {ep} to AniList")
                     def _pending_sync_failure(ctx=show_ctx):
-                        app_core.set_action_feedback(ctx, "Saved locally, but AniList sync is pending.")
+                        app_core.set_action_feedback(ctx, "Saved offline • AniList sync pending")
 
                     queued = app_core.queue_anilist_progress(
                         tkn, ms.show_title, pending_progress, al_id,
@@ -768,7 +726,7 @@ def handle_play_state(
                         },
                     )
                     if queued:
-                        app_core.set_action_feedback(show_ctx, f"AniList sync queued: EP {pending_ep}.")
+                        app_core.set_action_feedback(show_ctx, f"Sync queued: EP {pending_ep}")
                 else:
                     sync_pending = False
 
@@ -816,12 +774,12 @@ def handle_play_state(
                         tkn, ms.show_title, progress_ep, al_id,
                         show_ctx, ttype, new_status,
                         on_success=lambda ep=ms.current_ep, ctx=show_ctx:
-                            app_core.set_action_feedback(ctx, f"AniList synced: EP {ep} watched."),
+                            app_core.set_action_feedback(ctx, f"✓ Synced EP {ep} to AniList"),
                         on_failure=lambda ctx=show_ctx:
-                            app_core.set_action_feedback(ctx, "Saved locally, but AniList sync is pending."),
+                            app_core.set_action_feedback(ctx, "Saved offline • AniList sync pending"),
                     )
                     if queued:
-                        app_core.set_action_feedback(show_ctx, f"AniList sync queued: EP {ms.current_ep}.")
+                        app_core.set_action_feedback(show_ctx, f"Sync queued: EP {ms.current_ep}")
 
             if result == "EOF" and (args.binge or cfg.get("binge")):
                 if ms.current_ep_index + 1 < ms.total_eps:
@@ -871,9 +829,9 @@ def handle_play_state(
                             tkn, ms.show_title, progress_ep, al_id,
                             show_ctx, ttype, new_status,
                             on_success=lambda ep=ms.current_ep, ctx=show_ctx:
-                                app_core.set_action_feedback(ctx, f"AniList synced: EP {ep} watched."),
+                                app_core.set_action_feedback(ctx, f"✓ Synced EP {ep} to AniList"),
                             on_failure=lambda ctx=show_ctx:
-                                app_core.set_action_feedback(ctx, "Saved locally, but AniList sync is pending."),
+                                app_core.set_action_feedback(ctx, "Saved offline • AniList sync pending"),
                         )
                         ms.pending_osd_msg = (
                             sync_queued_osd(ms.current_ep)
@@ -987,12 +945,6 @@ def handle_action_menu_state(
     if ms.total_eps > 1:
         opts.append("Episodes"); acts.append("EPISODES")
 
-    verification_url = action_show.get("_provider_verification_url", "")
-    verification_episode = action_show.get("_provider_verification_episode")
-    if verification_url and str(verification_episode) == str(ms.current_ep):
-        opts.append("Verify")
-        acts.append("VERIFY")
-
     if not getattr(ms, "_is_downloads", False):
         opts += ["Mirror", "Browser"]
         acts += ["MIRRORS", "BROWSER_PLAY"]
@@ -1024,7 +976,6 @@ def handle_action_menu_state(
         elif act == "BINGE":    action_hints[opt] = f"auto-play from {_fmt_ep(next_ep_label)}" if next_ep is not None else "auto-play next episodes"
         elif act == "PREV":     action_hints[opt] = _fmt_ep(prev_ep_label)
         elif act == "EPISODES": action_hints[opt] = f"browse all (1-{ms.total_eps})" if ms.total_eps > 1 else "browse all"
-        elif act == "VERIFY":   action_hints[opt] = "verification"
         elif act == "REPLAY":   action_hints[opt] = f"{_fmt_ep(current_ep_label)} from start"
         elif act == "BROWSER_PLAY": action_hints[opt] = "open in browser"
         elif act == "MIRRORS":  action_hints[opt] = "switch source / quality"
@@ -1059,25 +1010,14 @@ def handle_action_menu_state(
             mstat = ""
 
         parts = []
-        feedback_time = action_show.get("_action_feedback_time", 0)
-        has_feedback = (time.time() - float(feedback_time)) < 3.0 if feedback_time else False
-        feedback_msg = action_show.get("_action_feedback", "")
-
-        ep_str = current_ep_label
-        is_offline = getattr(ms, "_is_downloads", False)
-        app_core.build_info_panel(action_show, ttype, w, parts, override_ep_str=None if is_offline else ep_str, local_only=is_offline)
-
-        if has_feedback and len(parts) >= 4:
-            parts[3] = f"\033[32m✔ {feedback_msg}\033[0m"
-        elif mstat and len(parts) >= 4:
-            parts[3] = mstat
-
+        feedback = app_core.get_active_feedback(action_show)
         _t = lambda s: _truncate_display(s, max(1, w - 1))
-        if has_feedback:
-            parts.append(f"{C_K}{_t(feedback_msg)}{R}")
+        if feedback:
+            parts.append(f"\033[38;5;222m{_t(feedback)}{R}")
         else:
-            p_name = (action_show.get("_provider_name") or action_show.get("_provider") or "").title() if action_show else ""
-            parts.append(f"{C_K}{_t(p_name + ' | Enter/Right=select  ? = Help  Left/Esc=back')}{R}")
+            p_name = (action_show.get("_provider_name") or (action_show.get("_provider") or "").title()) if action_show else ""
+            prefix = f"{p_name} • " if p_name else ""
+            parts.append(f"{C_K}{_t(prefix + 'Enter/Right=select • ?=Help • Left/Esc=back')}{R}")
 
         return "\n".join(parts)
 
@@ -1107,7 +1047,7 @@ def handle_action_menu_state(
                 action_show["watched_episodes"] = watched
                 # Recompute display state for the current screen
                 app_core.prepare_show_display_state(action_show, ttype, False)
-            app_core.set_action_feedback(action_show, f"Marked {_fmt_ep(current_ep_label)} as watched locally.")
+            app_core.set_action_feedback(action_show, f"✓ Marked {_fmt_ep(current_ep_label)} watched")
             app_core.save_resume_time(ms.show_id, ms.current_ep, 0)
             return False
             
@@ -1117,21 +1057,21 @@ def handle_action_menu_state(
             progress_ep = episode_progress_number(ms.current_ep, ms.current_ep_index + 1)
             al_id = app_core.get_show_anilist_id(action_show)
             result = app_core.with_loading(
-                f"Syncing AniList progress: EP {progress_ep}…",
+                "Syncing to AniList…",
                 app_core.sync_watched_to_anilist,
                 tkn, ms.show_title, progress_ep, al_id, action_show, ttype,
             )
             if result:
                 synced = True
-                app_core.set_action_feedback(action_show, f"AniList synced: EP {progress_ep} watched.")
+                app_core.set_action_feedback(action_show, f"✓ Synced EP {progress_ep} to AniList")
             else:
-                app_core.set_action_feedback(action_show, "AniList sync failed.")
+                app_core.set_action_feedback(action_show, "Sync failed • Saved offline")
         else:
             app_core.with_loading(
-                f"Saving {_fmt_ep(current_ep_label)} locally…",
+                "Saving progress…",
                 app_core.save_history, action_show, ms.current_ep, ttype
             )
-            app_core.set_action_feedback(action_show, f"Marked {_fmt_ep(current_ep_label)} as watched locally.")
+            app_core.set_action_feedback(action_show, f"✓ Marked {_fmt_ep(current_ep_label)} watched")
 
         app_core.save_resume_time(ms.show_id, ms.current_ep, 0)
         return synced
@@ -1174,9 +1114,6 @@ def handle_action_menu_state(
 
     elif a == "EPISODES":
         return "EPISODE"
-
-    elif a == "VERIFY":
-        return "PROVIDER_VERIFY"
 
     elif a == "REPLAY":
         _clear_episode_source_state(ms)
@@ -1272,7 +1209,7 @@ def handle_mirrors_state(
         footer = lambda s: _truncate_display(s, max(1, w - 1))
 
         if toast and time.time() - toast_time < 3:
-            parts.append(f"\033[38;5;220m* {footer(toast)}\033[0m")
+            parts.append(f"\033[38;5;222m* {footer(toast)}\033[0m")
         else:
             parts.append(f"{C_D}{footer(f'{plain_status}  │  ? = Help  Esc=back')}{R}")
 
@@ -1285,9 +1222,11 @@ def handle_mirrors_state(
             still_alive = streams._bg_thread and streams._bg_thread.is_alive()
         if not still_alive:
             if ui.ui_show_ctx:
+                p_name = (ui.ui_show_ctx.get("_provider_name") or ui.ui_show_ctx.get("_provider") or "").title() or "Provider"
+                ep_label = _display_episode_label(ui.ui_show_ctx, ms.current_ep, ttype)
                 app_core.set_action_feedback(
                     ui.ui_show_ctx,
-                    "No mirrors available. Try replay after browser verification.",
+                    f"No stream mirrors available for {_fmt_ep(ep_label)} on {p_name}.",
                 )
             return "ACTION_MENU"
 
@@ -1330,12 +1269,12 @@ def handle_browser_play_state(
     resolve_tracking_fn,) -> str:
 
     ep_data = app_core.with_loading(
-        f"Fetching {ttype.upper()} URLs...",
+        f"Loading {ttype.upper()} streams…",
         app_core.get_episode_data, ms.show_id, ms.current_ep, ttype, provider_id=getattr(args, "provider", None)
     )
 
     if not ep_data:
-        app_core.set_action_feedback(ui.ui_show_ctx, "No links found for this episode.")
+        app_core.set_action_feedback(ui.ui_show_ctx, "No streams found")
         return "ACTION_MENU"
 
     sources = ep_data.get("episode", {}).get("sourceUrls", [])
@@ -1349,7 +1288,7 @@ def handle_browser_play_state(
             urls.append(url)
 
     if not opts:
-        app_core.set_action_feedback(ui.ui_show_ctx, "No valid URLs found.")
+        app_core.set_action_feedback(ui.ui_show_ctx, "No playable streams found")
         return "ACTION_MENU"
 
     def _browser_hdr(si):
@@ -1377,15 +1316,15 @@ def handle_browser_play_state(
         import subprocess
         try:
             subprocess.run(["termux-open-url", url], check=False)
-            app_core.set_action_feedback(ui.ui_show_ctx, f"Opened {url} in Android browser")
+            app_core.set_action_feedback(ui.ui_show_ctx, "✓ Opened stream in browser")
         except Exception:
-            app_core.set_action_feedback(ui.ui_show_ctx, "Failed to open link via termux-open-url")
+            app_core.set_action_feedback(ui.ui_show_ctx, "Couldn’t open browser")
     else:
         import webbrowser
         try:
             webbrowser.open(url)
-            app_core.set_action_feedback(ui.ui_show_ctx, f"Opened {url} in browser")
+            app_core.set_action_feedback(ui.ui_show_ctx, "✓ Opened stream in browser")
         except Exception:
-            app_core.set_action_feedback(ui.ui_show_ctx, "Failed to open link in browser")
+            app_core.set_action_feedback(ui.ui_show_ctx, "Couldn’t open browser")
 
     return "ACTION_MENU"

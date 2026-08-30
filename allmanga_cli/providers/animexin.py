@@ -15,6 +15,7 @@ from ..services.http import UA
 
 class AnimeXinProvider(WordPressAnimeProvider):
     id = "animexin"
+    audio_mode = "sub_only"
     blocked_mirror_label_pattern = r"\b(?:indo|indonesia|indonesian)\b"
 
     @property

@@ -18,6 +18,7 @@ _logger = logging.getLogger(__name__)
 
 class AnikotoProvider:
     id = "anikoto"
+    audio_mode = "separate_catalogs"
 
     def __init__(self, request_json_fn=None):
         self._request_json = request_json_fn
@@ -40,7 +41,13 @@ class AnikotoProvider:
     def search(self, query: str, ttype: str = "sub") -> list[dict[str, Any]]:
         try:
             raw_results = anilist.fetch(urllib.request.urlopen, json.load, None, search=query)
-            results = [anilist_normalize.normalize_media(raw) for raw in raw_results]
+            results = []
+            for raw in raw_results:
+                m = anilist_normalize.normalize_media(raw)
+                if m:
+                    eps = m.get("availableEpisodes", {})
+                    eps["dub"] = eps.get("sub", 0)
+                    results.append(m)
             return normalize_titles(results, provider_id=self.id, provider_name=self.name, id_key="_id")
         except Exception as e:
             _logger.debug("Anikoto search error: %s", e)
@@ -52,6 +59,9 @@ class AnikotoProvider:
             if not media:
                 return None
             title_data = anilist_normalize.normalize_media(media)
+            if title_data:
+                eps = title_data.get("availableEpisodes", {})
+                eps["dub"] = eps.get("sub", 0)
             return normalize_title(title_data, provider_id=self.id, provider_name=self.name, id_key="_id")
         except Exception as e:
             _logger.debug("Anikoto get_title error: %s", e)
@@ -72,7 +82,38 @@ class AnikotoProvider:
                     total = 1  # Fallback
                     
             ids = [str(ep) for ep in range(1, total + 1)]
-            return normalize_episode_catalog({"ids": ids}, provider_id=self.id, provider_title_id=provider_id)
+            
+            # If in DUB mode, check if MegaPlay actually has dub for episode 1
+            if ttype == "dub":
+                probe_url = f"{self.base_url}/stream/ani/{provider_id}/1/dub"
+                req = urllib.request.Request(
+                    probe_url,
+                    headers={
+                        **self.headers,
+                        "Referer": f"{self.base_url}/",
+                        "Accept": "text/html,application/json,*/*",
+                    },
+                )
+                has_dub = False
+                try:
+                    html = urllib.request.urlopen(req, timeout=4).read().decode("utf-8", errors="ignore")
+                    has_dub = bool(re.search(r'data-id=["\'](\d+)["\']', html))
+                except Exception:
+                    pass
+                if not has_dub:
+                    return normalize_episode_catalog({
+                        "ids": [],
+                        "state": "loaded",
+                        "error": "No English DUB available for this anime on Anikoto.",
+                        "detail": {"sub": ids, "dub": [], "raw": []},
+                    }, provider_id=self.id, provider_title_id=provider_id)
+
+            detail = {
+                "sub": ids,
+                "dub": ids if ttype == "dub" else [],
+                "raw": [],
+            }
+            return normalize_episode_catalog({"ids": ids, "detail": detail}, provider_id=self.id, provider_title_id=provider_id)
         except Exception as e:
             _logger.debug("Anikoto episode_catalog error: %s", e)
             return normalize_episode_catalog({"ids": []}, provider_id=self.id, provider_title_id=provider_id)
