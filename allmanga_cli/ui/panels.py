@@ -136,13 +136,20 @@ def render_search_header(
         line2 = ""
     line3 = f"\033[38;5;250mProvider: \033[1;97m{source_name}{C_RESET}" if source_name else ""
 
-    err_msg = get_error_fn() if get_error_fn else ""
-    if err_msg:
-        line4 = f"{C_ERR}{err_msg}{C_RESET} • Left=new search • Esc={esc_action}"
+    if shows:
+        badge_list = list(badges or [])
+        short_query = f'"{truncate_display(safe_query, 16)}"' if safe_query else ""
+        items = [p for p in [source_name, short_query, *badge_list, "?=Help", "Left=search", f"Esc={esc_action}"] if p]
+        line4 = f"{C_HINT}{' • '.join(items)}{C_RESET}"
     else:
-        line4 = f'{C_HINT}No results for "{truncate_display(safe_query, 20)}"{C_RESET} • Left=new search • Esc={esc_action}'
+        err_msg = get_error_fn() if get_error_fn else ""
+        if err_msg:
+            line4 = f"{C_ERR}{err_msg}{C_RESET} • Left=new search • Esc={esc_action}"
+        else:
+            line4 = f'{C_HINT}No results for "{truncate_display(safe_query, 20)}"{C_RESET} • Left=new search • Esc={esc_action}'
 
     return chr(10).join([line1, line2, line3, line4])
+
 
 
 def render_modal_card(

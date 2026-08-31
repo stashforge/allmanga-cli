@@ -12,16 +12,39 @@ DEFAULT_CONFIG = {
     "binge": False,
     "player": "mpv",
     "anilist_token": "",
-    "auto_track": False,
+    "sync": False,
     "cover": False,
     "download_dir": "",
     "anilist_sort": "recent",
+    "anilist_sort_reverse": False,
     "spinner": "braille",
     "allanime_frontend_domain": "https://mkissa.to",
     "provider": "miruro",
-    "aniskip_enabled": True,
-    "aniskip_auto": True,
+    "aniskip": True,
+    "auto_skip": True,
 }
+
+LEGACY_CONFIG_KEY_MAP = {
+    "auto_track": "sync",
+    "aniskip_enabled": "aniskip",
+    "aniskip_auto": "auto_skip",
+    "default_provider": "provider",
+    "episode_order": "order",
+}
+
+
+def migrate_config_keys(config):
+    """Migrate legacy configuration keys to canonical names in-place."""
+    if not isinstance(config, dict):
+        return False
+    changed = False
+    for old_key, new_key in LEGACY_CONFIG_KEY_MAP.items():
+        if old_key in config:
+            if new_key not in config:
+                config[new_key] = config[old_key]
+            del config[old_key]
+            changed = True
+    return changed
 
 
 def secure_permissions(path):
@@ -86,7 +109,7 @@ def load_config_file(
                 secure_permissions(path)
             with open(path, encoding="utf-8") as handle:
                 config = json.load(handle)
-            changed = False
+            changed = migrate_config_keys(config)
             for key, value in defaults.items():
                 if key not in config:
                     config[key] = value
@@ -110,3 +133,4 @@ def load_config_file(
                     on_error(move_error)
     save_config_file(path, defaults, disabled=disabled)
     return defaults
+

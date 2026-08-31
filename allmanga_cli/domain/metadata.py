@@ -122,22 +122,19 @@ def format_progress(anime, local_only=False, ttype="sub"):
             except (ValueError, TypeError):
                 pass
                 
-        is_al_tracked = bool(anime.get("_anilist_list"))
-        if not is_al_tracked and local_progress is None and anilist_num <= 0:
-            return ""
-            
-        anilist_context = bool(anime.get("_anilist_context") or is_al_tracked)
+        anilist_context = bool(anime.get("_anilist_context"))
         if (sync_enabled or anilist_context) and anilist_progress is not None:
             if local_num > anilist_num:
                 return format_ep_progress("LOCAL", local_label, total, local_only)
             return format_ep_progress("AL", anilist_progress, total, local_only)
-        if authority == "AL" and anilist_progress is not None:
+        if authority == "AL" and sync_enabled and anilist_progress is not None:
             if local_num > anilist_num:
                 return format_ep_progress("LOCAL", local_label, total, local_only)
             return format_ep_progress("AL", anilist_progress, total, local_only)
     if local_progress is not None:
         return format_ep_progress("LOCAL", local_label, total, local_only)
     return ""
+
 
 
 def format_available_episodes(anime, ttype="sub", local_only=False):
@@ -218,7 +215,7 @@ def should_refresh_anilist(anime, now=None):
 
 
 def anilist_list_status_label(anime, local_only=False, hide_status=None):
-    if not local_only:
+    if not local_only and (anime.get("_sync_enabled") or anime.get("_anilist_context")):
         show_anilist_status = bool(anime.get("_anilist_list"))
         anilist_list = normalize_anilist_list_status(anime.get("_anilist_list")) if show_anilist_status else ""
         if anilist_list and hide_status and anilist_list == normalize_anilist_list_status(hide_status):
@@ -236,6 +233,7 @@ def anilist_list_status_label(anime, local_only=False, hide_status=None):
         if anilist_list in ("REPEATING", "REWATCHING"):
             return f"\033[32mAL REWATCHING{DIM}"
     return ""
+
 
 
 def anime_status_label(anime):
@@ -337,3 +335,84 @@ def format_info_metadata_line(
         details.append(years)
     details.append(score_text)
     return " • ".join(details)
+
+
+def prepare_show_display_state(show, ttype="sub", sync_enabled=None):
+    if not show:
+        return show
+    from allmanga_cli.context import FLAGS as runtime_flags
+    from allmanga_cli.core.storage import get_title_sync, get_local_progress, get_local_episode_label
+
+    if runtime_flags.incognito_mode:
+        show["_local_progress"] = None
+        show["_local_episode_label"] = None
+        show["_sync_enabled"] = False
+        show.pop("_anilist_progress", None)
+        show.pop("_anilist_list", None)
+        show.pop("watched_episodes", None)
+        show["_progress_authority"] = "LOCAL"
+        return show
+    raw_anilist_show = bool(
+        show.get("_anilist_list")
+        and not show.get("_allanime_name")
+        and not show.get("aniListId")
+    )
+    if raw_anilist_show:
+        show["aniListId"] = str(show.get("_id"))
+    if runtime_flags.sync_force_off:
+        sync_enabled = False
+    elif sync_enabled is None and raw_anilist_show:
+        sync_enabled = True
+    elif sync_enabled is None and runtime_flags.sync_force_on and show.get("aniListId"):
+        sync_enabled = True
+    elif sync_enabled is None:
+        sync_enabled = get_title_sync(show)
+    show["_sync_enabled"] = bool(sync_enabled)
+    
+    if "watched_episodes" in show:
+        watched_count = len(show["watched_episodes"])
+        show["_local_progress"] = watched_count
+        if watched_count > 0:
+            def safe_num(x):
+                try: return float(x)
+                except ValueError: return -1
+            show["_local_episode_label"] = max(show["watched_episodes"], key=safe_num)
+        else:
+            show["_local_episode_label"] = "0"
+    else:
+        show["_local_progress"] = get_local_progress(show, ttype)
+        show["_local_episode_label"] = get_local_episode_label(show, ttype)
+    if not show.get("_progress_authority"):
+        show["_progress_authority"] = "AL" if sync_enabled else "LOCAL"
+    return show
+
+
+def apply_provider_metadata_to_history_show(show, provider_show):
+    changed = False
+
+    for key in ("status", "episodeCount", "airedStart", "score", "type", "season"):
+        val = provider_show.get(key)
+        if val is not None and str(show.get(key)) != str(val):
+            show[key] = val
+            changed = True
+
+    for key in ("thumbnail", "name", "englishName", "nativeName"):
+        val = provider_show.get(key)
+        if val and not show.get(key):
+            show[key] = val
+            changed = True
+
+    avail = provider_show.get("availableEpisodes")
+    if avail and isinstance(avail, dict):
+        current_avail = show.get("availableEpisodes") or {}
+        if current_avail != avail:
+            show["availableEpisodes"] = dict(avail)
+            changed = True
+
+    return changed
+
+
+apply_allanime_metadata_to_history_show = apply_provider_metadata_to_history_show
+
+
+

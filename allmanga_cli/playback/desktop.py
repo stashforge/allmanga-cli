@@ -54,14 +54,19 @@ def play_desktop(
             ep_str = ep_str.title()
         media_title = f"{title} - {ep_str} ({resolution})"
 
-    start_time = get_resume_time(show_id, episode) if show_id else 0
+    start_time = (
+        get_resume_time(show_id, episode)
+        or get_resume_time(show_id, ep_str)
+        or get_resume_time(show_id, raw_ep)
+    ) if show_id else 0
     resume_message = (
         f"Resuming at {int(start_time // 60):02d}:"
         f"{int(start_time % 60):02d}"
     )
     osd_msg = (
-        f"{osd_msg}\n{resume_message}" if osd_msg else resume_message
+        f"{osd_msg}\n{resume_message}" if (osd_msg and start_time > 0) else (resume_message if start_time > 0 else osd_msg)
     )
+
 
     skip_intervals = []
     if aniskip_enabled and mal_id:

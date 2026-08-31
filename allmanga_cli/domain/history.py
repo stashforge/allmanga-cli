@@ -40,32 +40,41 @@ def local_progress(entries, show, translation_type="sub"):
     if not show_id:
         return None
     from .matching import is_same_show
+    target_entry = None
+    fallback_entry = None
     for entry in entries:
         entry_show = entry.get("show", {})
-        if (
-            not is_same_show(entry_show, show)
-            or entry.get("translation_type", "sub") != translation_type
-        ):
+        if not is_same_show(entry_show, show):
             continue
-        episode_id = entry.get("episode", 0)
-        if str(episode_id) in ("0", "0.0"):
-            return 0
-        episode_ids = (
-            _episode_ids_for_translation(show, translation_type)
-            or _episode_ids_for_translation(entry_show, translation_type)
-            or []
+        if entry.get("translation_type", "sub") == translation_type:
+            target_entry = entry
+            break
+        elif fallback_entry is None:
+            fallback_entry = entry
+    if target_entry is None:
+        target_entry = fallback_entry
+    if not target_entry:
+        return None
+    episode_id = target_entry.get("episode", 0)
+    if str(episode_id) in ("0", "0.0"):
+        return 0
+    episode_ids = (
+        _episode_ids_for_translation(show, translation_type)
+        or _episode_ids_for_translation(target_entry.get("show", {}), translation_type)
+        or []
+    )
+    if episode_ids:
+        index = episode_index_for_id(
+            [str(episode) for episode in episode_ids],
+            episode_id,
         )
-        if episode_ids:
-            index = episode_index_for_id(
-                [str(episode) for episode in episode_ids],
-                episode_id,
-            )
-            return index + 1 if index is not None else None
-        try:
-            return max(0, int(float(str(episode_id))))
-        except (TypeError, ValueError):
-            return None
+        return index + 1 if index is not None else None
+    try:
+        return max(0, int(float(str(episode_id))))
+    except (TypeError, ValueError):
+        return None
     return None
+
 
 
 def playback_episode(
@@ -271,3 +280,99 @@ def filter_history_entries(
             get_local_progress=get_local_progress,
         ) == mode
     ]
+
+
+def playback_ep_from_history_entry(h, ttype=None, *, ensure_episode_ids_fn=None, get_resume_time_fn=None):
+    show = h.get("show", {})
+    tt = ttype or h.get("translation_type", "sub")
+    if ensure_episode_ids_fn is None:
+        from ..services.catalog import ensure_episode_ids as ensure_episode_ids_fn
+    if get_resume_time_fn is None:
+        from ..core.storage import get_resume_time as get_resume_time_fn
+    episode_ids = ensure_episode_ids_fn(show, tt)
+    return playback_episode(
+        h,
+        translation_type=tt,
+        episode_ids=episode_ids,
+        resume_time=get_resume_time_fn,
+    )
+
+
+def refresh_history_entry_provider_catalog(entry):
+    import time
+    from ..providers.shared.models import title_provider_key
+    from ..services.catalog import get_allanime_show, fetch_episode_catalog, update_available_count_from_episode_ids, _provider_for_title
+    from .metadata import apply_provider_metadata_to_history_show
+    from ..core.reporting import debug_warn
+
+    show = (entry or {}).get("show", {})
+    ttype = entry.get("translation_type", "sub")
+    show_id = show.get("_id")
+
+    changed = False
+    if not show_id:
+        return False
+
+    pkey = title_provider_key(show)
+    if pkey == "allanime":
+        try:
+            allanime_show = get_allanime_show(show_id)
+            if allanime_show:
+                if apply_provider_metadata_to_history_show(show, allanime_show):
+                    changed = True
+        except Exception as e:
+            debug_warn("Failed to fetch show metadata during AllAnime refresh", e)
+
+        try:
+            catalog = fetch_episode_catalog(show_id, ttype)
+            if catalog.get("state") == "loaded":
+                old_avail = (show.get("availableEpisodes") or {}).get(ttype)
+                new_avail = len(catalog.get("ids", []))
+
+                current_ids = show.get("_episode_ids") or []
+                if old_avail != new_avail or show.get("_episode_ids_ttype") != ttype or current_ids != catalog["ids"]:
+                    if not show.get("availableEpisodes"):
+                        show["availableEpisodes"] = {}
+                    update_available_count_from_episode_ids(show, ttype, catalog["ids"], catalog.get("detail"))
+                    changed = True
+
+                if show.get("_episode_catalog_state") != "loaded":
+                    show["_episode_catalog_state"] = "loaded"
+                    changed = True
+
+                new_checked = int(time.time())
+                if show.get("_allanime_checked_at") != new_checked:
+                    show["_allanime_checked_at"] = new_checked
+                    changed = True
+        except Exception as e:
+            debug_warn("Failed to fetch episode catalog during AllAnime refresh", e)
+    else:
+        try:
+            prov = _provider_for_title(show)
+            catalog = prov.episode_catalog(show_id, ttype=ttype)
+            if catalog and catalog.get("state") == "loaded":
+                old_avail = (show.get("availableEpisodes") or {}).get(ttype)
+                new_avail = len(catalog.get("ids", []))
+                current_ids = show.get("_episode_ids") or []
+                if old_avail != new_avail or show.get("_episode_ids_ttype") != ttype or current_ids != catalog.get("ids", []):
+                    if not show.get("availableEpisodes"):
+                        show["availableEpisodes"] = {}
+                    show["availableEpisodes"][ttype] = new_avail
+                    show["_episode_ids"] = catalog.get("ids", [])
+                    show["_episode_labels"] = catalog.get("labels", {})
+                    show["_episode_ids_ttype"] = ttype
+                    changed = True
+                if show.get("_episode_catalog_state") != "loaded":
+                    show["_episode_catalog_state"] = "loaded"
+                    changed = True
+                if "aniListId" not in show and catalog.get("aniListId"):
+                    show["aniListId"] = str(catalog["aniListId"])
+                    changed = True
+        except Exception as e:
+            debug_warn(f"Failed to refresh episode catalog for {pkey}", e)
+
+    return changed
+
+
+refresh_history_entry_allanime_catalog = refresh_history_entry_provider_catalog
+

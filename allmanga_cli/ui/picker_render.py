@@ -43,9 +43,18 @@ def get_key(descriptor):
                     rest += os.read(descriptor, 1)
                 if rest == b"3~":
                     return "DELETE"
+                if rest in (b"1~", b"7~"):
+                    return "HOME"
+                if rest in (b"4~", b"8~"):
+                    return "END"
+                if rest == b"5~":
+                    return "PAGE_UP"
+                if rest == b"6~":
+                    return "PAGE_DOWN"
                 return "UNKNOWN"
             return "ESC"
         return "ESC"
+
     if char in (b"\r", b"\n"):
         return "ENTER"
     if char in (b"\x7f", b"\x08"):
@@ -69,13 +78,16 @@ def get_key(descriptor):
     return char.decode("utf-8", errors="ignore")
 
 
+from .fuzzy import fuzzy_match, fuzzy_highlight
+
+
 def match(query, text):
     if not query:
-        return 0, 0
-    start = text.lower().find(query.lower())
-    if start == -1:
+        return 0, set()
+    res = fuzzy_match(query, text)
+    if res is None:
         return None
-    return start, start + len(query)
+    return res[0], res[1]
 
 
 def clear_terminal_images():
@@ -96,15 +108,10 @@ def render_item(raw, query, selected, max_w=0):
 
     if not query:
         return f"{base}{plain}{RESET}"
-    found = match(query, plain)
-    if found is None:
+    res = fuzzy_match(query, plain)
+    if res is None:
         return f"{base}{plain}{RESET}"
-    start, end = found
-    if start == end:
-        return f"{base}{plain}{RESET}"
+    _, indices = res
     highlight = MATCH if not selected else "\033[1;97m\033[4m"
-    return (
-        f"{base}{plain[:start]}{RESET}"
-        f"{highlight}{plain[start:end]}{RESET}"
-        f"{base}{plain[end:]}{RESET}"
-    )
+    return fuzzy_highlight(plain, indices, base_style=base, match_style=highlight, reset_style=RESET)
+

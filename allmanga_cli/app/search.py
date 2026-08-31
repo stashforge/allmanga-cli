@@ -135,7 +135,7 @@ def handle_history_state(
 
         def _worker():
             try:
-                changed = app_core.refresh_history_entry_allanime_catalog(entry)
+                changed = app_core.refresh_history_entry_provider_catalog(entry)
                 _refreshed_history_ids.add(show_id)
                 show["_episode_catalog_state"] = "loaded"
                 if changed:
@@ -492,7 +492,10 @@ def handle_search_state(
         ui.ui_show_ctx = s
         ui.ui_ttype_ctx = ttype
         ms.just_picked_anime = True
-        app_core.set_navigation_context(ui, search_prev="SEARCH", ep_prev="SEARCH", action_prev="SEARCH")
+        if len(shows) > 1:
+            ms.just_searched = False
+        app_core.set_navigation_context(ui, search_prev="SEARCH", ep_prev="DETAILS", action_prev="DETAILS")
+
 
         requested_episode_missing = False
         if args.episode:

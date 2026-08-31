@@ -71,24 +71,47 @@ def set_title_sync(preferences, show, enabled):
 
 
 def resume_time(preferences, show_id, episode):
-    return (
-        preferences.get(str(show_id), {})
-        .get("resumes", {})
-        .get(str(episode), 0)
-    )
+    show_resumes = preferences.get(str(show_id), {}).get("resumes", {})
+    if not show_resumes:
+        return 0
+    ep_str = str(episode)
+    if ep_str in show_resumes:
+        return int(show_resumes[ep_str] or 0)
+    from ..domain.episodes import clean_episode_identifier, episode_progress_number
+    cleaned = str(clean_episode_identifier(ep_str) or "")
+    if cleaned and cleaned in show_resumes:
+        return int(show_resumes[cleaned] or 0)
+    try:
+        num = str(int(float(episode_progress_number(ep_str))))
+        if num in show_resumes:
+            return int(show_resumes[num] or 0)
+    except Exception:
+        pass
+    for k, v in show_resumes.items():
+        if str(clean_episode_identifier(k) or k) == cleaned or k == ep_str:
+            return int(v or 0)
+    return 0
 
 
 def save_resume_time(preferences, show_id, episode, position):
     key = str(show_id)
     current = preferences.get(key, {})
     resumes = current.get("resumes", {})
+    from ..domain.episodes import clean_episode_identifier
+    ep_str = str(episode)
+    cleaned = str(clean_episode_identifier(ep_str) or ep_str)
     if position <= 0:
-        resumes.pop(str(episode), None)
+        resumes.pop(ep_str, None)
+        resumes.pop(cleaned, None)
     else:
-        resumes[str(episode)] = int(position)
+        pos_val = int(position)
+        resumes[ep_str] = pos_val
+        if cleaned != ep_str:
+            resumes[cleaned] = pos_val
     current["resumes"] = resumes
     preferences[key] = current
     return preferences
+
 
 
 def pending_completion(preferences, show_id):
@@ -202,3 +225,25 @@ def clear_anilist_match(preferences, anilist_id):
         if not preferences[key]:
             del preferences[key]
     return preferences
+
+
+ACTION_FEEDBACK_DURATION = 2.5
+
+
+def set_action_feedback(show, msg):
+    """Set a temporary action feedback message on a show dict."""
+    if isinstance(show, dict):
+        show["_action_feedback"] = msg
+        show["_action_feedback_time"] = time.time()
+
+
+def get_active_feedback(show, duration=ACTION_FEEDBACK_DURATION):
+    """Return the active temporary feedback message if still within duration."""
+    if not isinstance(show, dict):
+        return ""
+    msg = str(show.get("_action_feedback") or "").strip()
+    t = float(show.get("_action_feedback_time") or 0)
+    if msg and (time.time() - t) < duration:
+        return msg
+    return ""
+

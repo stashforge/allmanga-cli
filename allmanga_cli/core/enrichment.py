@@ -135,3 +135,60 @@ def enrich_provider_results(results, token, fuzzy_anilist_results=None):
 
     save_source_anilist_matches(to_save)
     return results
+
+
+def enrich_show_if_missing(show: dict) -> None:
+    if not show:
+        return
+    if show.get("_title_enriched") or show.get("aniListId") or show.get("_anilist_score"):
+        show["_title_enriched"] = True
+        return
+
+    from ..providers.shared.models import title_provider_id, title_provider_key
+    from ..providers import get_provider
+    from ..services.http import request_json as _req
+    from ..core.reporting import debug_warn
+    from ..core.storage import load_config
+
+    show_id = title_provider_id(show)
+    if not show_id:
+        show["_title_enriched"] = True
+        return
+
+    provider = get_provider(title_provider_key(show), _req)
+    if provider.id not in ("anidbapp", "animexin", "lucifer", "animekhor", "animegg", "anizone"):
+        show["_title_enriched"] = True
+        return
+
+    get_title_fn = getattr(provider, "get_title", None)
+    if not get_title_fn:
+        show["_title_enriched"] = True
+        return
+
+    try:
+        title_data = get_title_fn(show_id)
+        show["_title_enriched"] = True
+        if title_data:
+            # Merge any newly scraped data (description, episodes, etc.) into the active show object
+            for k, v in title_data.items():
+                if k in ("status", "episodeCount", "_next_airing_ep", "_next_airing_at", "_next_airing_time", "aniListId", "malId", "format") and v:
+                    show[k] = v
+                elif v and not show.get(k):
+                    show[k] = v
+                elif k == "availableEpisodes" and isinstance(v, dict):
+                    show.setdefault(k, {})
+                    for ep_k, ep_v in v.items():
+                        if ep_v > show[k].get(ep_k, 0):
+                            show[k][ep_k] = ep_v
+
+            if title_data.get("aniListId") or title_data.get("malId"):
+                token = load_config().get("anilist_token")
+                al_ids = [title_data["aniListId"]] if title_data.get("aniListId") else None
+                mal_ids = [title_data["malId"]] if title_data.get("malId") else None
+                al_data = fetch_anilist_by_ids(token, anilist_ids=al_ids, mal_ids=mal_ids)
+                if al_data:
+                    _merge_anilist_into_provider(show, al_data[0])
+    except Exception as e:
+        show["_title_enriched"] = True
+        debug_warn("Late enrichment failed", e)
+

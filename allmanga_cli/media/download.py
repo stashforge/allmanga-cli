@@ -17,6 +17,12 @@ def _error(message):
     print(f"{RED}[ERR]{RESET} {message}")
 
 
+def sanitize_filename(title: str) -> str:
+    return "".join(
+        char for char in str(title or "") if char.isalnum() or char in " -_"
+    ).strip()
+
+
 def download_episode(title, episode, stream, download_dir="", downloader="auto", extra_args=None):
     extra_args = extra_args or []
     audio_url = stream.get("audio_url", "")
@@ -39,10 +45,9 @@ def download_episode(title, episode, stream, download_dir="", downloader="auto",
         _error("Download rejected an unsafe stream URL.")
         return False
 
-    safe_title = "".join(
-        char for char in title if char.isalnum() or char in " -_"
-    ).strip()
+    safe_title = sanitize_filename(title)
     filename = f"{safe_title} - Episode {episode}.mp4"
+
     
     # Always create an anime-specific folder, even if download_dir is empty
     if not download_dir:

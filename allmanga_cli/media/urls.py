@@ -42,3 +42,82 @@ def is_supported_image(data):
         and data[4:8] == b"ftyp"
         and data[8:12] in (b"avif", b"avis")
     )
+
+
+def provider_frontend_domain(cfg=None):
+    from ..providers import ALLANIME
+    return ALLANIME.browser_url("", cfg=cfg)
+
+
+def provider_episode_url(show_id, episode, ttype="sub", cfg=None):
+    from ..providers import ALLANIME
+    show_id = str(show_id or "").strip()
+    episode = str(episode or "").strip()
+    if not show_id or not episode:
+        return ""
+    return ALLANIME.browser_url(show_id, episode, ttype, cfg)
+
+
+allanime_frontend_domain = provider_frontend_domain
+allanime_episode_url = provider_episode_url
+
+
+def open_external_url(url):
+    import os
+    import sys
+    import shutil
+    import subprocess
+    try:
+        url = validate_http_url(url)
+    except ValueError:
+        return False
+    is_termux = (os.environ.get("PREFIX", "").startswith("/data/data/com.termux")
+                 or os.path.exists("/data/data/com.termux"))
+    if is_termux:
+        opener = shutil.which("termux-open-url") or shutil.which("termux-open")
+        command = (
+            [opener, url]
+            if opener else
+            ["am", "start", "-a", "android.intent.action.VIEW", "-d", url]
+        )
+    elif sys.platform == "darwin":
+        command = ["open", url]
+    elif os.name == "nt":
+        command = ["cmd", "/c", "start", "", url]
+    else:
+        opener = shutil.which("xdg-open")
+        command = [opener, url] if opener else []
+    if not command:
+        return False
+    try:
+        subprocess.Popen(
+            command,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        return True
+    except Exception:
+        return False
+
+
+def redact_sensitive_text(content):
+    import re
+    text = str(content)
+    text = re.sub(
+        r"(?i)(Authorization\s*:\s*Bearer\s+)[^\s'\"]+",
+        r"\1<redacted>",
+        text,
+    )
+    text = re.sub(
+        r"(https?://[^\s'\"<>?]+)\?[^\s'\"<>]+",
+        r"\1?<redacted>",
+        text,
+    )
+    text = re.sub(
+        r"\beyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b",
+        "<redacted-jwt>",
+        text,
+    )
+    return text
+

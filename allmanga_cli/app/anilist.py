@@ -191,8 +191,8 @@ def _open_anilist_show_from_picker(
         ms.current_ep_index = None
 
         ui.search_prev_state = parent_state
-        ui.ep_prev_state = parent_state
-        ui.action_prev_state = parent_state
+        ui.ep_prev_state = "DETAILS"
+        ui.action_prev_state = "DETAILS"
         ms.just_picked_anime = True
         return "DETAILS"
 
@@ -225,10 +225,11 @@ def _open_anilist_show_from_picker(
         return "PLAY"
 
     ui.search_prev_state = parent_state
-    ui.ep_prev_state = parent_state
-    ui.action_prev_state = parent_state
+    ui.ep_prev_state = "DETAILS"
+    ui.action_prev_state = "DETAILS"
     ms.just_picked_anime = True
     return "DETAILS"
+
 
 
 def handle_anilist_airing_state(
@@ -607,6 +608,9 @@ def handle_anilist_search_state(
         return "ANILIST_SEARCH"
     else:
         s = shows[idx]
+        if len(shows) > 1:
+            ms.just_searched = False
         return _open_anilist_show_from_picker(flags, ui, ms, args, ttype, s, "ANILIST_SEARCH", cfg)
 
     return "ANILIST_SEARCH"
+

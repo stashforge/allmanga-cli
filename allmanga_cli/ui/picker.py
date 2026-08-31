@@ -117,7 +117,9 @@ def tui_pick(
     disabled_indices=None,
     reverse_items=True,
     tick_fn=None,
+    multi_select: bool = False,
 ):
+
     """Bottom-anchored alt-screen picker with flipped (bottom-up) item list.
 
     Parameters
@@ -201,7 +203,15 @@ def tui_pick(
     last_poster_key  = None
     last_clock_minute = int(time.time() // 60)
     pending_delete_index = None
+    boundary_hint = ""
+    boundary_hint_time = 0.0
+    boundary_action = ""
+    last_blink_phase = -1
+    last_key_time = time.time()
     disabled_indices = set(disabled_indices or ())
+    marked_indices: set[int] = set()
+
+
     try:
         last_terminal_size = os.get_terminal_size(tty_fd)
     except OSError:
@@ -210,10 +220,14 @@ def tui_pick(
     def filt_list():
         if not query:
             return list(range(len(options)))
-        return [
-            i for i, o in enumerate(options)
-            if _match(query, _strip_ansi(o)) is not None
-        ]
+        scored = []
+        for i, o in enumerate(options):
+            res = _match(query, _strip_ansi(o))
+            if res is not None:
+                scored.append((res[0], i))
+        scored.sort(key=lambda item: item[0], reverse=True)
+        return [item[1] for item in scored]
+
 
     def first_selectable(filt):
         for pos, option_index in enumerate(filt):
@@ -281,7 +295,14 @@ def tui_pick(
                 header_lines[-1] = confirm_line
             else:
                 header_lines = [confirm_line]
+        elif boundary_hint and time.time() - boundary_hint_time < 1.5:
+            hint_line = f"\033[38;5;222m* {boundary_hint}\033[0m"
+            if header_lines:
+                header_lines[-1] = hint_line
+            else:
+                header_lines = [hint_line]
         header_n = max(4, len(header_lines)) if header_fn is not None else len(header_lines)
+
 
         # ← was: show_img = globals().get("SHOW_IMAGE", False)
         show_img = flags.show_image
@@ -364,6 +385,10 @@ def tui_pick(
                 continue
             ptr    = f"{_C_PTR}\u276f{_RST}" if is_sel and not disabled else " "
             label  = _render_item(options[oi], query, is_sel, max_w=item_max_w)
+            if multi_select:
+                is_marked = (oi in marked_indices)
+                box = "\033[38;2;166;227;161m[✔]\033[0m " if is_marked else "\033[38;5;244m[ ]\033[0m "
+                label = f"{box}{label}"
             hint   = ""
             if is_sel and hints:
                 kp = _strip_ansi(options[oi])
@@ -383,14 +408,13 @@ def tui_pick(
                         break
             out.append(f"\033[2K{_fit_terminal_line(f'{ptr} {label}{hint}', cols)}")
 
-        if is_search:
-            q_left  = query[:cursor_pos]
-            q_char  = query[cursor_pos] if cursor_pos < len(query) else " "
-            q_right = query[cursor_pos + 1:]
-            styled_query = f"{q_left}\033[7m{q_char}\033[27m{q_right}"
-            pstr = f"{_C_PROMPT}{current_prompt()} \u276f{_RST} {_C_QUERY}{styled_query}{_RST}"
-        else:
-            pstr = f"{_C_PROMPT}{current_prompt()} \u276f{_RST} {_C_QUERY}{query}{_RST}"
+        prompt_row = len(out) + 1
+        prefix_str = f"{current_prompt()} \u276f "
+        prefix_w = _display_width(prefix_str)
+        query_left_w = _display_width(query[:cursor_pos])
+        cursor_col = prefix_w + query_left_w + 1
+
+        pstr = f"{_C_PROMPT}{current_prompt()} \u276f{_RST} {_C_QUERY}{query}{_RST}"
 
         if hide_separator or len(options) == 0:
             out.append(f"\033[2K{_fit_terminal_line(pstr, cols)}")
@@ -401,7 +425,11 @@ def tui_pick(
                 sum(1 for option_index in filt if option_index not in disabled_indices)
                 if disabled_indices else len(filt)
             )
-            cstr = f"{_C_COUNT}{filtered_count}/{total_count}{_RST}"
+            if multi_select and marked_indices:
+                cstr = f"\033[38;2;166;227;161m{len(marked_indices)} selected\033[0m {_C_COUNT}| {filtered_count}/{total_count}{_RST}"
+            else:
+                cstr = f"{_C_COUNT}{filtered_count}/{total_count}{_RST}"
+
             hidden_below = scroll
             hidden_above = max(0, len(filt) - scroll - max_vis)
             si = ""
@@ -432,12 +460,16 @@ def tui_pick(
             terminal_images.mark_active()
             overlay = f"\033[{poster_row};1H{native_poster}"
         frame = _absolute_terminal_frame(out, rows, cols)
+        cursor_goto = f"\033]12;#89dceb\007\033[?12h\033[5 q\033[{prompt_row};{cursor_col}H\033[?25h"
         buf = (
+
+
             f"{clear_prefix}\033[?25l"
             + frame
             + overlay
-            + "\033[1;1H\033[?25l"
+            + cursor_goto
         )
+
         tty_file.write(buf.encode())
         tty_file.flush()
 
@@ -530,6 +562,11 @@ def tui_pick(
                         last_poster_tick = now
                         _needs_redraw = True
 
+            blink_phase = 0 if (now - last_key_time < 0.4) else (int(now * 2) % 2)
+            if blink_phase != last_blink_phase:
+                last_blink_phase = blink_phase
+                _needs_redraw = True
+
             if _needs_redraw:
                 render(filt)
                 _needs_redraw = False
@@ -544,7 +581,10 @@ def tui_pick(
 
             key = _get_key(tty_fd)
             termios.tcflush(tty_fd, termios.TCIFLUSH)
+            last_key_time = time.time()
+            last_blink_phase = 0
             _needs_redraw = True
+
 
             if pending_delete_index is not None:
                 if key in ("y", "Y"):
@@ -563,6 +603,7 @@ def tui_pick(
                     continue
 
             if key == "UP":
+                boundary_hint = ""; boundary_action = ""
                 if filt:
                     sel = move_selection(
                         filt, sel, -1 if not reverse_items else 1
@@ -574,6 +615,7 @@ def tui_pick(
                         cursor_pos = len(query)
                         filt = filt_list()
             elif key == "DOWN":
+                boundary_hint = ""; boundary_action = ""
                 if filt:
                     sel = move_selection(
                         filt, sel, 1 if not reverse_items else -1
@@ -586,21 +628,36 @@ def tui_pick(
                         query = ""
                     cursor_pos = len(query)
                     filt = filt_list()
-            elif key == "HOME":
-                sel = first_selectable(filt); scroll = 0
-            elif key == "END":
-                sel = first_selectable(list(reversed(filt)))
-                if filt:
-                    sel = len(filt) - 1 - sel
-            elif key in ("ENTER", "RIGHT"):
-                if is_search and key == "RIGHT":
-                    if cursor_pos < len(query): cursor_pos += 1
+            elif key in ("HOME", "PAGE_UP"):
+                boundary_hint = ""; boundary_action = ""
+                if query:
+                    cursor_pos = 0
                     _needs_redraw = True
-                    continue
+                else:
+                    sel = first_selectable(filt); scroll = 0
+            elif key in ("END", "PAGE_DOWN"):
+                boundary_hint = ""; boundary_action = ""
+                if query:
+                    cursor_pos = len(query)
+                    _needs_redraw = True
+                else:
+                    sel = first_selectable(list(reversed(filt)))
+                    if filt:
+                        sel = len(filt) - 1 - sel
+            elif key == "ENTER":
+                boundary_hint = ""; boundary_action = ""
                 if live_fn is not None and not live_done and not filt:
                     continue
                 if return_query_on_enter:
                     result = query
+                    break
+                if multi_select:
+                    if marked_indices:
+                        result = sorted(list(marked_indices))
+                    elif filt and sel < len(filt) and filt[sel] not in disabled_indices:
+                        result = [filt[sel]]
+                    else:
+                        result = []
                     break
                 if not filt:
                     continue
@@ -608,9 +665,51 @@ def tui_pick(
                     continue
                 result = filt[sel]
                 break
+            elif key == "RIGHT":
+                if return_query_on_enter:
+                    if cursor_pos < len(query):
+                        cursor_pos += 1
+                        _needs_redraw = True
+                    continue
+                if query:
+                    if cursor_pos < len(query):
+                        cursor_pos += 1
+                        boundary_hint = ""; boundary_action = ""
+                        _needs_redraw = True
+                        continue
+                    has_valid_selection = (
+                        bool(filt) and sel < len(filt) and filt[sel] not in disabled_indices and not (live_fn is not None and not live_done and not filt)
+                    )
+                    if not has_valid_selection:
+                        continue
+                    now = time.time()
+                    if boundary_action == "SELECT" and now - boundary_hint_time < 1.5:
+                        boundary_hint = ""; boundary_action = ""
+                        if filt and sel < len(filt) and filt[sel] not in disabled_indices:
+                            result = filt[sel]
+                            break
+                    else:
+                        boundary_action = "SELECT"
+                        boundary_hint = "Press ► again to select"
+                        boundary_hint_time = now
+                        _needs_redraw = True
+                        continue
+                else:
+                    boundary_hint = ""; boundary_action = ""
+                    if live_fn is not None and not live_done and not filt:
+                        continue
+                    if not filt:
+                        continue
+                    if filt[sel] in disabled_indices:
+                        continue
+                    result = filt[sel]
+                    break
+
             elif key == "?" and help_dict:
+                boundary_hint = ""; boundary_action = ""
                 show_help = not show_help
             elif key == "ESC":
+                boundary_hint = ""; boundary_action = ""
                 if show_help:
                     show_help = False
                 else:
@@ -618,25 +717,53 @@ def tui_pick(
             elif key == "CTRL_C":
                 raise KeyboardInterrupt
             elif key == "LEFT":
-                if is_search:
-                    if cursor_pos > 0: cursor_pos -= 1
-                    _needs_redraw = True
+                if return_query_on_enter:
+                    if cursor_pos > 0:
+                        cursor_pos -= 1
+                        _needs_redraw = True
+                    continue
+                if query:
+                    if cursor_pos > 0:
+                        cursor_pos -= 1
+                        boundary_hint = ""; boundary_action = ""
+                        _needs_redraw = True
+                        continue
+                    now = time.time()
+                    if boundary_action == "BACK" and now - boundary_hint_time < 1.5:
+                        result = -3; break
+                    else:
+                        boundary_action = "BACK"
+                        boundary_hint = "Press ◄ again to go back"
+                        boundary_hint_time = now
+                        _needs_redraw = True
+                        continue
                 else:
                     result = -3; break
+
             elif key == "BACKSPACE":
-                if is_search:
-                    if cursor_pos > 0:
-                        query = query[:cursor_pos - 1] + query[cursor_pos:]
-                        cursor_pos -= 1
-                        filt = filt_list(); sel = first_selectable(filt); scroll = 0
-                else:
-                    query = query[:-1]; filt = filt_list(); sel = first_selectable(filt); scroll = 0
-                    cursor_pos = len(query)
+                boundary_hint = ""; boundary_action = ""
+                if cursor_pos > 0:
+                    query = query[:cursor_pos - 1] + query[cursor_pos:]
+                    cursor_pos -= 1
+                    filt = filt_list(); sel = first_selectable(filt); scroll = 0
+
             elif key == "CTRL_U":
+                boundary_hint = ""; boundary_action = ""
                 query = ""; filt = filt_list(); sel = first_selectable(filt); scroll = 0
                 cursor_pos = 0
             elif key in ("TAB", "CTRL_N"):
-                if tab_fn:
+                boundary_hint = ""; boundary_action = ""
+                if multi_select:
+                    if filt and sel < len(filt):
+                        oi = filt[sel]
+                        if oi not in disabled_indices:
+                            if oi in marked_indices:
+                                marked_indices.remove(oi)
+                            else:
+                                marked_indices.add(oi)
+                    sel = move_selection(filt, sel, 1 if not reverse_items else -1)
+                    _needs_redraw = True
+                elif tab_fn:
                     selected = filt[sel] if filt and sel < len(filt) else None
                     try:
                         res = tab_fn(selected, direction=1)
@@ -649,7 +776,9 @@ def tui_pick(
                             disabled_indices.update(res[2] or ())
                         filt = filt_list()
                         sel  = first_selectable(filt)
+
             elif key in ("SHIFT_TAB", "CTRL_P"):
+                boundary_hint = ""; boundary_action = ""
                 if tab_fn:
                     selected = filt[sel] if filt and sel < len(filt) else None
                     try:
@@ -664,6 +793,7 @@ def tui_pick(
                         filt = filt_list()
                         sel  = first_selectable(filt)
             elif key == "CTRL_R":
+                boundary_hint = ""; boundary_action = ""
                 if reverse_fn:
                     selected = filt[sel] if filt and sel < len(filt) else None
                     res = reverse_fn(selected)
@@ -675,6 +805,7 @@ def tui_pick(
                         filt = filt_list()
                         sel  = first_selectable(filt)
             elif key in ("DELETE", "CTRL_D"):
+                boundary_hint = ""; boundary_action = ""
                 if is_search and query_history:
                     if 0 <= history_idx < len(query_history):
                         to_del = query_history[history_idx]
@@ -690,29 +821,46 @@ def tui_pick(
                 elif delete_fn and filt:
                     pending_delete_index = filt[sel]
             elif key == "CTRL_O":
+                boundary_hint = ""; boundary_action = ""
                 if info_fn is not None and filt and sel < len(filt) and filt[sel] not in disabled_indices:
                     info_fn(filt[sel])
                     last_poster_key = None
                     _needs_redraw = True
+            elif key == " " and multi_select:
+                boundary_hint = ""; boundary_action = ""
+                if filt and sel < len(filt):
+                    oi = filt[sel]
+                    if oi not in disabled_indices:
+                        if oi in marked_indices:
+                            marked_indices.remove(oi)
+                        else:
+                            marked_indices.add(oi)
+                        _needs_redraw = True
             elif key != "UNKNOWN":
+                boundary_hint = ""; boundary_action = ""
                 if len(key) == 1 and key.isprintable():
-                    if is_search:
-                        query = query[:cursor_pos] + key + query[cursor_pos:]
-                        cursor_pos += 1
-                    else:
-                        query += key
-                        cursor_pos = len(query)
+                    query = query[:cursor_pos] + key + query[cursor_pos:]
+                    cursor_pos += 1
                     filt = filt_list(); sel = first_selectable(filt); scroll = 0
+
+
+
 
     finally:
         termios.tcsetattr(tty_fd, termios.TCSADRAIN, old_attrs)
+        try:
+            tty_file.write(b"\033]112\007\033[0 q\033[?25l")
+            tty_file.flush()
+        except Exception:
+            pass
+
         # Cursor restoration is handled by the global atexit / finally block in
         # app.py to prevent cursor flickering during rapid screen transitions.
-        tty_file.flush()
         try:
             tty_file.close()
         except Exception:
             pass
+
 
     return result
 

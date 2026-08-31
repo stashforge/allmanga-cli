@@ -10,4 +10,7 @@ dist/
 
 # Optional local whole-file snapshots; Git is the primary project history now.
 /backups/
+*.bak
+*.bak.*
 venv/
+

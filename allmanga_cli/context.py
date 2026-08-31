@@ -212,3 +212,40 @@ class MachineState:
 
     last_al_shows: list = field(default_factory=list)
     """Cached results of the last AniList search."""
+
+
+def set_ui_context(ui: Any, show: dict | None, ttype: str) -> None:
+    ui.ui_show_ctx = show
+    ui.ui_ttype_ctx = ttype
+
+
+def get_ui_show(ui: Any, default: dict | None = None) -> dict:
+    if default is None:
+        default = {}
+    return ui.ui_show_ctx if getattr(ui, "ui_show_ctx", None) is not None else default
+
+
+def get_ui_ttype(ui: Any, default: str = "sub") -> str:
+    return getattr(ui, "ui_ttype_ctx", None) if getattr(ui, "ui_ttype_ctx", None) is not None else default
+
+
+def set_navigation_context(ui: Any, search_prev: str | None = None, ep_prev: str | None = None, action_prev: str | None = None) -> None:
+    if search_prev is not None:
+        ui.search_prev_state = search_prev
+    if ep_prev is not None:
+        ui.ep_prev_state = ep_prev
+    if action_prev is not None:
+        ui.action_prev_state = action_prev
+
+
+def get_search_prev(ui: Any, default: str = "SEARCH") -> str:
+    return ui.search_prev_state if getattr(ui, "search_prev_state", None) else default
+
+
+def get_ep_prev(ui: Any, default: str = "SEARCH") -> str:
+    return ui.ep_prev_state if getattr(ui, "ep_prev_state", None) else default
+
+
+def get_action_prev(ui: Any, default: str = "SEARCH") -> str:
+    return ui.action_prev_state if getattr(ui, "action_prev_state", None) else default
+

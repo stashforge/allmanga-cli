@@ -96,3 +96,48 @@ def read_bounded_process_stdout(
     if oversized.is_set() or len(output) > max_bytes:
         raise ValueError("yt-dlp JSON output is too large")
     return output
+
+
+_active_subprocesses = []
+
+
+def register_subprocess(proc):
+    if proc not in _active_subprocesses:
+        _active_subprocesses.append(proc)
+
+
+def unregister_subprocess(proc):
+    if proc in _active_subprocesses:
+        _active_subprocesses.remove(proc)
+
+
+def kill_active_subprocesses():
+    import os, signal
+    for proc in _active_subprocesses:
+        try:
+            if os.name == 'posix':
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            else:
+                proc.kill()
+        except Exception:
+            pass
+
+
+def is_termux():
+    import os
+    return (os.environ.get("PREFIX", "").startswith("/data/data/com.termux")
+            or os.path.exists("/data/data/com.termux"))
+
+
+def check_deps():
+    import os
+    import sys
+    import shutil
+    from .reporting import err
+    needed = ["openssl"] + (["am"] if is_termux() else ["mpv"])
+    for p in needed:
+        if not shutil.which(p):
+            err(f"'{p}' not found.")
+            sys.exit(1)
+
+

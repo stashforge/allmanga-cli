@@ -783,14 +783,27 @@ def load_config():
             f"Config was invalid; moved it to {path}"
         ),
     )
-    token = secret_state.get_secret(secret_state.ANILIST_KEY)
-    if token:
-        cfg["anilist_token"] = sanitize_token(token)
+    if secret_state.is_available():
+        secret_token = secret_state.get_secret(secret_state.ANILIST_KEY)
+        disk_token = cfg.get("anilist_token")
+        if disk_token and not secret_token:
+            secret_state.set_secret(secret_state.ANILIST_KEY, disk_token)
+            secret_token = disk_token
+        if secret_token:
+            cfg["anilist_token"] = sanitize_token(secret_token)
+            if disk_token:
+                disk_cfg = dict(cfg)
+                disk_cfg["anilist_token"] = ""
+                save_config_file(paths.CONFIG_PATH, disk_cfg, disabled=is_incognito())
     return cfg
 
 
 def save_config(cfg):
-    return save_config_file(paths.CONFIG_PATH, cfg, disabled=is_incognito())
+    disk_cfg = dict(cfg)
+    if secret_state.is_available() and secret_state.get_secret(secret_state.ANILIST_KEY):
+        disk_cfg["anilist_token"] = ""
+    return save_config_file(paths.CONFIG_PATH, disk_cfg, disabled=is_incognito())
+
 
 def load_downloads_db():
     import json
@@ -828,3 +841,37 @@ def update_offline_watch_status(title, episode):
         save_downloads_db(db)
         return True
     return False
+
+
+def find_offline_file_for_episode(show_title: str, episode, cfg: dict | None = None) -> str | None:
+    if not show_title or episode is None:
+        return None
+    import re
+    cfg = cfg or load_config()
+    download_dir = cfg.get("download_dir") or get_default_download_dir()
+    if not os.path.exists(download_dir):
+        return None
+    from allmanga_cli.media.download import sanitize_filename
+    show_folder = sanitize_filename(show_title)
+    full_show_path = os.path.join(download_dir, show_folder)
+    if not os.path.isdir(full_show_path):
+        full_show_path = os.path.join(download_dir, show_title)
+        if not os.path.isdir(full_show_path):
+            return None
+
+    target_ep_str = str(episode).strip()
+    EP_NUM_RE = re.compile(r'(?:^|[^\d])0*(\d+(?:\.\d+)?)(?:[^\d]|$)')
+    try:
+        for fname in sorted(os.listdir(full_show_path)):
+            if not fname.lower().endswith((".mp4", ".mkv", ".webm", ".avi", ".ts")):
+                continue
+            m = EP_NUM_RE.search(fname)
+            if m:
+                found_num = m.group(1).lstrip("0") or "0"
+                target_clean = target_ep_str.lstrip("0") or "0"
+                if found_num == target_clean or m.group(1) == target_ep_str:
+                    return os.path.join(full_show_path, fname)
+    except OSError:
+        pass
+    return None
+

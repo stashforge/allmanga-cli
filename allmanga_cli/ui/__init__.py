@@ -17,3 +17,15 @@ from .panels import (
     render_modal_card,
     render_menu_card,
 )
+from .modals import (
+    confirm_auto_match,
+    confirm_auto_anilist_match,
+    select_provider_for_match,
+    manual_anilist_input_header,
+    manual_match_input_header,
+    search_input_header,
+    search_cover_header,
+    search_result_header,
+    make_single_show_info_fn,
+    make_shows_info_fn,
+)

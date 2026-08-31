@@ -8,9 +8,10 @@ def picker_help(
         tab_label=None,
         shift_tab_label=None,
         delete_label=None,
-        reverse_label=None):
+        reverse_label=None,
+        info_label=None):
     help_items = {
-        "\u2191 / \u2193": "Move selection",
+        "↑ / ↓": "Move selection",
         "Home / End": "Jump to first or last item",
         "Type": "Filter visible items",
         "Backspace": "Edit filter",
@@ -21,6 +22,8 @@ def picker_help(
         "?": "Show or hide this help",
         "Ctrl+C": "Exit program",
     }
+    if info_label:
+        help_items["Ctrl+O"] = info_label
     if tab_label:
         help_items["Tab"] = tab_label
         help_items["Ctrl+N"] = tab_label
@@ -33,6 +36,7 @@ def picker_help(
         help_items["Delete"] = delete_label
         help_items["Ctrl+D"] = delete_label
     return help_items
+
 
 
 def search_input_help(esc_label="Cancel"):

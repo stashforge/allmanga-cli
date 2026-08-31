@@ -21,6 +21,12 @@ _SKIPPED_MODULES = {"shared"}
 _DISABLED_PROVIDERS = {"senshi", "allanime"}
 _DEFAULT_PROVIDER_ID = "miruro"
 
+from .shared.models import (
+    title_provider_key,
+    title_provider_id,
+)
+
+
 
 def _provider_classes_from_module(module) -> list[type]:
     classes = []
@@ -129,6 +135,18 @@ def get_provider(provider_id=_DEFAULT_PROVIDER_ID, request_json_fn=None):
         inst.metadata = {}
         inst.domains = []
     return inst
+
+
+def provider_display_name(provider_id=_DEFAULT_PROVIDER_ID) -> str:
+    key = provider_key(provider_id)
+    reg = PROVIDER_REGISTRY.get(key, {})
+    name = reg.get("name") or reg.get("display_name")
+    if name:
+        return str(name)
+    prov = PROVIDERS.get(key)
+    if prov and hasattr(prov, "name") and prov.name:
+        return str(prov.name)
+    return str(key).title()
 
 
 def provider_translation_capability(

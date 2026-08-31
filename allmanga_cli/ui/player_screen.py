@@ -47,8 +47,10 @@ from .spinner import spinner_frame
 if TYPE_CHECKING:
     from ..context import UiState, CliFlags
 
-SECTION_LABEL = "\033[1;38;5;183m"
+SECTION_LABEL = "\033[1;37m"
+TEXT_COLOR = "\033[38;2;195;200;210m"
 RESET = "\033[0m"
+
 
 
 # ---------------------------------------------------------------------------
@@ -421,9 +423,9 @@ def render(
         content.append(f"\033[1;97m{tl}\033[0m")
     if alt_title:
         for atl in _wrap_title(alt_title, w - 4, 2).splitlines():
-            content.append(f"\033[38;5;248m{atl}\033[0m")
+            content.append(f"{TEXT_COLOR}{atl}\033[0m")
     if meta_line:
-        content.append(f"\033[38;5;248m{meta_line}\033[0m")
+        content.append(f"{TEXT_COLOR}{meta_line}\033[0m")
     if next_air_line:
         content.append(next_air_line)
 
@@ -436,24 +438,24 @@ def render(
         bar = _thin_progress_bar(pt_sec, dur_sec, w - 4)
         time_line = f"{_fmt_time(pt_sec)} / {_fmt_time(dur_sec)}"
         if dur_sec > 0:
-            time_line += f"  \u2022  -{_fmt_time(rem_sec)}"
+            time_line += f"  •  -{_fmt_time(rem_sec)}"
 
         content.append("")
-        content.append(f"{SECTION_LABEL}CURRENTLY PLAYING{RESET}")
+        content.append(f"{SECTION_LABEL}Currently Playing{RESET}")
         label = s.get("current_ep_label") or str(s["current_ep"])
         from allmanga_cli.domain.episodes import episode_label
         ep_str = episode_label(label)
         if stream_str:
-            content.append(f"\033[38;5;250m{ep_str} \u2022 {stream_str}\033[0m")
+            content.append(f"{TEXT_COLOR}{ep_str} • {stream_str}\033[0m")
         else:
-            content.append(f"\033[38;5;250m{ep_str}\033[0m")
+            content.append(f"{TEXT_COLOR}{ep_str}\033[0m")
         content.append("")
         _idx_state = len(content)
         content.append(f"\033[1;36m{state_str}\033[0m")
         _idx_bar = len(content)
         content.append(bar)
         _idx_time = len(content)
-        content.append(f"\033[38;5;250m{time_line}\033[0m")
+        content.append(f"{TEXT_COLOR}{time_line}\033[0m")
         detail_lines = []
         genres = show.get("genres") if isinstance(show, dict) else None
         if not genres and isinstance(show, dict):
@@ -463,10 +465,12 @@ def render(
         else:
             genre_text = str(genres or "").strip()
         if genre_text:
-            detail_lines.append(f"{SECTION_LABEL}GENRES{RESET}")
-            detail_lines.append("\033[38;5;245m" + genre_text.replace(", ", " \u00b7 ") + "\033[0m")
+            detail_lines.append(f"{SECTION_LABEL}Genres{RESET}")
+            detail_lines.append(f"{TEXT_COLOR}" + genre_text.replace(", ", " • ") + "\033[0m")
         description = str(show.get("description") or "").strip() if isinstance(show, dict) else ""
         if description:
+            import html
+            description = html.unescape(description)
             description = re.sub(r"<[^>]+>", " ", description)
             description = re.sub(r"\s+", " ", description).strip()
             
@@ -478,9 +482,9 @@ def render(
             if max_desc_lines > 0:
                 if detail_lines:
                     detail_lines.append("")
-                detail_lines.append(f"{SECTION_LABEL}DESCRIPTION{RESET}")
+                detail_lines.append(f"{SECTION_LABEL}Description{RESET}")
                 detail_lines.extend(
-                    f"\033[38;5;245m{line}\033[0m"
+                    f"{TEXT_COLOR}{line}\033[0m"
                     for line in _wrap_title(description, w - 4, max_desc_lines).splitlines()
                 )
         if detail_lines:
@@ -490,7 +494,7 @@ def render(
         content.append("\033[38;5;244mQ Quit   Shift+Left Previous   Shift+Right Next\033[0m")
     else:
         content.append("")
-        content.append(f"{SECTION_LABEL}STATUS{RESET}")
+        content.append(f"{SECTION_LABEL}Status{RESET}")
         p_name = s.get("loading_provider_name", "")
         p_str = f" from {p_name}" if p_name else ""
         start_t = s.get("loading_start_time")
@@ -501,6 +505,7 @@ def render(
         except Exception:
             spin = spinner_frame()
         _idx_loading_spinner = len(content)
+
         content.append(f"\033[1;36m{spin} Loading stream{p_str}...{elapsed}\033[0m")
         content.append("")
         for sl in s["status_lines"]:

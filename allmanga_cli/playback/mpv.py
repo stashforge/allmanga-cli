@@ -116,6 +116,11 @@ class MpvIpc:
                 from ..ui.player_screen import _fmt_time
                 skip_msg = f"Skipped {first_skip.get('label', 'Opening')} ({_fmt_time(first_skip['start'])} → {_fmt_time(first_skip['end'])})\n\n"
 
+        if getattr(self, "resume_time", 0) > 0:
+            self.send_cmd("set_property", "start", str(int(self.resume_time)))
+        else:
+            self.send_cmd("set_property", "start", "none")
+
         self._pending_audio_url = audio_url or ""
         self._pending_subtitle_url = subtitle_url or ""
 
@@ -127,6 +132,7 @@ class MpvIpc:
                 pass
 
         self.send_cmd("loadfile", url)
+
 
         msg = f"{skip_msg}Now playing\n{title}\n\nShift+Right: Next  •  Shift+Left: Previous  •  Q: Quit"
         if osd_msg:

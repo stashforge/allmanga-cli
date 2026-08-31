@@ -31,9 +31,9 @@ if TYPE_CHECKING:
 RESET  = "\033[0m"
 BOLD   = "\033[1m"
 DIM    = "\033[38;5;244m"
-LABEL  = "\033[1;38;5;183m"   # same purple as player screen section headers
+LABEL  = "\033[1;37m"
 WHITE  = "\033[1;97m"
-MUTED  = "\033[38;5;245m"
+MUTED  = "\033[38;2;195;200;210m"
 CYAN   = "\033[1;36m"
 HINT   = "\033[38;5;244m"
 
@@ -150,8 +150,9 @@ def _build_content(show: dict, w: int) -> list[str]:
     if score:
         stats.append(f"★ {score:.1f}")
     if stats:
-        lines.append(f"{CYAN}{('  •  ').join(stats)}{RESET}")
+        lines.append(f"{MUTED}{(' • ').join(stats)}{RESET}")
         lines.append("")
+
 
     # ── Episodes ──────────────────────────────────────────────────────
     avail_eps = (show.get("availableEpisodes") or {})
@@ -165,8 +166,8 @@ def _build_content(show: dict, w: int) -> list[str]:
         status_str = status_label
         if al_progress is not None:
             total_str = f"/{total_eps}" if total_eps else ""
-            status_str += f"  ·  {al_progress}{total_str} eps"
-        _section("ANILIST STATUS", status_str, w, lines)
+            status_str += f" • {al_progress}{total_str} eps"
+        _section("AniList Status", status_str, w, lines)
 
     # ── Episodes ──────────────────────────────────────────────────────
     ep_parts: list[str] = []
@@ -177,7 +178,7 @@ def _build_content(show: dict, w: int) -> list[str]:
         
     fmt = str(show.get("format") or show.get("type") or "").upper()
     if ep_parts and fmt != "MOVIE" and total_eps != 1:
-        _section("EPISODES", "  ·  ".join(ep_parts), w, lines)
+        _section("Episodes", " • ".join(ep_parts), w, lines)
 
     # ── Next airing ───────────────────────────────────────────────────
     next_ep   = _positive_int(show.get("_next_airing_ep"))
@@ -188,9 +189,9 @@ def _build_content(show: dict, w: int) -> list[str]:
             time_str = f"in {format_time(int(next_time))}"
         except (ValueError, TypeError):
             time_str = str(next_time)
-        _section("NEXT EPISODE", f"EP {next_ep}  ·  {time_str}", w, lines)
+        _section("Next Episode", f"EP {next_ep} • {time_str}", w, lines)
     elif next_ep:
-        _section("NEXT EPISODE", f"EP {next_ep}", w, lines)
+        _section("Next Episode", f"EP {next_ep}", w, lines)
 
     # ── Dates ─────────────────────────────────────────────────────────
     start = _fmt_fuzzy_date(show.get("airedStart"))
@@ -198,34 +199,36 @@ def _build_content(show: dict, w: int) -> list[str]:
     if start or end:
         date_str = start
         if end:
-            date_str += f"  →  {end}" if start else end
-        _section("AIRED", date_str, w, lines)
+            date_str += f" → {end}" if start else end
+        _section("Aired", date_str, w, lines)
 
     # ── Genres ────────────────────────────────────────────────────────
     genres = show.get("genres") or []
     if isinstance(genres, list) and genres:
-        _section("GENRES", "  ·  ".join(str(g) for g in genres[:8] if g), w, lines)
+        _section("Genres", " • ".join(str(g) for g in genres[:8] if g), w, lines)
 
     # ── Description ───────────────────────────────────────────────────
     desc = _clean_html(str(show.get("description") or "").strip())
     if desc:
-        lines.append(f"{LABEL}DESCRIPTION{RESET}")
+        lines.append(f"{LABEL}Description{RESET}")
         for dl in _wrap_title(desc, w - 2, 99).splitlines():
             lines.append(f"{MUTED}{dl}{RESET}")
         lines.append("")
 
     # ── Native & Synonyms (Moved to bottom) ───────────────────────────
     if (native and native != romaji) or alts:
-        lines.append(f"{LABEL}ALTERNATIVE TITLES{RESET}")
+        lines.append(f"{LABEL}Alternative Titles{RESET}")
         if native and native != romaji:
             for tl in _wrap_title(f"Native: {native}", w - 2, 99).splitlines():
                 lines.append(f"{MUTED}{tl}{RESET}")
         if alts:
             for tl in _wrap_title(f"Synonyms: {', '.join(alts)}", w - 2, 99).splitlines():
-                lines.append(f"{DIM}{tl}{RESET}")
+                lines.append(f"{MUTED}{tl}{RESET}")
         lines.append("")
 
+
     return lines
+
 
 
 # ---------------------------------------------------------------------------
