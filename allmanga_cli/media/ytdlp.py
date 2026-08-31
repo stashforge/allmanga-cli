@@ -248,6 +248,22 @@ def streams_from_ytdlp_data(data: dict, *, url: str, name: str, priority: int) -
     formats = data.get("formats", [])
     _is_dm = is_dailymotion_url(url)
 
+    # Extract soft subtitles from yt-dlp data if present
+    subtitles = []
+    raw_subs = data.get("subtitles") or data.get("automatic_captions") or {}
+    if isinstance(raw_subs, dict):
+        for lang, sub_list in raw_subs.items():
+            if isinstance(sub_list, list):
+                for s in sub_list:
+                    s_url = s.get("url")
+                    s_ext = s.get("ext", "").lower()
+                    if s_url and (s_ext in ("vtt", "srt", "ass") or ".vtt" in s_url or ".srt" in s_url):
+                        subtitles.append({
+                            "label": lang.title(),
+                            "url": s_url,
+                            "default": lang.lower() in ("en", "eng", "english", "en-us"),
+                        })
+
     # find best audio-only format once, reuse for any split video format
     best_audio = _find_best_audio(formats) if formats else None
 
@@ -274,6 +290,10 @@ def streams_from_ytdlp_data(data: dict, *, url: str, name: str, priority: int) -
         if link in seen_urls:
             continue
         seen_urls.add(link)
+        if subtitles:
+            stream["subtitles"] = list(subtitles)
+            def_sub = next((s["url"] for s in subtitles if s.get("default")), subtitles[0]["url"])
+            stream["subtitle_url"] = def_sub
         streams.append(stream)
 
     streams.sort(key=_stream_score, reverse=True)
@@ -291,6 +311,10 @@ def streams_from_ytdlp_data(data: dict, *, url: str, name: str, priority: int) -
         if link in seen_urls:
             continue
         seen_urls.add(link)
+        if subtitles:
+            stream["subtitles"] = list(subtitles)
+            def_sub = next((s["url"] for s in subtitles if s.get("default")), subtitles[0]["url"])
+            stream["subtitle_url"] = def_sub
         streams.append(stream)
 
     _is_okru = "ok.ru" in url or "odnoklassniki.ru" in url or name.casefold() == "ok"

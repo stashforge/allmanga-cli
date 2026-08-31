@@ -24,7 +24,7 @@ class AnimeXinProvider(WordPressAnimeProvider):
 
     @property
     def name(self) -> str:
-        return self.metadata.get("name", "AnimeXin")
+        return getattr(self, "metadata", {}).get("name", "AnimeXin")
 
     def __init__(self, request_json_fn=None, fetch=None, ajax_fetch=None):
         del request_json_fn

@@ -14,7 +14,7 @@ class AnimeKhorProvider(AnimeXinProvider):
 
     @property
     def name(self) -> str:
-        return self.metadata.get("name", "AnimeKhor")
+        return getattr(self, "metadata", {}).get("name", "AnimeKhor")
 
 
 PROVIDER_CLASS = AnimeKhorProvider
