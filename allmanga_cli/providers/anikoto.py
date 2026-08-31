@@ -157,6 +157,23 @@ class AnikotoProvider:
             sources_data = json.loads(res_api)
             
             source_urls = []
+            subtitles = []
+            raw_tracks = sources_data.get("tracks", [])
+            for track in raw_tracks:
+                if isinstance(track, dict) and track.get("file"):
+                    subtitles.append({
+                        "url": track["file"],
+                        "label": track.get("label", "Unknown"),
+                        "kind": track.get("kind", "captions"),
+                        "default": bool(track.get("default")),
+                    })
+            
+            default_sub = None
+            if subtitles:
+                default_sub = next((s["url"] for s in subtitles if s.get("default")), None)
+                if not default_sub:
+                    default_sub = next((s["url"] for s in subtitles if "eng" in s.get("label", "").lower()), subtitles[0]["url"])
+
             raw_sources = sources_data.get("sources", [])
             if isinstance(raw_sources, dict):
                 raw_sources = [raw_sources]
@@ -169,7 +186,7 @@ class AnikotoProvider:
                 # Fetch and parse the m3u8 manually to get different qualities
                 if url.endswith(".m3u8"):
                     # Add original master URL as Auto quality
-                    source_urls.append({
+                    auto_entry = {
                         "sourceName": "MegaPlay (Auto)",
                         "streamUrl": url,
                         "type": "hls",
@@ -180,7 +197,12 @@ class AnikotoProvider:
                             "Origin": self.base_url,
                             "User-Agent": self.headers["User-Agent"]
                         }
-                    })
+                    }
+                    if subtitles:
+                        auto_entry["subtitles"] = subtitles
+                    if default_sub:
+                        auto_entry["subtitle_url"] = default_sub
+                    source_urls.append(auto_entry)
                     
                     try:
                         req_m3u8 = urllib.request.Request(
@@ -207,7 +229,7 @@ class AnikotoProvider:
                                         uri = lines[i+1].strip()
                                         if uri and not uri.startswith("#"):
                                             variant_url = urllib.parse.urljoin(url, uri)
-                                            variants.append({
+                                            variant_entry = {
                                                 "sourceName": f"MegaPlay ({quality})",
                                                 "streamUrl": variant_url,
                                                 "type": "hls",
@@ -219,7 +241,12 @@ class AnikotoProvider:
                                                     "Origin": self.base_url,
                                                     "User-Agent": self.headers["User-Agent"]
                                                 }
-                                            })
+                                            }
+                                            if subtitles:
+                                                variant_entry["subtitles"] = subtitles
+                                            if default_sub:
+                                                variant_entry["subtitle_url"] = default_sub
+                                            variants.append(variant_entry)
                             
                             if variants:
                                 # Sort descending by resolution (e.g. 1080 -> 720 -> 360)
@@ -233,7 +260,7 @@ class AnikotoProvider:
                         _logger.debug("Failed to parse m3u8 qualities manually: %s", parse_e)
                 
                 # Fallback: Just append the original URL if not m3u8 or parsing failed
-                source_urls.append({
+                fallback_entry = {
                     "sourceName": "MegaPlay",
                     "streamUrl": url,
                     "type": "hls" if url.endswith(".m3u8") else "mp4",
@@ -244,7 +271,13 @@ class AnikotoProvider:
                         "Origin": self.base_url,
                         "User-Agent": self.headers["User-Agent"]
                     }
-                })
+                }
+                if subtitles:
+                    fallback_entry["subtitles"] = subtitles
+                if default_sub:
+                    fallback_entry["subtitle_url"] = default_sub
+                source_urls.append(fallback_entry)
+
                 
             return normalize_episode_sources(
                 {"episode": {"sourceUrls": source_urls}},

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import os
 import sys
 import time
 from typing import Any
+
 
 from ..context import CliFlags, UiState, MachineState
 from ..domain.titles import get_show_display_title
@@ -304,9 +306,21 @@ def handle_play_state(
         audio_url = ms.selected_stream.get("audio_url", "")
         if audio_url:
             print(f"Audio: {audio_url}")
-        ref = ms.selected_stream.get("referer","")
-        if ref: print(f"Referer: {ref}")
+        sub_url = ms.selected_stream.get("subtitle_url", "")
+        if sub_url:
+            print(f"Subtitle: {sub_url}")
+        subtitles = ms.selected_stream.get("subtitles") or ms.selected_stream.get("vtt") or []
+        if isinstance(subtitles, list) and len(subtitles) > 1:
+            for sub in subtitles:
+                s_url = sub.get("url") or sub.get("file")
+                s_lbl = sub.get("label", "Unknown")
+                if s_url and s_url != sub_url:
+                    print(f"Subtitle ({s_lbl}): {s_url}")
+        ref = ms.selected_stream.get("referer", "")
+        if ref:
+            print(f"Referer: {ref}")
         return "QUIT"
+
 
     if getattr(args, 'download', False):
         app_core._exit_player_screen(close_alt=True)

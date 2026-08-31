@@ -34,6 +34,7 @@ def play_desktop(
         if stream.get("subtitle_url")
         else ""
     )
+    subtitles = stream.get("subtitles") or stream.get("vtt") or []
     referer = validate_optional_referer(stream.get("referer", ""))
     headers = proxy_filtered_headers(stream.get("headers", {}))
     resolution = stream.get("resolution", "Adaptive")
@@ -86,9 +87,11 @@ def play_desktop(
         osd_msg,
         audio_url,
         subtitle_url,
+        subtitles=subtitles,
         skip_intervals=skip_intervals,
         aniskip_auto=aniskip_auto,
     )
+
 
     mirror_name = stream.get("source_name", "Unknown")
     preference = get_preferred_mirror(show_id) if show_id else {}

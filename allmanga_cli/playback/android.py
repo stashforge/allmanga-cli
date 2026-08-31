@@ -174,12 +174,16 @@ def play_android(
             or (stream.get("dailymotion_video") and stream.get("dailymotion_audio"))):
         _info(f"{player}: starting local HTTP proxy...")
         try:
+            subtitles = stream.get("subtitles") or stream.get("vtt") or []
+            if not subtitles and stream.get("subtitle_url"):
+                subtitles = [{"label": "English", "url": stream["subtitle_url"], "default": True}]
             url, proxy_server = start_local_proxy(
                 url,
                 referer,
                 headers,
                 stream_type=stream.get("type", "mp4"),
                 title=media_title,
+                subtitles=subtitles,
             )
             replace_active_local_proxy(proxy_server)
             intent_type = "video/*"
@@ -207,6 +211,14 @@ def play_android(
         "title",
         media_title,
     ])
+    hdr_list = []
+    if referer:
+        hdr_list.extend(["Referer", referer])
+    ua = headers.get("User-Agent")
+    if ua:
+        hdr_list.extend(["User-Agent", ua])
+    if hdr_list:
+        command.extend(["--esa", "headers", ",".join(hdr_list)])
 
     launched = False
     try:
@@ -234,6 +246,8 @@ def play_android(
                 "title",
                 media_title,
             ]
+            if hdr_list:
+                fallback_cmd.extend(["--esa", "headers", ",".join(hdr_list)])
             r2 = subprocess.run(
                 fallback_cmd,
                 stdout=subprocess.DEVNULL,

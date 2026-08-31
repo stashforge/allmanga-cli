@@ -84,7 +84,7 @@ def _pre_resolved_stream(source, name, priority, warn):
             stream_type == "hls" and bool(referer or headers)
         )
 
-    return [{
+    stream_dict = {
         "source_name": name,
         "link": stream_url,
         "type": stream_type,
@@ -93,7 +93,24 @@ def _pre_resolved_stream(source, name, priority, warn):
         "headers": headers,
         "source_priority": priority,
         "android_safe": bool(android_safe),
-    }]
+    }
+    if source.get("subtitle_url"):
+        stream_dict["subtitle_url"] = source["subtitle_url"]
+    if source.get("subtitles"):
+        stream_dict["subtitles"] = source["subtitles"]
+        if not stream_dict.get("subtitle_url"):
+            subs = source["subtitles"]
+            if isinstance(subs, list) and subs:
+                def_sub = next((s.get("url") or s.get("file") for s in subs if s.get("default")), None)
+                if not def_sub:
+                    def_sub = next((s.get("url") or s.get("file") for s in subs if "eng" in str(s.get("label", "")).lower()), None)
+                if not def_sub and isinstance(subs[0], dict):
+                    def_sub = subs[0].get("url") or subs[0].get("file")
+                if def_sub:
+                    stream_dict["subtitle_url"] = def_sub
+
+    return [stream_dict]
+
 
 
 def _extract_mp4upload(url):

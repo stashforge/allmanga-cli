@@ -52,9 +52,9 @@ def _guess_ext(url):
     name = path.rsplit("/", 1)[-1]
     if "." in name:
         ext = name.rsplit(".", 1)[-1].lower()
-        if re.fullmatch(r"[a-z0-9]{1,8}", ext):
+        if ext in ("m3u8", "vtt", "mp4", "m4s", "aac", "mp3", "ts"):
             return ext
-    return ""
+    return "m3u8" if ".m3u8" in url.lower() else "vtt" if ".vtt" in url.lower() else "ts"
 
 
 def _build_proxy_server(initial_entries, timeout):
@@ -72,12 +72,24 @@ def _build_proxy_server(initial_entries, timeout):
     registry_lock = threading.Lock()
     port_holder = {}
 
-    def register(url, ref, hdrs):
-        ext = _guess_ext(url) or ("m3u8" if ".m3u8" in url.lower() else "ts")
+    def register(url, ref, hdrs, content_type=None):
+        ext = _guess_ext(url)
         path = new_proxy_secret_path(ext)
+        entry_content_type = content_type
+        if not entry_content_type:
+            if ext == "m3u8":
+                entry_content_type = "application/vnd.apple.mpegurl"
+            elif ext == "vtt":
+                entry_content_type = "text/vtt; charset=utf-8"
+            elif ext == "ts":
+                entry_content_type = "video/MP2T"
         with registry_lock:
             registry[path] = {
-                "kind": "fetch", "url": url, "ref": ref, "hdrs": dict(hdrs),
+                "kind": "fetch",
+                "url": url,
+                "ref": ref,
+                "hdrs": dict(hdrs),
+                "content_type": entry_content_type,
             }
         return path
 
@@ -89,6 +101,13 @@ def _build_proxy_server(initial_entries, timeout):
         out = []
         for line in text.splitlines():
             line = line.strip()
+
+            if line.startswith("#EXT-X-STREAM-INF:"):
+                # Clean deprecated tags like PROGRAM-ID
+                line = re.sub(r"PROGRAM-ID=\d+,?", "", line)
+                line = re.sub(r",+", ",", line).replace(":,", ":").rstrip(",")
+                out.append(line)
+                continue
 
             if line.startswith("#") and 'URI="' in line:
                 start = line.index('URI="') + 5
@@ -110,6 +129,7 @@ def _build_proxy_server(initial_entries, timeout):
 
         return "\n".join(out)
 
+
     class ProxyHandler(http.server.BaseHTTPRequestHandler):
         def log_message(self, format, *args):
             pass
@@ -129,18 +149,26 @@ def _build_proxy_server(initial_entries, timeout):
             with registry_lock:
                 entry = registry.get(path)
             if entry is None:
-                self.send_error(404)
+                try:
+                    self.send_error(404)
+                except Exception:
+                    pass
                 return
 
             if entry["kind"] == "synthetic":
                 data = entry["text"].encode("utf-8")
-                self.send_response(200)
-                self.send_header("Content-Type", "application/vnd.apple.mpegurl")
-                self.send_header("Content-Length", str(len(data)))
-                self.send_header("Cache-Control", "no-store")
-                self.end_headers()
-                if method == "GET":
-                    self.wfile.write(data)
+                try:
+                    self.send_response(200)
+                    self.send_header("Content-Type", entry.get("content_type", "application/vnd.apple.mpegurl"))
+                    self.send_header("Content-Length", str(len(data)))
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.send_header("Access-Control-Allow-Headers", "*")
+                    self.send_header("Cache-Control", "no-store, no-cache")
+                    self.end_headers()
+                    if method == "GET":
+                        self.wfile.write(data)
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
                 return
 
             url, ref, hdrs = entry["url"], entry["ref"], entry["hdrs"]
@@ -162,33 +190,54 @@ def _build_proxy_server(initial_entries, timeout):
                         context=SSL_CTX_SECURE,
                         timeout=max(1, float(timeout))) as response:
                     validate_http_url(response.geturl())
-                    content_type = response.headers.get("Content-Type", "")
+                    content_type = entry.get("content_type") or response.headers.get("Content-Type", "")
 
                     if method == "GET" and _is_playlist(url, content_type):
                         body = response.read()
                         text = body.decode("utf-8", errors="replace")
                         rewritten = rewrite_playlist(text, url, ref, hdrs)
                         data = rewritten.encode("utf-8")
-                        self.send_response(200)
-                        self.send_header(
-                            "Content-Type", "application/vnd.apple.mpegurl"
-                        )
-                        self.send_header("Content-Length", str(len(data)))
-                        self.send_header("Cache-Control", "no-store")
-                        self.end_headers()
-                        self.wfile.write(data)
+                        try:
+                            self.send_response(200)
+                            self.send_header(
+                                "Content-Type", "application/vnd.apple.mpegurl"
+                            )
+                            self.send_header("Content-Length", str(len(data)))
+                            self.send_header("Access-Control-Allow-Origin", "*")
+                            self.send_header("Access-Control-Allow-Headers", "*")
+                            self.send_header("Cache-Control", "no-store, no-cache")
+                            self.end_headers()
+                            self.wfile.write(data)
+                        except (BrokenPipeError, ConnectionResetError):
+                            pass
                         return
 
-                    self.send_response(response.status)
-                    for key, value in proxy_response_headers(response.headers):
-                        self.send_header(key, value)
-                    self.end_headers()
-                    if method == "GET":
-                        while chunk := response.read(65536):
-                            try:
-                                self.wfile.write(chunk)
-                            except Exception:
-                                break
+                    try:
+                        self.send_response(response.status)
+                        content_type_sent = False
+                        for key, value in proxy_response_headers(response.headers):
+                            if key.lower() == "content-type":
+                                if entry.get("content_type"):
+                                    value = entry["content_type"]
+                                elif not value.startswith("video/") and not value.startswith("audio/"):
+                                    value = "video/MP2T"
+                                content_type_sent = True
+                            self.send_header(key, value)
+                        if not content_type_sent and entry.get("content_type"):
+                            self.send_header("Content-Type", entry["content_type"])
+                        self.send_header("Access-Control-Allow-Origin", "*")
+                        self.send_header("Access-Control-Allow-Headers", "*")
+                        self.end_headers()
+                        if method == "GET":
+                            while chunk := response.read(65536):
+                                try:
+                                    self.wfile.write(chunk)
+                                except (BrokenPipeError, ConnectionResetError):
+                                    break
+                    except (BrokenPipeError, ConnectionResetError):
+                        pass
+            except (BrokenPipeError, ConnectionResetError):
+                pass
             except Exception as exc:
                 _debug_warn("Local proxy upstream request failed", exc)
                 try:
@@ -215,12 +264,129 @@ def _build_proxy_server(initial_entries, timeout):
     return port, registry, register, server
 
 
-def start_local_proxy(target_url, referer, headers=None, timeout=15, stream_type="mp4", title="stream"):
+def start_local_proxy(
+        target_url, referer, headers=None, timeout=15,
+        stream_type="mp4", title="stream", subtitles=None):
     validate_http_url(target_url)
     is_hls = str(stream_type).lower() == "hls"
     extension = "m3u8" if is_hls else "mp4"
     base_secret = new_proxy_secret_path(extension, title=title)
     forwarded_headers = proxy_filtered_headers(headers)
+
+    # If HLS and subtitles are provided, generate synthetic master M3U8 with #EXT-X-MEDIA:TYPE=SUBTITLES
+    if is_hls and subtitles:
+        master_secret = base_secret
+        video_secret = new_proxy_secret_path("m3u8")
+        
+        initial = {
+            master_secret: {"kind": "synthetic", "text": ""},
+            video_secret: {
+                "kind": "fetch",
+                "url": target_url,
+                "ref": referer,
+                "hdrs": dict(forwarded_headers),
+            }
+        }
+        
+        lang_codes = {
+            "english": "en", "spanish": "es", "french": "fr",
+            "german": "de", "italian": "it", "portuguese": "pt",
+            "russian": "ru", "arabic": "ar"
+        }
+        
+        sub_entries = []
+        for s in subtitles:
+            sub_url = s.get("url") or s.get("file") if isinstance(s, dict) else s[3] if isinstance(s, (list, tuple)) and len(s) > 3 else None
+            if not sub_url:
+                continue
+            sub_label = s.get("label", "Sub") if isinstance(s, dict) else s[0] if isinstance(s, (list, tuple)) else "Sub"
+            sub_def = s.get("default", False) if isinstance(s, dict) else s[2] if isinstance(s, (list, tuple)) and len(s) > 2 else False
+            clean_label = str(sub_label).split("(")[0].strip()
+            
+            lang_code = "und"
+            for k, code in lang_codes.items():
+                if k in clean_label.lower():
+                    lang_code = code
+                    break
+                    
+            vtt_secret = new_proxy_secret_path("vtt")
+            m3u8_secret = new_proxy_secret_path("m3u8")
+            
+            initial[vtt_secret] = {
+                "kind": "fetch",
+                "url": sub_url,
+                "ref": referer,
+                "hdrs": dict(forwarded_headers),
+                "content_type": "text/vtt; charset=utf-8",
+            }
+            initial[m3u8_secret] = {
+                "kind": "synthetic",
+                "text": f"#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:1500\n#EXT-X-MEDIA-SEQUENCE:1\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXTINF:1500.0,\n{{{{vtt_url_{len(sub_entries)}}}}}\n#EXT-X-ENDLIST\n",
+            }
+            sub_entries.append({
+                "name": clean_label,
+                "lang": lang_code,
+                "default": "YES" if sub_def else "NO",
+                "m3u8_secret": m3u8_secret,
+                "vtt_secret": vtt_secret,
+            })
+            
+        port, registry, _register, server = _build_proxy_server(initial, timeout)
+        
+        # Build Master M3U8 content
+        master_lines = ["#EXTM3U", "#EXT-X-VERSION:3", ""]
+        for idx, sub in enumerate(sub_entries):
+            sub_m3u8_url = f"http://127.0.0.1:{port}{sub['m3u8_secret']}"
+            sub_vtt_url = f"http://127.0.0.1:{port}{sub['vtt_secret']}"
+            registry[sub["m3u8_secret"]]["text"] = registry[sub["m3u8_secret"]]["text"].replace(f"{{{{vtt_url_{idx}}}}}", sub_vtt_url)
+            
+            master_lines.append(
+                f'#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="{sub["name"]}",'
+                f'LANGUAGE="{sub["lang"]}",DEFAULT={sub["default"]},AUTOSELECT={sub["default"]},FORCED=NO,URI="{sub_m3u8_url}"'
+            )
+            
+        master_lines.append("")
+        
+        # Inspect target_url to see if it's already a master or a single stream
+        video_local_url = f"http://127.0.0.1:{port}{video_secret}"
+        try:
+            req = urllib.request.Request(target_url)
+            req.add_header("User-Agent", forwarded_headers.get("User-Agent", _DEFAULT_UA))
+            if referer:
+                req.add_header("Referer", referer)
+            with urllib.request.urlopen(req, context=SSL_CTX_SECURE, timeout=max(1, float(timeout))) as resp:
+                body = resp.read().decode("utf-8", errors="replace")
+                
+            if "#EXT-X-STREAM-INF" in body:
+                base_target = target_url.rsplit("/", 1)[0] + "/"
+                pending_inf = None
+                for line in body.splitlines():
+                    stripped = line.strip()
+                    if not stripped: continue
+                    if stripped.startswith("#EXT-X-STREAM-INF:"):
+                        bw_m = re.search(r"BANDWIDTH=(\d+)", stripped)
+                        res_m = re.search(r"RESOLUTION=(\d+x\d+)", stripped)
+                        bw = bw_m.group(1) if bw_m else "2889119"
+                        res_part = f",RESOLUTION={res_m.group(1)}" if res_m else ""
+                        pending_inf = f'#EXT-X-STREAM-INF:BANDWIDTH={bw}{res_part},SUBTITLES="subs"'
+                        master_lines.append(pending_inf)
+                        continue
+                    if stripped.startswith("#"): continue
+                    if pending_inf is not None:
+                        var_abs = urllib.parse.urljoin(base_target, stripped)
+                        var_path = _register(var_abs, referer, forwarded_headers)
+                        master_lines.append(f"http://127.0.0.1:{port}{var_path}")
+                        pending_inf = None
+            else:
+                master_lines.append(f'#EXT-X-STREAM-INF:BANDWIDTH=2889119,RESOLUTION=1920x1080,SUBTITLES="subs"')
+                master_lines.append(video_local_url)
+        except Exception:
+            master_lines.append(f'#EXT-X-STREAM-INF:BANDWIDTH=2889119,RESOLUTION=1920x1080,SUBTITLES="subs"')
+            master_lines.append(video_local_url)
+            
+        master_lines.append("")
+        registry[master_secret]["text"] = "\n".join(master_lines)
+        return f"http://127.0.0.1:{port}{master_secret}", server
 
     initial = {
         base_secret: {
@@ -232,6 +398,7 @@ def start_local_proxy(target_url, referer, headers=None, timeout=15, stream_type
     }
     port, _registry, _register, server = _build_proxy_server(initial, timeout)
     return f"http://127.0.0.1:{port}{base_secret}", server
+
 
 
 def start_local_dual_proxy(

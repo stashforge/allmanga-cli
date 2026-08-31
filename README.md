@@ -1,94 +1,204 @@
 # allmanga-cli
 
-A robust, lightweight Python CLI tool for scraping and streaming anime directly to `mpv`. 
+A modern, lightning-fast terminal anime browser, player, and downloader with AniList sync, multi-track subtitle HLS proxying, and Android/Termux support.
+
+---
 
 ## Features
-- **Headless Stream Scraping**: Fetches video streams from various anime providers directly in the terminal without requiring a bloated browser.
-- **Unified Metadata Enrichment**: Seamlessly merges disparate provider search results with rich, unified metadata direct from AniList, including exact episode counts, scores, formats, and alternative titles.
-- **Robust Language Classifier**: Features a custom density-based NLP tokenizer to automatically identify and prioritize the most accurate English, Romaji, and Native titles for display.
-- **Advanced Fallback Priority**: Includes a smart stream-ranking system. When a provider returns multiple mirrors, `allmanga-cli` automatically ranks them, prioritizing the fastest, most reliable servers (like `ok.ru` and `pewe`) and seamlessly skipping failing/obfuscated embeds.
-- **Offline Library Integration**: Download episodes using the built-in batch downloader, and access them natively via `allmanga-cli downloads`. The offline UI seamlessly mirrors the streaming UI with built-in watch progress tracking and unified AniList metadata.
-- **Direct MPV Integration**: Pipes raw `.m3u8` playlists and `.mp4` files straight to `mpv` for a native playback experience.
-- **Built-in Background Resolver**: Uses background threads to resolve multiple streams simultaneously to prevent CLI blocking.
-- **Browser Playback Fallback**: If scrapers fail or you want a provider's native auto-next functionality, a built-in action menu lets you extract the raw embed/watch URL and instantly open it in your desktop or Android browser.
 
-## Usage
+- **Headless Stream Scraping**: Fetches video streams from multiple anime providers directly in the terminal without requiring a browser or webview.
+- **Multi-Track HLS Subtitle Streaming**: Built-in RFC 8216 HLS Master Manifest generator and multi-threaded proxy. Seamlessly injects multi-language WebVTT subtitle tracks (`#EXT-X-MEDIA:TYPE=SUBTITLES`) across desktop `mpv` and mobile players (Next Player, MPV Android, VLC).
+- **Unified Show Dashboard**: Modern, interactive terminal dashboard displaying AniList metadata, cover art, scores, episode counts, watched indicators, and resume playback timestamps.
+- **Resume & Timestamp Playback**: Automatically saves exact watch progress per episode. Resume seamlessly from your last timestamp with a single keystroke.
+- **Android & Termux Ready**: Natively launches external Android video players (`Next Player`, `MPV Android`, `MPV-Rex`, `VLC`) via `am start` intents with custom episode titles, header forwarding, and local proxying.
+- **Interactive Multi-Download System**:
+  - Download single episodes, custom ranges (e.g. `1-12`), selected episodes, or entire seasons.
+  - Supports `aria2c`, `yt-dlp`, `ffmpeg`, and native `hls-fetch`.
+- **Offline Library Management**: Browse and play downloaded episodes offline via `allmanga-cli downloads`, with progress tracking and AniList metadata matching.
+- **AniList Sync & AniSkip**:
+  - Automatic watch history synchronization with AniList via OAuth (`--login`).
+  - Automatic opening and ending skip markers generation for `mpv` (`--aniskip`).
+- **Provider Mirror Fallbacks**: Smart stream ranker prioritizing fast, reliable CDN mirrors and falling back automatically if an embed fails.
 
-Run the CLI directly in your terminal:
-```bash
-allmanga-cli [query...] [flags]
-```
+---
 
-### Key Commands
-- **Stream/Search**: `allmanga-cli [query]` - Search and stream an anime.
-- **Offline Library**: `allmanga-cli downloads` - Open the offline library to browse and play downloaded episodes locally without an internet connection.
-- **Configuration**: `allmanga-cli config` - Interactively manage your settings (e.g., set default download directory).
-- **AniList Sync**: `allmanga-cli --login` - Link your AniList account to enable automatic watch history tracking.
+## Supported Providers
+
+| Provider Command | Description | Multi-Subtitles | Dub Support |
+| :--- | :--- | :---: | :---: |
+| `allmanga-cli anikoto` | Anikoto (MegaPlay / fast 1080p CDN) | Yes | Yes |
+| `allmanga-cli miruro` | Miruro (Multi-server anime scraper) | Yes | Yes |
+| `allmanga-cli allanime` | AllAnime (Extensive anime catalog) | Yes | Yes |
+| `allmanga-cli animexin` | AnimeXin (Asian anime & Donghua) | Yes | No |
+| `allmanga-cli animegg` | AnimeGG (Multiple streaming mirrors) | Yes | Yes |
+| `allmanga-cli anizone` | AniZone (Direct video streams) | Yes | Yes |
+| `allmanga-cli movies` | Movies & TV Series provider | Yes | Yes |
+
+*Run `allmanga-cli [query]` directly to search using your default provider.*
+
+---
 
 ## Installation
 
-### Method 1: Using pipx (Recommended for Linux/macOS)
-Modern Linux distributions and macOS environments often block system-wide `pip` installations (`error: externally-managed-environment`). Using `pipx` is the easiest way to install `allmanga-cli` as a global command-line tool securely:
+### Option 1: pipx (Recommended for Linux / macOS)
 
-1. Install `pipx` if you haven't already (e.g., `sudo pacman -S pipx` or `brew install pipx`).
-2. Install the CLI directly from the cloned repository with optional dependencies:
-   ```bash
-   git clone https://github.com/stashforge/allmanga-cli.git
-   cd allmanga-cli
-   pipx install .[allanime,miruro]
-   ```
-*(Note: If you edit the source code later, run `pipx install . --force` to update the executable.)*
+`pipx` installs `allmanga-cli` in an isolated environment and exposes it globally:
 
-### Method 2: Standard pip Installation
-If you are on Windows, inside a Docker container, or explicitly using a virtual environment (`venv`), you can use standard `pip`:
+```bash
+# Clone the repository
+git clone https://github.com/stashforge/allmanga-cli.git
+cd allmanga-cli
 
-1. Clone the repository and set up a virtual environment:
-   ```bash
-   git clone https://github.com/stashforge/allmanga-cli.git
-   cd allmanga-cli
-   python -m venv venv
-   source venv/bin/activate
-   ```
-2. Install the package with the necessary provider dependencies:
-   ```bash
-   pip install .[allanime,miruro]
-   ```
+# Install globally with optional dependencies
+pipx install .[allanime,miruro]
+```
 
-### Optional Dependencies Explained
-By default, the core installation only installs basic dependencies. To enable specific scrapers to bypass Cloudflare and decode streams, install their optional flags:
-- `[miruro]`: Installs `curl_cffi` for advanced TLS impersonation required by the Miruro scraper.
-- `[allanime]`: Installs `cryptography` for decrypting the Allanime clock endpoints.
+### Option 2: Termux (Android)
 
-## Configuration
+```bash
+# Update packages and install python + mpv
+pkg update && pkg install python git mpv-android ffmpeg
 
-On first run, the CLI automatically generates a default configuration file. The file is typically located at `~/.config/allmanga-cli/config.json` (or `~/.local/state/allmanga-cli/config.json` depending on your OS).
+# Clone and install
+git clone https://github.com/stashforge/allmanga-cli.git
+cd allmanga-cli
+pip install .[allanime-termux]
+```
 
-Here is the default configuration template and what each setting controls:
+### Option 3: Standard Virtual Environment (`venv`)
+
+```bash
+git clone https://github.com/stashforge/allmanga-cli.git
+cd allmanga-cli
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+pip install .[allanime,miruro]
+```
+
+---
+
+## Usage Guide
+
+### Basic Search & Stream
+
+```bash
+# Search using default provider
+allmanga-cli "Frieren"
+
+# Search using a specific provider
+allmanga-cli anikoto "Jujutsu Kaisen"
+allmanga-cli miruro "Solo Leveling"
+allmanga-cli allanime "One Piece"
+```
+
+### Direct Episode & Quality Selection
+
+```bash
+# Jump directly to Episode 5 in 1080p English Sub
+allmanga-cli anikoto "Bleach" -e 5 -q 1080p -t sub
+
+# Binge watch continuously (auto-plays next episode)
+allmanga-cli anikoto "Chainsaw Man" -e 1 --binge
+
+# Choose stream quality and mirrors interactively
+allmanga-cli anikoto "Naruto" -e 1 --sources
+```
+
+### Downloading Episodes
+
+```bash
+# Interactive download menu (Single, Range, Selection, All)
+allmanga-cli anikoto "DanDaDan" -e 1 --download
+
+# Use a specific downloader (e.g. aria2c or yt-dlp)
+allmanga-cli anikoto "Attack on Titan" -e 1 --download --downloader aria2c
+```
+
+### Managing Offline Downloads
+
+```bash
+# Open the interactive offline library
+allmanga-cli downloads
+```
+
+### AniList Integration & Skipping
+
+```bash
+# Authenticate your AniList account
+allmanga-cli --login
+
+# Enable AniSkip opening/ending markers
+allmanga-cli anikoto "Death Note" -e 1 --aniskip
+```
+
+### Extracting & Printing URLs
+
+```bash
+# Print stream master M3U8, referer headers, and all subtitle tracks
+allmanga-cli anikoto search "Slime" -e 1 --print-url
+```
+
+---
+
+## CLI Options Reference
+
+```text
+allmanga-cli [provider] [search_query] [options]
+
+Positional Arguments:
+  provider              Optional provider: anikoto, miruro, allanime, animexin, animegg, anizone, movies
+  query                 Title of the anime or show to search
+
+Playback & Episode Options:
+  -e, --episode NUM     Episode identifier (e.g., 1, 12, "OVA 1")
+  -q, --quality QUALITY Video quality: best, 1080p, 720p, 480p, worst
+  -t, --translation TYPE Audio language type: sub, dub
+  -b, --binge           Enable continuous binge watching
+  -p, --player PLAYER   Video player: mpv, mpvrex, next, vlc
+  --sources             Prompt interactively to choose stream mirror
+  --aniskip             Enable AniSkip opening & ending chapter markers
+  --print-url           Print stream links, subtitle tracks, and referer headers
+
+Download Options:
+  -d, --download        Download episode(s) instead of playing
+  --downloader TOOL     Downloader engine: auto, aria2c, yt-dlp, ffmpeg, hls-fetch
+
+Account & Library:
+  --login               Log in with AniList OAuth
+  downloads             Launch offline download library browser
+  config                Interactively inspect and modify configuration
+
+Diagnostics:
+  -v, --version         Show program version
+  --debug               Enable debug logs and stack trace capture
+```
+
+---
+
+## Configuration (`config.json`)
+
+Configuration is stored at `~/.config/allmanga-cli/config.json`:
 
 ```json
 {
-    "quality": "1080p",               // Preferred video quality. Valid options: "best", "1080p", "720p", "480p", "360p", "worst"
-    "translation_type": "sub",        // Default audio type. Valid options: "sub", "dub"
-    "binge": false,                   // Auto-play next episode when current finishes. Valid options: true, false
-    "player": "mpv",                  // Default video player. Valid options: "mpv", "mpvex", "vlc", "next"
-    "anilist_token": "",              // Your AniList OAuth token (auto-populated if you run with --login)
-    "auto_track": false,              // Automatically track watch progress on AniList. Valid options: true, false
-    "cover": false,                   // Display anime cover art in terminal (requires image support). Valid options: true, false
-    "download_dir": "",               // Absolute path to save downloaded episodes
-    "anilist_sort": "recent",         // Default sorting method for AniList library. Valid options: "recent", "anilist", "title", "progress"
-    "spinner": "braille",             // Terminal loading spinner style. Valid options: "braille", "dots", "line", "pulse", or a custom array of frames (e.g., ["|", "/", "-", "\\"])
-    "allanime_frontend_domain": "https://mkissa.to", // Domain used for the AllAnime provider
-    "provider": "miruro"              // Default streaming provider. Valid options: "miruro", "allanime", "anidbapp", "animexin", "animegg", "anizone", "lucifer", "animekhor", "senshi", "anikoto", "movies"
+    "provider": "anikoto",
+    "quality": "1080p",
+    "translation_type": "sub",
+    "binge": false,
+    "player": "mpv",
+    "download_dir": "~/Downloads/Anime",
+    "downloader": "auto",
+    "aniskip": true,
+    "auto_track": true,
+    "cover": true,
+    "anilist_token": "",
+    "anilist_sort": "recent",
+    "spinner": "braille"
 }
 ```
 
-*Note: The CLI will automatically populate your config file with any missing fields when you run it, so your config will never fall out of sync after an update!*
+---
 
-## Requirements
-- Python 3.10+
-- `mpv` player installed on your system
-- `yt-dlp` (often used by mpv to resolve certain HTTP streams)
+## License
 
-## Architecture Notes
-- `allmanga_cli/providers/`: Contains modular scraper logic for individual sources (e.g., `miruro.py`, `allanime.py`, `anidbapp.py`, `animegg.py`, `anizone.py`). Each scraper is responsible for assigning a `"priority"` to the streams it finds.
-- `allmanga_cli/media/`: Contains the global resolver and background streaming logic. The global stream ranker blindly trusts the `priority` tag assigned by the provider to decouple ranking logic from the playback engine.
+Distributed under the MIT License. See `LICENSE` for more information.

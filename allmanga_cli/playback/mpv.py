@@ -84,7 +84,7 @@ class MpvIpc:
 
     def load(
             self, url, title, headers, referer, start_time=0, osd_msg="",
-            audio_url="", subtitle_url="", skip_intervals=None, aniskip_auto=True):
+            audio_url="", subtitle_url="", subtitles=None, skip_intervals=None, aniskip_auto=True):
         self.start()
         self.props["playback-time"] = 0
         self.props["duration"] = 0
@@ -123,6 +123,7 @@ class MpvIpc:
 
         self._pending_audio_url = audio_url or ""
         self._pending_subtitle_url = subtitle_url or ""
+        self._pending_subtitles = list(subtitles) if subtitles else []
 
         if getattr(self, "chapters_path", None):
             try:
@@ -143,9 +144,20 @@ class MpvIpc:
         if self._pending_audio_url:
             self.send_cmd("audio-add", self._pending_audio_url, "select")
             self._pending_audio_url = ""
-        if self._pending_subtitle_url:
+        if getattr(self, "_pending_subtitles", None):
+            for sub in self._pending_subtitles:
+                sub_file = sub.get("url") or sub.get("file")
+                sub_label = sub.get("label") or "Subtitle"
+                if sub_file:
+                    is_def = bool(sub.get("default") or sub_file == self._pending_subtitle_url)
+                    mode = "select" if is_def else "auto"
+                    self.send_cmd("sub-add", sub_file, mode, sub_label)
+            self._pending_subtitles = []
+            self._pending_subtitle_url = ""
+        elif self._pending_subtitle_url:
             self.send_cmd("sub-add", self._pending_subtitle_url, "select")
             self._pending_subtitle_url = ""
+
 
     def quit(self):
         self.send_cmd("quit")
