@@ -236,11 +236,6 @@ def handle_action_menu_state(
             acts.append("MIRRORS")
             action_hints["Mirrors"] = "source & quality"
 
-            # Browser
-            opts.append("Browser")
-            acts.append("BROWSER_PLAY")
-            action_hints["Browser"] = "open in browser"
-
             # Download
             opts.append("Download")
             acts.append("DOWNLOAD_MENU")
@@ -481,9 +476,6 @@ def handle_action_menu_state(
 
     elif a == "MIRRORS":
         return "MIRRORS"
-
-    elif a == "BROWSER_PLAY":
-        return "BROWSER_PLAY"
 
     elif a == "DOWNLOAD_MENU":
         return handle_download_menu_state(flags, ui, ms, cfg, args, ttype)
@@ -760,28 +752,31 @@ def handle_mirrors_state(
     ttype: str,
     resolve_tracking_fn,
 ) -> str:
-    if not app_core._stream_snapshot():
-        with streams._bg_lock:
-            bg_alive = bool(streams._bg_thread and streams._bg_thread.is_alive())
-        if not bg_alive:
-            ep_data = app_core.with_loading(
-                f"Loading {ttype.upper()} sources…",
-                app_core.get_episode_data, ms.show_id, ms.current_ep, ttype, provider_id=getattr(args, "provider", None)
-            )
-            if ep_data:
-                streams.start_bg_resolve(ep_data, set())
-            else:
-                if ui.ui_show_ctx:
-                    p_name = (ui.ui_show_ctx.get("_provider_name") or ui.ui_show_ctx.get("_provider") or "").title() or "Provider"
-                    ep_label = playback_mod._display_episode_label(ui.ui_show_ctx, ms.current_ep, ttype)
-                    app_core.set_action_feedback(
-                        ui.ui_show_ctx,
-                        f"No stream mirrors available for {playback_mod._fmt_ep(ep_label)} on {p_name}.",
-                    )
-                return "ACTION_MENU"
+    target_pid = (ui.ui_show_ctx or {}).get("_provider") or getattr(args, "provider", None)
+    cur_key = (ms.show_id, ms.current_ep, ttype, target_pid)
+    cached_streams = app_core._stream_snapshot(ms.show_id, ms.current_ep, ttype, target_pid)
+    cached_ep_data = app_core._get_cached_ep_data(cur_key)
+
+    exclude_names = set()
+    for s in cached_streams:
+        if s.get("source_parent_name"):
+            exclude_names.add(s["source_parent_name"])
+        if s.get("raw_source_name"):
+            exclude_names.add(s["raw_source_name"])
+        if s.get("source_name"):
+            exclude_names.add(s["source_name"].split(" (")[0].strip())
+
+    with streams._bg_lock:
+        bg_alive = bool(streams._bg_thread and streams._bg_thread.is_alive())
+        is_same_active_key = (streams._active_stream_key == cur_key)
+
+    total_sources = len(cached_ep_data.get("episode", {}).get("sourceUrls", [])) if cached_ep_data else 0
+    all_resolved = (total_sources > 0 and len(exclude_names) >= total_sources)
+
+    if not (bg_alive and is_same_active_key) and not all_resolved:
+        streams.start_bg_resolve(cached_ep_data, exclude_names, ms.show_id, ms.current_ep, ttype, target_pid)
 
     def _mlabel(s):
-
         tag = " ✔" if s.get("android_safe") else ""
         pref = app_core.get_preferred_mirror(ms.show_id)
         is_pref = pref.get("source_name") == s["source_name"] and pref.get("resolution") == s.get("resolution", "?")
@@ -797,9 +792,11 @@ def handle_mirrors_state(
 
     def _dedup():
         seen, out = set(), []
-        for s in sorted(app_core._stream_snapshot(), key=lambda x: x.get("source_priority",4)):
-            if s["link"] not in seen:
-                seen.add(s["link"])
+        active_list = app_core._stream_snapshot(ms.show_id, ms.current_ep, ttype, target_pid)
+        for s in sorted(active_list, key=lambda x: x.get("source_priority", 4)):
+            key = (s.get("source_name"), s.get("resolution"), s.get("link"))
+            if key not in seen:
+                seen.add(key)
                 out.append(s)
         return out
 
@@ -815,9 +812,10 @@ def handle_mirrors_state(
         _bg_stats = streams._bg_stats
 
         with _bg_lock:
-            alive = _bg_thread and _bg_thread.is_alive()
+            alive = bool(_bg_thread and _bg_thread.is_alive()) and (streams._active_stream_key == cur_key)
             r, f = _bg_stats["resolved"], _bg_stats["failed"]
             tot = _bg_stats.get('total', r+f)
+            status_msg = _bg_stats.get("status_msg", "")
 
         C_D  = "\033[38;5;248m"
         R    = "\033[0m"
@@ -825,12 +823,28 @@ def handle_mirrors_state(
         try: w = os.get_terminal_size().columns
         except OSError: w = 80
 
+        num_found = len(mopts)
+        found_str = f"{num_found} mirror found" if num_found == 1 else f"{num_found} mirrors found"
+
         if alive and (r + f) < tot:
             from allmanga_cli.ui.spinner import spinner_frame, spinner_from_config
             spinner = spinner_frame(spinner_from_config(cfg))
-            plain_status = f"{spinner} {len(mopts)} streams found • checking sources ({r+f}/{tot})"
+            left_part = f"{spinner} {found_str} • checking ({r+f}/{tot})"
+            right_part = status_msg or "checking sources..."
+            plain_status = f"{left_part}  │  {right_part}"
+        elif alive and tot == 0:
+            from allmanga_cli.ui.spinner import spinner_frame, spinner_from_config
+            spinner = spinner_frame(spinner_from_config(cfg))
+            plain_status = f"{spinner} Loading sources…"
         else:
-            plain_status = f"✔ {len(mopts)} streams ready • {tot}/{tot} sources checked"
+            sources_checked = tot if tot > 0 else (r + f)
+            src_str = f"{sources_checked} source checked" if sources_checked == 1 else f"{sources_checked} sources checked"
+            if num_found > 0:
+                left_part = f"✔ {found_str} • {src_str}"
+            else:
+                left_part = f"✘ No mirrors found • {src_str}"
+            right_part = "Ctrl+R=refresh  ?=Help  Esc=back"
+            plain_status = f"{left_part}  │  {right_part}"
 
         parts = []
         if ui.ui_show_ctx:
@@ -844,7 +858,7 @@ def handle_mirrors_state(
         if toast and time.time() - toast_time < 3:
             parts.append(f"\033[38;5;222m* {footer(toast)}\033[0m")
         else:
-            parts.append(f"{C_D}{footer(f'{plain_status}  │  ? = Help  Esc=back')}{R}")
+            parts.append(f"{C_D}{footer(plain_status)}{R}")
 
         hdr = "\n".join(parts)
         return mopts, hdr, not alive
@@ -871,7 +885,18 @@ def handle_mirrors_state(
             ui.pref_toast_time = time.time()
         return _mirror_refresh()[:2]
 
-    hd8 = picker_help("Play stream", "Go back", "Go back", "Mark preferred")
+    def _mirror_force_refresh():
+        app_core._clear_streams(cur_key)
+        ep_data = app_core.with_loading(
+            f"Refreshing {ttype.upper()} sources…",
+            app_core.get_episode_data, ms.show_id, ms.current_ep, ttype, provider_id=target_pid
+        )
+        if ep_data:
+            app_core._set_cached_ep_data(ep_data, cur_key)
+            streams.start_bg_resolve(ep_data, set(), ms.show_id, ms.current_ep, ttype, target_pid)
+        return _mirror_refresh()[:2]
+
+    hd8 = picker_help("Play stream", "Go back", "Go back", "Mark preferred", "Force refresh")
     ui.pref_toast = ""
 
     midx = tui_pick(
@@ -880,6 +905,7 @@ def handle_mirrors_state(
         header=init_hdr,
         live_fn=_mirror_refresh,
         tab_fn=_tab_pref,
+        reverse_fn=_mirror_force_refresh,
         info_fn=app_core.make_single_show_info_fn(ui.ui_show_ctx, ui),
         help_dict=hd8
     )
@@ -891,77 +917,3 @@ def handle_mirrors_state(
         return "PLAY"
     else:
         return "ACTION_MENU"
-
-
-def handle_browser_play_state(
-    flags: CliFlags,
-    ui: UiState,
-    ms: MachineState,
-    cfg: dict,
-    args: Any,
-    ttype: str,
-    resolve_tracking_fn,
-) -> str:
-
-    ep_data = app_core.with_loading(
-        f"Loading {ttype.upper()} streams…",
-        app_core.get_episode_data, ms.show_id, ms.current_ep, ttype, provider_id=getattr(args, "provider", None)
-    )
-
-    if not ep_data:
-        app_core.set_action_feedback(ui.ui_show_ctx, "No streams found")
-        return "ACTION_MENU"
-
-    sources = ep_data.get("episode", {}).get("sourceUrls", [])
-    opts = []
-    urls = []
-    for s in sources:
-        url = s.get("sourceUrl") or s.get("link") or s.get("streamUrl")
-        if url:
-            name = s.get("sourceName", "Unknown")
-            opts.append(f"{name} ({url})")
-            urls.append(url)
-
-    if not opts:
-        app_core.set_action_feedback(ui.ui_show_ctx, "No playable streams found")
-        return "ACTION_MENU"
-
-    def _browser_hdr(si):
-        try: w = os.get_terminal_size().columns
-        except OSError: w = 80
-        parts = []
-        ep_str = playback_mod._display_episode_label(ui.ui_show_ctx, ms.current_ep, ttype)
-        app_core.build_info_panel(ui.ui_show_ctx, ttype, w, parts, override_ep_str=ep_str, local_only=getattr(ms, "_is_downloads", False))
-        _t = lambda s: _truncate_display(s, max(1, w - 1))
-        show = ui.ui_show_ctx or {}
-        p_name = (show.get("_provider_name") or show.get("_provider") or "").title()
-        prefix = f"{p_name} • " if p_name else ""
-        parts.append(f"\033[38;5;244m{_t(prefix + 'Enter/Right=select  ? = Help  Left/Esc=back')}\033[0m")
-        return "\n".join(parts)
-
-    idx = tui_pick(
-        flags, ui, "Select link to open in browser", opts, header_fn=_browser_hdr,
-        info_fn=app_core.make_single_show_info_fn(ui.ui_show_ctx, ui)
-    )
-    
-    if idx < 0:
-        return "ACTION_MENU"
-
-    url = urls[idx]
-
-    if app_core.is_termux():
-        import subprocess
-        try:
-            subprocess.run(["termux-open-url", url], check=False)
-            app_core.set_action_feedback(ui.ui_show_ctx, "✔ Opened stream in browser")
-        except Exception:
-            app_core.set_action_feedback(ui.ui_show_ctx, "Couldn’t open browser")
-    else:
-        import webbrowser
-        try:
-            webbrowser.open(url)
-            app_core.set_action_feedback(ui.ui_show_ctx, "✔ Opened stream in browser")
-        except Exception:
-            app_core.set_action_feedback(ui.ui_show_ctx, "Couldn’t open browser")
-
-    return "ACTION_MENU"

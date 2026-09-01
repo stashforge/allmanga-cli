@@ -513,8 +513,6 @@ def main() -> None:
             state = handlers.handle_action_menu_state(flags, ui, ms, cfg, args, cur_ttype, resolveTracking)
         elif state == "MIRRORS":
             state = handlers.handle_mirrors_state(flags, ui, ms, cfg, args, cur_ttype, resolveTracking)
-        elif state == "BROWSER_PLAY":
-            state = handlers.handle_browser_play_state(flags, ui, ms, cfg, args, cur_ttype, resolveTracking)
         else:
             print(f"Unknown state: {state}", file=sys.stderr)
             state = "QUIT"

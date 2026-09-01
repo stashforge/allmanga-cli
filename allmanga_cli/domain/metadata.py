@@ -423,28 +423,29 @@ def prepare_show_display_state(show, ttype="sub", sync_enabled=None):
     else:
         show["_local_progress"] = get_local_progress(show, ttype)
         show["_local_episode_label"] = get_local_episode_label(show, ttype)
-        from allmanga_cli.core.storage import get_history_entry
-        entry = get_history_entry(show, ttype)
-        if entry and isinstance(entry.get("show"), dict):
-            hist_show = entry["show"]
-            for k in (
-                "altNames",
-                "englishName",
-                "nativeName",
-                "status",
-                "episodeCount",
-                "aniListId",
-                "malId",
-                "score",
-                "genres",
-                "_next_airing_ep",
-                "_next_airing_at",
-                "_next_airing_time",
-                "_episode_ids",
-                "_episode_labels",
-            ):
-                if not show.get(k) and hist_show.get(k):
-                    show[k] = hist_show[k]
+        if not show.get("aniListId") and not show.get("_episode_ids"):
+            from allmanga_cli.core.storage import get_history_entry
+            entry = get_history_entry(show, ttype)
+            if entry and isinstance(entry.get("show"), dict):
+                hist_show = entry["show"]
+                for k in (
+                    "altNames",
+                    "englishName",
+                    "nativeName",
+                    "status",
+                    "episodeCount",
+                    "aniListId",
+                    "malId",
+                    "score",
+                    "genres",
+                    "_next_airing_ep",
+                    "_next_airing_at",
+                    "_next_airing_time",
+                    "_episode_ids",
+                    "_episode_labels",
+                ):
+                    if not show.get(k) and hist_show.get(k):
+                        show[k] = hist_show[k]
     if not show.get("_progress_authority"):
         show["_progress_authority"] = "AL" if sync_enabled else "LOCAL"
     return show

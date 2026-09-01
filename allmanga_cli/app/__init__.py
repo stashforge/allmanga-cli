@@ -37,7 +37,6 @@ from .playback import (
     handle_play_state,
     handle_mirrors_state,
     handle_action_menu_state,
-    handle_browser_play_state,
 )
 
 __all__ = [
@@ -55,5 +54,4 @@ __all__ = [
     "handle_play_state",
     "handle_mirrors_state",
     "handle_action_menu_state",
-    "handle_browser_play_state",
 ]

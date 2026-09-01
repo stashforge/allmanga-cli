@@ -62,7 +62,6 @@ def _clear_episode_source_state(ms: "MachineState") -> None:
     ms.ep_cache_key = None
     ms.ep_cache_data = None
     ms.selected_stream = None
-    app_core._clear_streams()
 
 
 def format_mirror_label(stream: dict, *, prefix: str = "", safe_tag: str = "") -> str:

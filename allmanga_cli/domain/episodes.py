@@ -179,12 +179,26 @@ def episode_progress_number(episode_id, fallback=0):
 def highest_episode_number(episode_ids, labels=None):
     if not episode_ids:
         return 0
+    # Fast path: check last element first (ordered episode list)
+    last_eid = episode_ids[-1]
+    lbl = str(labels.get(last_eid, "")) if labels else ""
+    if not lbl and labels:
+        lbl = str(labels.get(str(last_eid), ""))
+    clean_num = clean_episode_identifier(lbl or str(last_eid))
+    try:
+        val = decimal.Decimal(clean_num)
+        if val % 1 == 0:
+            return int(val)
+        return str(val)
+    except decimal.InvalidOperation:
+        pass
+
     max_val = None
     has_numeric = False
     for eid in episode_ids:
         lbl = str(labels.get(eid, "")) if labels else ""
-        if not lbl:
-            lbl = str(labels.get(str(eid), "")) if labels else ""
+        if not lbl and labels:
+            lbl = str(labels.get(str(eid), ""))
         clean_num = clean_episode_identifier(lbl or str(eid))
         try:
             val = decimal.Decimal(clean_num)

@@ -44,7 +44,12 @@ def local_progress(entries, show, translation_type="sub"):
     fallback_entry = None
     for entry in entries:
         entry_show = entry.get("show", {})
-        if not is_same_show(entry_show, show):
+        e_id = str(entry_show.get("_id") or entry_show.get("id") or "")
+        if e_id and e_id == show_id:
+            same = True
+        else:
+            same = is_same_show(entry_show, show)
+        if not same:
             continue
         if entry.get("translation_type", "sub") == translation_type:
             target_entry = entry
@@ -153,11 +158,16 @@ def playback_episode(
 def history_entry_progress(
         entry,
         *,
-        prepare_display_state,
-        get_local_progress):
+        prepare_display_state=None,
+        get_local_progress=None):
     show = entry.get("show", {})
     translation_type = entry.get("translation_type", "sub")
-    prepare_display_state(show, translation_type)
+    if "_local_progress" not in show:
+        show["_local_progress"] = entry.get("episode", 0)
+    if "_local_episode_label" not in show:
+        show["_local_episode_label"] = entry.get("episode", 0)
+    if callable(prepare_display_state):
+        prepare_display_state(show, translation_type)
     label = "LOCAL"
     raw_val = entry.get("episode")
     from .episodes import clean_episode_identifier
@@ -188,12 +198,11 @@ def history_entry_progress(
 def format_history_entry(
         entry,
         *,
-        prepare_display_state,
-        get_local_progress,
+        prepare_display_state=None,
+        get_local_progress=None,
         now=None):
     show = entry.get("show", {})
     translation_type = entry.get("translation_type", "sub")
-    prepare_display_state(show, translation_type)
     name = get_show_display_title(show, "?")
 
     suffix = f" ({translation_type})" if translation_type != "sub" else ""
@@ -243,8 +252,8 @@ def history_full_episode_count(entry):
 def history_entry_category(
         entry,
         *,
-        prepare_display_state,
-        get_local_progress):
+        prepare_display_state=None,
+        get_local_progress=None):
     show = entry.get("show", {})
 
     _, local_progress, _ = history_entry_progress(
@@ -285,8 +294,8 @@ def filter_history_entries(
         history,
         mode,
         *,
-        prepare_display_state,
-        get_local_progress):
+        prepare_display_state=None,
+        get_local_progress=None):
     mode = str(mode or "Active").capitalize()
     if mode == "Up To Date":
         mode = "Up to date"
@@ -298,8 +307,8 @@ def filter_history_entries(
         for entry in history
         if history_entry_category(
             entry,
-            prepare_display_state=prepare_display_state,
-            get_local_progress=get_local_progress,
+            prepare_display_state=None,
+            get_local_progress=None,
         ) == mode
     ]
 

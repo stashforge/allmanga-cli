@@ -369,6 +369,8 @@ HISTORY_SHOW_STRIP_KEYS = ANILIST_HISTORY_STRIP_KEYS | {
     "availableEpisodesDetail",
     "_episode_catalog_state",
     "_allanime_checked_at",
+    "_local_progress",
+    "_local_episode_label",
 }
 
 
@@ -387,6 +389,8 @@ def sanitize_history_list(history):
     for entry in history:
         clean_entry = {**entry, "show": sanitize_show_for_history(entry.get("show"))}
         show = clean_entry["show"]
+        show.pop("_local_progress", None)
+        show.pop("_local_episode_label", None)
         if "_anilist_id" in show:
             if "aniListId" not in show:
                 show["aniListId"] = str(show["_anilist_id"])
@@ -421,11 +425,16 @@ def get_history_entry(show, ttype="sub"):
     if not show_id:
         return None
     from allmanga_cli.domain.matching import is_same_show
-    return next((
-        entry for entry in load_history()
-        if is_same_show(entry.get("show", {}), show)
-        and entry.get("translation_type", "sub") == ttype
-    ), None)
+    for entry in load_history():
+        if entry.get("translation_type", "sub") != ttype:
+            continue
+        entry_show = entry.get("show", {})
+        e_id = str(entry_show.get("_id") or entry_show.get("id") or "")
+        if e_id and e_id == show_id:
+            return entry
+        if is_same_show(entry_show, show):
+            return entry
+    return None
 
 
 def get_local_progress(show, ttype="sub"):
@@ -739,8 +748,6 @@ def filter_history_entries(history, mode):
     return history_domain.filter_history_entries(
         history,
         mode,
-        prepare_display_state=_prepare_display_state,
-        get_local_progress=get_local_progress,
     )
 
 

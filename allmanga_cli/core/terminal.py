@@ -84,12 +84,14 @@ def fit_terminal_line(line, columns):
     return truncate_display(str(line or ""), max(1, int(columns) - 1))
 
 
-def absolute_terminal_frame(lines, rows, columns):
+def absolute_terminal_frame(lines, rows, columns, previous_lines=None):
     """Render exactly one bounded line at each absolute terminal row."""
     frame = []
     bounded_rows = max(1, int(rows))
     for row in range(1, bounded_rows + 1):
         line = lines[row - 1] if row - 1 < len(lines) else ""
+        if previous_lines is not None and row - 1 < len(previous_lines) and previous_lines[row - 1] == line:
+            continue
         frame.append(f"\033[{row};1H\033[2K{fit_terminal_line(line, columns)}")
     return "".join(frame)
 

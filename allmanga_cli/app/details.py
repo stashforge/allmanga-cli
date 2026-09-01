@@ -94,7 +94,7 @@ def handle_details_state(
     sync_enabled = bool((getattr(args, "sync", False) or cfg.get("sync") or cfg.get("auto_track")) and not getattr(args, "no_sync", False) and not flags.incognito_mode)
 
     if has_token and sync_enabled and not from_anilist_context:
-        if _just_entered or not app_core.get_show_anilist_id(s):
+        if not app_core.get_show_anilist_id(s):
             matched = app_core.with_loading(
                 "Finding AniList match…",
                 app_core.match_provider_show_to_anilist,

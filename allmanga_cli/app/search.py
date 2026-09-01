@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 
 from ..domain.episodes import episode_id_at, episode_index_for_id
 from ..domain.titles import get_show_display_title
+from . import playback as playback_mod
 from ..ui.help import picker_help, search_input_help
 from ..ui import picker as _picker_mod
 from ..ui.spinner import spinner_frame, spinner_from_config
@@ -299,6 +300,7 @@ def handle_history_state(
     if hidx == -3:
         return "SEARCH"
     if hidx >= 0:
+        playback_mod._clear_episode_source_state(ms)
         h = filtered_hist[hidx]
         show = h.get("show", {})
         ttype_hist = h.get("translation_type", "sub")

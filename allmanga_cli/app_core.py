@@ -576,10 +576,14 @@ _clear_streams = streams._clear_streams
 _extend_streams = streams._extend_streams
 _stream_snapshot = streams._stream_snapshot
 _stream_count = streams._stream_count
+_prune_dead_stream = streams._prune_dead_stream
+_get_cached_ep_data = streams._get_cached_ep_data
+_set_cached_ep_data = streams._set_cached_ep_data
 _publish_stream = streams._publish_stream
 _generation_is_current = streams._generation_is_current
 _update_bg_stats = streams._update_bg_stats
 start_bg_resolve = streams.start_bg_resolve
+from allmanga_cli.media.sources import ping_stream_liveness, is_stream_valid_fast
 
 from allmanga_cli.playback.engine import (
     _redraw_player,

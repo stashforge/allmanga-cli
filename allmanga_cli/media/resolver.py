@@ -143,6 +143,17 @@ def _extract_mp4upload(url):
 
 
 def resolve_source(source, silent=False):
+    streams = _resolve_source_impl(source, silent=silent)
+    raw_name = str(source.get("sourceName") or "")
+    clean_name = sanitize_terminal_text(raw_name).title()
+    for s in streams or []:
+        if isinstance(s, dict):
+            s.setdefault("source_parent_name", clean_name)
+            s.setdefault("raw_source_name", raw_name)
+    return streams
+
+
+def _resolve_source_impl(source, silent=False):
     name = sanitize_terminal_text(source.get("sourceName", "?")).title()
     name = re.sub(
         r"(?i)\b(mp4|hls|cdn|hd|tv)\b",

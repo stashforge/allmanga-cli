@@ -16,11 +16,13 @@ return ``True`` when the message was consumed (UI visible), ``False`` to
 fall back to plain printing.
 """
 
+import logging
 import sys
 
 from .terminal import sanitize_terminal_text
 from ..context import FLAGS
 
+_logger = logging.getLogger("allmanga_cli.reporting")
 _status_sink = None
 
 
@@ -42,25 +44,25 @@ def _consumed_by_sink(message, color):
 def info(m):
     m = sanitize_terminal_text(m)
     if not _consumed_by_sink(f"[INFO] {m}", "\033[94m"):
-        print(f"\033[94m[INFO]\033[0m {m}")
+        _logger.info("%s", m)
 
 
 def ok(m):
     m = sanitize_terminal_text(m)
     if not _consumed_by_sink(f"[OK] {m}", "\033[92m"):
-        print(f"\033[92m[OK]\033[0m {m}")
+        _logger.info("[OK] %s", m)
 
 
 def warn(m):
     m = sanitize_terminal_text(m)
     if not _consumed_by_sink(f"[WARN] {m}", "\033[93m"):
-        print(f"\033[93m[WARN]\033[0m {m}")
+        _logger.warning("%s", m)
 
 
 def err(m):
     m = sanitize_terminal_text(m)
     if not _consumed_by_sink(f"[ERR] {m}", "\033[91m"):
-        print(f"\033[91m[ERR]\033[0m {m}", file=sys.stderr)
+        _logger.error("%s", m)
 
 
 def debug_warn(context, exc):

@@ -129,25 +129,10 @@ def ensure_episode_ids(show: dict, ttype: str, status_cb: Callable[[str], None] 
         _normalize_episode_ids(show.get("_episode_ids"))
         if cached_ttype == ttype else []
     )
-    cached_state = (
-        str(show.get("_episode_catalog_state") or "")
-        if cached_ttype == ttype else ""
-    )
-    if cached_state == "loaded":
+    if cached_ids:
+        show["_episode_catalog_state"] = "loaded"
         update_available_count_from_episode_ids(show, ttype, cached_ids)
         return cached_ids
-
-    legacy_ids = cached_ids
-    if legacy_ids and not cached_state:
-        cached_state = (
-            "legacy_contiguous"
-            if _is_contiguous_legacy_catalog(legacy_ids)
-            else "loaded"
-        )
-        if cached_state == "loaded":
-            show["_episode_catalog_state"] = "loaded"
-            update_available_count_from_episode_ids(show, ttype, legacy_ids)
-            return legacy_ids
 
     show_id = title_provider_id(show)
     if show_id and str(show_id).startswith("local:"):

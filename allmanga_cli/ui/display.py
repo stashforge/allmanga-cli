@@ -239,11 +239,32 @@ def with_loading(msg, fn, *args, **kwargs):
     except OSError:
         w, h = 80, 24
 
+    from ..core import reporting
+    from ..core.terminal import sanitize_terminal_text
+
     current_msg = [str(msg)]
 
     def set_status(new_msg):
         if new_msg:
             current_msg[0] = str(new_msg)
+
+    def _with_loading_sink(formatted_message, ansi_color):
+        clean_text = sanitize_terminal_text(formatted_message)
+        if clean_text:
+            clean_sub = (
+                clean_text
+                .replace("[INFO] ", "")
+                .replace("[OK] ", "")
+                .replace("[WARN] ", "")
+                .replace("[ERR] ", "")
+                .strip()
+            )
+            if clean_sub:
+                current_msg[0] = f"{msg} ({clean_sub})"
+        return True
+
+    old_sink = reporting._status_sink
+    reporting.set_status_sink(_with_loading_sink)
 
     fd = sys.stdin.fileno()
     old = termios.tcgetattr(fd)
@@ -282,6 +303,7 @@ def with_loading(msg, fn, *args, **kwargs):
             raise result["error"]
         return result.get("value")
     finally:
+        reporting.set_status_sink(old_sink)
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
         termios.tcflush(fd, termios.TCIFLUSH)
         sys.stdout.flush()

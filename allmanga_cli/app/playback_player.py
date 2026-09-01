@@ -26,6 +26,7 @@ from ..playback.rules import (
 from ..providers import title_provider_key
 from ..ui.display import suppress_terminal_echo
 from . import playback as playback_mod
+from ..core import streams as streams_mod
 from .. import app_core
 
 GREEN = "\033[1;32m"
@@ -139,8 +140,6 @@ def handle_play_state(
 
         first_source_name = None
         if ms.selected_stream is None:
-            app_core._clear_streams()
-
             _ipc_player = app_core._ipc_player
             if getattr(ms, "_is_downloads", False):
                 filepath = ms._download_files.get(str(ms.current_ep))
@@ -158,113 +157,173 @@ def handle_play_state(
                     _ipc_player.prefetched_stream = None
                     _ipc_player.prefetched_res = None
                 else:
-                    app_core.info("Finding a playable stream...")
-                    res = app_core.fetch_episode_stream(
-                        ms.show_id,
-                        ms.current_ep,
-                        ttype,
-                        cfg.get("quality", "best"),
-                        provider_id=provider_id,
-                        ep_data=ep_data,
-                    )
+                    cached_streams = app_core._stream_snapshot(ms.show_id, ms.current_ep, ttype, provider_id)
+                    if cached_streams:
+                        pref = app_core.get_preferred_mirror(ms.show_id)
+                        pref_name = pref.get("source_name", "")
+                        pref_res = pref.get("resolution", "")
+                        cur_key = (ms.show_id, ms.current_ep, ttype, provider_id)
+                        target_quality = cfg.get("quality", "best")
+                        
+                        candidates = []
+                        if pref_name:
+                            for s in cached_streams:
+                                if s.get("source_name") == pref_name and s.get("resolution", "?") == pref_res:
+                                    candidates.append(s)
+                                    break
+                        sorted_cached = sorted(cached_streams, key=lambda x: x.get("source_priority", 4))
+                        if target_quality != "best":
+                            for s in sorted_cached:
+                                if target_quality in s.get("resolution", "") and s not in candidates:
+                                    candidates.append(s)
+                        for s in sorted_cached:
+                            if s not in candidates:
+                                candidates.append(s)
+
+                        # Bounded pre-flight check (Max 3 candidate probes)
+                        selected = None
+                        now = time.time()
+                        for cand in candidates[:3]:
+                            validated_at = float(cand.get("validated_at") or 0)
+                            if (now - validated_at) < 30:
+                                selected = cand
+                                break
+                            if app_core.ping_stream_liveness(cand, timeout=0.8):
+                                cand["validated_at"] = now
+                                selected = cand
+                                break
+                            else:
+                                app_core._prune_dead_stream(cur_key, cand.get("link") or cand.get("streamUrl"))
+
+                        if not selected and candidates:
+                            selected = candidates[0]
+                        
+                        if selected:
+                            src_name = selected.get("source_name", "Stream")
+                            res = (selected, src_name, None, cached_streams)
+                            if not ep_data:
+                                ep_data = app_core._get_cached_ep_data(cur_key)
+                            with streams_mod._bg_lock:
+                                bg_alive = bool(streams_mod._bg_thread and streams_mod._bg_thread.is_alive())
+                            if not bg_alive and ep_data:
+                                exclude_names = set()
+                                for s in cached_streams:
+                                    if s.get("source_parent_name"):
+                                        exclude_names.add(s["source_parent_name"])
+                                    if s.get("source_name"):
+                                        exclude_names.add(s["source_name"].split(" (")[0].strip())
+                                sources_total = len(ep_data.get("episode", {}).get("sourceUrls", []))
+                                if len(exclude_names) < sources_total:
+                                    app_core.start_bg_resolve(ep_data, exclude_names, show_id=ms.show_id, ep=ms.current_ep, ttype=ttype, provider_id=provider_id)
+                    else:
+                        app_core.info("Finding a playable stream...")
+                        res = app_core.fetch_episode_stream(
+                            ms.show_id,
+                            ms.current_ep,
+                            ttype,
+                            cfg.get("quality", "best"),
+                            provider_id=provider_id,
+                            ep_data=ep_data,
+                        )
+                        if ep_data:
+                            app_core._set_cached_ep_data(ep_data, (ms.show_id, ms.current_ep, ttype, provider_id))
 
             if res:
-                ms.selected_stream, first_source_name, _, streams = res
-                app_core._extend_streams(streams)
-                if not getattr(args, 'download', False) and not getattr(args, 'print_url', False) and not (args.sources and not ui.initial_sources_prompted):
-                    stream_name = ms.selected_stream.get("source_name", first_source_name or "Stream")
-                    resolution = ms.selected_stream.get("resolution", "")
-                    res_str = f" ({resolution})" if resolution else ""
+                ms.selected_stream, first_source_name, _, resolved_streams = res
+                app_core._extend_streams(resolved_streams, key=(ms.show_id, ms.current_ep, ttype, provider_id))
+        if not getattr(args, 'download', False) and not getattr(args, 'print_url', False) and not (args.sources and not ui.initial_sources_prompted):
+            stream_name = ms.selected_stream.get("source_name", first_source_name or "Stream") if ms.selected_stream else (first_source_name or "Stream")
+            resolution = ms.selected_stream.get("resolution", "") if ms.selected_stream else ""
+            res_str = f" ({resolution})" if resolution else ""
 
-                    aniskip_enabled = getattr(args, "aniskip", None)
-                    if aniskip_enabled is None:
-                        aniskip_enabled = cfg.get("aniskip", cfg.get("aniskip_enabled", True))
+            aniskip_enabled = getattr(args, "aniskip", None)
+            if aniskip_enabled is None:
+                aniskip_enabled = cfg.get("aniskip", cfg.get("aniskip_enabled", True))
 
-                    if aniskip_enabled:
-                        action_show = ui.ui_show_ctx or {}
-                        mal_id = app_core.get_show_mal_id(action_show)
-                        ep_num = episode_progress_number(ms.current_ep)
-                        if mal_id:
-                            from ..media.aniskip import fetch_skip_times
-                            skips = fetch_skip_times(mal_id, ep_num)
-                            if skips:
-                                from ..ui.player_screen import _fmt_time
-                                skip_parts = [f"{s['label']} ({_fmt_time(s['start'])} → {_fmt_time(s['end'])})" for s in skips]
-                                skip_summary = " · ".join(skip_parts)
-                                skip_msg = f"\033[38;5;120m✔ AniSkip: {skip_summary}\033[0m"
-                            else:
-                                skip_msg = f"\033[38;5;244m• AniSkip: No skip times found for EP {ep_num}\033[0m"
-                        else:
-                            skip_msg = "\033[38;5;244m• AniSkip: No MAL ID available for this title\033[0m"
+            if aniskip_enabled:
+                action_show = ui.ui_show_ctx or {}
+                mal_id = app_core.get_show_mal_id(action_show)
+                ep_num = episode_progress_number(ms.current_ep)
+                if mal_id:
+                    from ..media.aniskip import fetch_skip_times
+                    skips = fetch_skip_times(mal_id, ep_num)
+                    if skips:
+                        from ..ui.player_screen import _fmt_time
+                        skip_parts = [f"{s['label']} ({_fmt_time(s['start'])} → {_fmt_time(s['end'])})" for s in skips]
+                        skip_summary = " · ".join(skip_parts)
+                        skip_msg = f"\033[38;5;120m✔ AniSkip: {skip_summary}\033[0m"
+                    else:
+                        skip_msg = f"\033[38;5;244m• AniSkip: No skip times found for EP {ep_num}\033[0m"
+                else:
+                    skip_msg = "\033[38;5;244m• AniSkip: No MAL ID available for this title\033[0m"
 
-                        if skip_msg not in _player_ui_state["status_lines"]:
-                            if _player_ui_state["status_lines"] and _player_ui_state["status_lines"][-1] != "":
-                                _player_ui_state["status_lines"].append("")
-                            _player_ui_state["status_lines"].append(skip_msg)
-                            try:
-                                from ..ui.player_screen import render as _render
-                                _render(poster_manager=getattr(app_core, "_poster_manager", None), ui=ui)
-                            except Exception:
-                                pass
+                if skip_msg not in _player_ui_state["status_lines"]:
+                    if _player_ui_state["status_lines"] and _player_ui_state["status_lines"][-1] != "":
+                        _player_ui_state["status_lines"].append("")
+                    _player_ui_state["status_lines"].append(skip_msg)
+                    try:
+                        from ..ui.player_screen import render as _render
+                        _render(poster_manager=getattr(app_core, "_poster_manager", None), ui=ui)
+                    except Exception:
+                        pass
 
-                    if app_core.is_termux() and aniskip_enabled:
-                        if not cfg.get("aniskip_android_hint_dismissed", False) and not getattr(ui, "aniskip_android_hint_shown", False):
-                            ui.aniskip_android_hint_shown = True
-                            try:
-                                from ..ui.player_screen import stop_loading_ticker
-                                stop_loading_ticker()
-                            except Exception:
-                                pass
+            if app_core.is_termux() and aniskip_enabled:
+                if not cfg.get("aniskip_android_hint_dismissed", False) and not getattr(ui, "aniskip_android_hint_shown", False):
+                    ui.aniskip_android_hint_shown = True
+                    try:
+                        from ..ui.player_screen import stop_loading_ticker
+                        stop_loading_ticker()
+                    except Exception:
+                        pass
 
-                            sys.stdout.write("\033[?1049h\033[2J\033[H\033[?25h")
-                            sys.stdout.flush()
+                    sys.stdout.write("\033[?1049h\033[2J\033[H\033[?25h")
+                    sys.stdout.flush()
 
-                            orig_termios = None
-                            try:
-                                if sys.stdin.isatty():
-                                    import termios
-                                    orig_termios = termios.tcgetattr(sys.stdin.fileno())
-                                    from ..ui.display import _INITIAL_TERMIOS_ATTRS
-                                    if _INITIAL_TERMIOS_ATTRS is not None:
-                                        termios.tcflush(sys.stdin.fileno(), termios.TCIFLUSH)
-                                        termios.tcsetattr(sys.stdin.fileno(), termios.TCSANOW, _INITIAL_TERMIOS_ATTRS)
-                            except Exception:
-                                pass
+                    orig_termios = None
+                    try:
+                        if sys.stdin.isatty():
+                            import termios
+                            orig_termios = termios.tcgetattr(sys.stdin.fileno())
+                            from ..ui.display import _INITIAL_TERMIOS_ATTRS
+                            if _INITIAL_TERMIOS_ATTRS is not None:
+                                termios.tcflush(sys.stdin.fileno(), termios.TCIFLUSH)
+                                termios.tcsetattr(sys.stdin.fileno(), termios.TCSANOW, _INITIAL_TERMIOS_ATTRS)
+                    except Exception:
+                        pass
 
-                            print("\033[1;36mAniSkip on Android (MPV)\033[0m\n")
-                            print("  \033[38;5;250m• Auto-skip is not supported via Android intents.\033[0m")
-                            print("  \033[38;5;250m• To view chapter marks on the seekbar, add this line to /storage/emulated/0/Mpv/mpv.conf:\033[0m")
-                            print("    \033[1;33mchapters-file=/storage/emulated/0/Mpv/chapters.txt\033[0m\n")
+                    print("\033[1;36mAniSkip on Android (MPV)\033[0m\n")
+                    print("  \033[38;5;250m• Auto-skip is not supported via Android intents.\033[0m")
+                    print("  \033[38;5;250m• To view chapter marks on the seekbar, add this line to /storage/emulated/0/Mpv/mpv.conf:\033[0m")
+                    print("    \033[1;33mchapters-file=/storage/emulated/0/Mpv/chapters.txt\033[0m\n")
 
-                            try:
-                                choice = input("\033[1;97m[y = Don't show again, n = Disable AniSkip, s = Skip for now] (s): \033[0m").strip().lower()
-                            except (EOFError, KeyboardInterrupt):
-                                choice = "s"
+                    try:
+                        choice = input("\033[1;97m[y = Don't show again, n = Disable AniSkip, s = Skip for now] (s): \033[0m").strip().lower()
+                    except (EOFError, KeyboardInterrupt):
+                        choice = "s"
 
-                            if choice in ("y", "yes"):
-                                cfg["aniskip_android_hint_dismissed"] = True
-                                app_core.save_config(cfg)
-                            elif choice in ("n", "no"):
-                                cfg["aniskip"] = False
-                                cfg["aniskip_enabled"] = False
-                                aniskip_enabled = False
-                                app_core.save_config(cfg)
+                    if choice in ("y", "yes"):
+                        cfg["aniskip_android_hint_dismissed"] = True
+                        app_core.save_config(cfg)
+                    elif choice in ("n", "no"):
+                        cfg["aniskip"] = False
+                        cfg["aniskip_enabled"] = False
+                        aniskip_enabled = False
+                        app_core.save_config(cfg)
 
+                    try:
+                        if sys.stdin.isatty() and orig_termios is not None:
+                            import termios
+                            termios.tcsetattr(sys.stdin.fileno(), termios.TCSANOW, orig_termios)
+                    except Exception:
+                        pass
 
-                            try:
-                                if sys.stdin.isatty() and orig_termios is not None:
-                                    import termios
-                                    termios.tcsetattr(sys.stdin.fileno(), termios.TCSANOW, orig_termios)
-                            except Exception:
-                                pass
-
-                            sys.stdout.write("\033[2J\033[H\033[?25l")
-                            sys.stdout.flush()
-                            try:
-                                from ..ui.player_screen import render as _render
-                                _render(poster_manager=getattr(app_core, "_poster_manager", None), ui=ui)
-                            except Exception:
-                                pass
+                    sys.stdout.write("\033[2J\033[H\033[?25l")
+                    sys.stdout.flush()
+                    try:
+                        from ..ui.player_screen import render as _render
+                        _render(poster_manager=getattr(app_core, "_poster_manager", None), ui=ui)
+                    except Exception:
+                        pass
 
                     if not is_download_mode:
                         for sec in (3, 2, 1):
@@ -281,7 +340,7 @@ def handle_play_state(
         if args.sources and not ui.initial_sources_prompted:
             ui.initial_sources_prompted = True
             if first_source_name is not None:
-                app_core.start_bg_resolve(ep_data, {first_source_name})
+                app_core.start_bg_resolve(ep_data, {first_source_name}, show_id=ms.show_id, ep=ms.current_ep, ttype=ttype, provider_id=provider_id)
             app_core._exit_player_screen()
             return "MIRRORS"
 
@@ -477,7 +536,7 @@ def handle_play_state(
 
         if first_source_name is not None:
             exclude = {first_source_name}
-            app_core.start_bg_resolve(ep_data, exclude)
+            app_core.start_bg_resolve(ep_data, exclude, show_id=ms.show_id, ep=ms.current_ep, ttype=ttype, provider_id=provider_id)
 
         if result == "NEXT" and ms.current_ep_index + 1 < ms.total_eps:
             ms.current_ep_index += 1
@@ -499,7 +558,7 @@ def handle_play_state(
     else:
         if first_source_name is not None:
             exclude = {first_source_name}
-            app_core.start_bg_resolve(ep_data, exclude)
+            app_core.start_bg_resolve(ep_data, exclude, show_id=ms.show_id, ep=ms.current_ep, ttype=ttype, provider_id=provider_id)
 
         next_episode = episode_id_at(episode_ids, ms.current_ep_index + 1) if ms.current_ep_index + 1 < ms.total_eps else None
 

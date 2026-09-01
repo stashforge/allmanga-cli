@@ -57,3 +57,201 @@ def source_priority(source):
         return source["priority"]
 
     return 8
+
+
+HOST_SOFT_TTL_TABLE = {
+    "megaplay": 1800,      # 30m
+    "faststream": 1800,    # 30m
+    "anidbapp": 1800,      # 30m
+    "animedao": 1200,      # 20m
+    "gogo": 1800,          # 30m
+    "allanime": 1200,      # 20m
+    "mp4upload": 600,      # 10m
+    "doodstream": 600,     # 10m
+    "dood": 600,           # 10m
+    "streamtape": 600,     # 10m
+    "okru": 300,           # 5m
+    "ok.ru": 300,          # 5m
+    "default": 1800,       # 30m comfortable default
+}
+
+HOST_TTL_TABLE = HOST_SOFT_TTL_TABLE
+
+
+def extract_hard_token_expiry(stream_url: str) -> float | None:
+    """Extract explicit unix expiration timestamp from URL query params if present."""
+    if not stream_url or ("?" not in stream_url and "&" not in stream_url):
+        return None
+    import urllib.parse
+    try:
+        parsed = urllib.parse.urlparse(stream_url)
+        params = urllib.parse.parse_qs(parsed.query)
+        for k in ("expires", "exp", "token_expiry", "validuntil"):
+            if k in params and params[k]:
+                val = int(params[k][0])
+                if val > 1_600_000_000:
+                    return float(val)
+    except Exception:
+        pass
+    return None
+
+
+def get_stream_soft_ttl(source_name: str = "", stream_url: str = "") -> int:
+    """Determine the soft TTL in seconds for a given host."""
+    combined = f"{source_name} {stream_url}".lower()
+    for host_key, ttl in HOST_SOFT_TTL_TABLE.items():
+        if host_key != "default" and host_key in combined:
+            return ttl
+    return HOST_SOFT_TTL_TABLE["default"]
+
+
+def get_stream_ttl_seconds(source_name: str = "", stream_url: str = "") -> int:
+    hard = extract_hard_token_expiry(stream_url)
+    if hard is not None:
+        import time
+        rem = hard - time.time()
+        return max(300, int(rem))
+    return get_stream_soft_ttl(source_name, stream_url)
+
+
+def calculate_stream_expiry(stream: dict, resolved_at: float | None = None) -> float:
+    """Calculate the absolute timestamp when this stream expires."""
+    import time
+    base_time = resolved_at if resolved_at is not None else time.time()
+    sname = str(stream.get("source_name") or stream.get("sourceName") or "")
+    surl = str(stream.get("link") or stream.get("streamUrl") or stream.get("sourceUrl") or "")
+    hard = extract_hard_token_expiry(surl)
+    if hard is not None:
+        return hard
+    ttl = get_stream_soft_ttl(sname, surl)
+    return base_time + ttl
+
+
+def ping_stream_liveness(stream: dict, timeout: float = 1.5) -> bool:
+    """
+    Fast heuristic probe to verify if a stream URL is reachable.
+    - 2xx: alive
+    - 3xx: alive if redirect resolves
+    - 4xx: dead
+    - 5xx / timeout: transient (treated as alive / not destroyed)
+    """
+    if not isinstance(stream, dict):
+        return False
+    url = stream.get("link") or stream.get("streamUrl") or stream.get("sourceUrl")
+    if not url:
+        return False
+    if url.startswith("file://") or url.startswith("/"):
+        return True
+
+    headers = dict(stream.get("headers") or stream.get("http_headers") or {})
+    if "User-Agent" not in headers and "user-agent" not in headers:
+        headers["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    referer = stream.get("referer") or headers.get("Referer") or headers.get("referer")
+    if referer and "Referer" not in headers:
+        headers["Referer"] = referer
+
+    try:
+        import requests
+        r = requests.head(url, headers=headers, timeout=timeout, allow_redirects=True)
+        if r.status_code in (200, 206):
+            return True
+        if r.status_code in (301, 302, 307, 308):
+            return True
+        if r.status_code == 405:
+            r_get = requests.get(url, headers={**headers, "Range": "bytes=0-100"}, timeout=timeout, stream=True)
+            if r_get.status_code in (200, 206, 301, 302, 307, 308):
+                return True
+            if 400 <= r_get.status_code < 500:
+                return False
+            return True
+        if 400 <= r.status_code < 500:
+            return False
+        # 5xx or server hiccups: treat as transient
+        return True
+    except Exception:
+        # Timeout or network glitch: transient, don't kill immediately
+        return True
+
+
+def check_stream_health_and_refresh(stream: dict, now: float | None = None) -> bool:
+    """
+    Evaluate stream health using the 3-tier precedence:
+    1. Explicit CDN Token Expiry (expires_at):
+       - If now >= expires_at: hard expired -> Return False (prune).
+    2. Soft TTL Window (validated_at):
+       - If now - validated_at < soft_ttl (30m): within fresh window -> Return True (keep).
+    3. Stale Revalidation (now - validated_at >= soft_ttl):
+       - Heuristic probe using exact stream headers.
+       - If alive: update validated_at = now (+30m renewal, expires_at unchanged) -> Return True.
+       - If confirmed dead (4xx): -> Return False (prune).
+       - If transient (5xx / timeout): -> Return True (preserve stale mirror).
+    """
+    if not isinstance(stream, dict):
+        return False
+    import time
+    current_time = now if now is not None else time.time()
+    url = str(stream.get("link") or stream.get("streamUrl") or stream.get("sourceUrl") or "")
+    if not url:
+        return False
+    if url.startswith("file://") or url.startswith("/"):
+        return True
+
+    # Stash structured timestamps
+    if "created_at" not in stream:
+        stream["created_at"] = stream.get("resolved_at") or current_time
+    if "validated_at" not in stream:
+        stream["validated_at"] = stream.get("resolved_at") or current_time
+
+    # 1. Hard Token Expiry Check (Strict CDN Precedence)
+    hard_expiry = stream.get("expires_at")
+    if hard_expiry is None:
+        hard_expiry = extract_hard_token_expiry(url)
+        if hard_expiry is not None:
+            stream["expires_at"] = hard_expiry
+
+    if hard_expiry is not None and current_time >= float(hard_expiry):
+        return False
+
+    # 2. Soft TTL Window Check
+    validated_at = float(stream.get("validated_at") or current_time)
+    sname = str(stream.get("source_name") or stream.get("sourceName") or "")
+    soft_ttl = get_stream_soft_ttl(sname, url)
+
+    if (current_time - validated_at) < soft_ttl:
+        return True
+
+    # 3. Stale Revalidation Probe
+    if ping_stream_liveness(stream, timeout=1.5):
+        stream["validated_at"] = current_time
+        return True
+
+    return False
+
+
+def is_stream_valid_fast(stream: dict, now: float | None = None) -> bool:
+    """Instant in-memory validation check (strictly zero network I/O)."""
+    if not isinstance(stream, dict):
+        return False
+    import time
+    current_time = now if now is not None else time.time()
+    url = str(stream.get("link") or stream.get("streamUrl") or stream.get("sourceUrl") or "")
+    if not url:
+        return False
+    if url.startswith("file://") or url.startswith("/"):
+        return True
+
+    # Check explicit CDN hard expiry
+    hard_expiry = stream.get("expires_at")
+    if hard_expiry is None:
+        hard_expiry = extract_hard_token_expiry(url)
+        if hard_expiry is not None:
+            stream["expires_at"] = hard_expiry
+
+    if hard_expiry is not None and current_time >= float(hard_expiry):
+        return False
+
+    return True
+
+
+def is_stream_valid(stream: dict, now: float | None = None) -> bool:
+    return is_stream_valid_fast(stream, now)

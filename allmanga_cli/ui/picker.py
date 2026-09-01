@@ -206,8 +206,11 @@ def tui_pick(
     boundary_hint = ""
     boundary_hint_time = 0.0
     boundary_action = ""
-    last_rendered_buf = ""
+    last_rendered_lines: list[str] = []
+    picker_start_time = time.time()
     last_key_time = time.time()
+    last_typing_time = 0.0
+    last_cursor_phase = (True, True)
     disabled_indices = set(disabled_indices or ())
     marked_indices: set[int] = set()
 
@@ -250,7 +253,7 @@ def tui_pick(
         return selectable[(current_pos + delta) % len(selectable)]
 
     def render(filt):
-        nonlocal scroll, last_poster_key
+        nonlocal scroll, last_poster_key, last_rendered_lines
 
         try:
             sz = os.get_terminal_size(tty_fd)
@@ -408,13 +411,27 @@ def tui_pick(
                         break
             out.append(f"\033[2K{_fit_terminal_line(f'{ptr} {label}{hint}', cols)}")
 
-        prompt_row = len(out) + 1
-        prefix_str = f"{current_prompt()} \u276f "
-        prefix_w = _display_width(prefix_str)
-        query_left_w = _display_width(query[:cursor_pos])
-        cursor_col = prefix_w + query_left_w + 1
+        # Rendered Block Cursor: Teal block background (\033[48;2;137;220;235;38;2;30;30;46m)
+        _C_BLOCK_BG = "\033[48;2;137;220;235;38;2;30;30;46m"
+        now = time.time()
+        cursor_active = bool(query) or (now - picker_start_time < 2.0) or (now - last_typing_time < 2.0)
+        blink_on = True if (now - last_typing_time < 0.4) else (int(now * 1.8) % 2 == 0)
 
-        pstr = f"{_C_PROMPT}{current_prompt()} \u276f{_RST} {_C_QUERY}{query}{_RST}"
+        if cursor_pos < len(query):
+            before = query[:cursor_pos]
+            ch = query[cursor_pos]
+            after = query[cursor_pos + 1:]
+            if cursor_active and blink_on:
+                query_disp = f"{_C_QUERY}{before}{_C_BLOCK_BG}{ch}{_RST}{_C_QUERY}{after}{_RST}"
+            else:
+                query_disp = f"{_C_QUERY}{before}{ch}{after}{_RST}"
+        else:
+            if cursor_active and blink_on:
+                query_disp = f"{_C_QUERY}{query}{_RST}{_C_BLOCK_BG} {_RST}"
+            else:
+                query_disp = f"{_C_QUERY}{query}{_RST} "
+
+        pstr = f"{_C_PROMPT}{current_prompt()} \u276f{_RST} {query_disp}"
 
         if hide_separator or len(options) == 0:
             out.append(f"\033[2K{_fit_terminal_line(pstr, cols)}")
@@ -459,18 +476,15 @@ def tui_pick(
         if poster_changed and native_poster and poster_row is not None:
             terminal_images.mark_active()
             overlay = f"\033[{poster_row};1H{native_poster}"
-        frame = _absolute_terminal_frame(out, rows, cols)
-        cursor_goto = f"\033]12;#89dceb\007\033[?12h\033[5 q\033[{prompt_row};{cursor_col}H\033[?25h"
-        buf = (
-            f"{clear_prefix}\033[?25l"
-            + frame
-            + overlay
-            + cursor_goto
-        )
 
-        nonlocal last_rendered_buf
-        if buf != last_rendered_buf:
-            last_rendered_buf = buf
+        # Differential write: only send ANSI escape sequences for rows that actually changed
+        prev_lines = None if (clear_prefix or poster_changed) else last_rendered_lines
+        frame = _absolute_terminal_frame(out, rows, cols, previous_lines=prev_lines)
+        last_rendered_lines = list(out)
+
+        if frame or clear_prefix or overlay:
+            # Park hidden hardware cursor at bottom-right so it never renders under graphics
+            buf = f"{clear_prefix}\033[?25l{frame}{overlay}\033[{rows};{cols}H\033[?25l"
             tty_file.write(buf.encode())
             tty_file.flush()
 
@@ -545,6 +559,13 @@ def tui_pick(
                 sel = first_selectable(filt)
 
             now = time.time()
+            cursor_active = bool(query) or (now - picker_start_time < 2.0) or (now - last_typing_time < 2.0)
+            blink_phase = (int(now * 1.8) % 2 == 0) if cursor_active else False
+            cur_phase = (cursor_active, blink_phase)
+            if cur_phase != last_cursor_phase:
+                last_cursor_phase = cur_phase
+                _needs_redraw = True
+
             if tick_fn is not None and tick_fn() and now - last_poster_tick >= 0.1:
                 last_poster_tick = now
                 _needs_redraw = True
@@ -737,6 +758,7 @@ def tui_pick(
 
             elif key == "BACKSPACE":
                 boundary_hint = ""; boundary_action = ""
+                last_typing_time = time.time()
                 if cursor_pos > 0:
                     query = query[:cursor_pos - 1] + query[cursor_pos:]
                     cursor_pos -= 1
@@ -744,6 +766,7 @@ def tui_pick(
 
             elif key == "CTRL_U":
                 boundary_hint = ""; boundary_action = ""
+                last_typing_time = time.time()
                 query = ""; filt = filt_list(); sel = first_selectable(filt); scroll = 0
                 cursor_pos = 0
             elif key in ("TAB", "CTRL_N"):
@@ -834,6 +857,7 @@ def tui_pick(
             elif key != "UNKNOWN":
                 boundary_hint = ""; boundary_action = ""
                 if len(key) == 1 and key.isprintable():
+                    last_typing_time = time.time()
                     query = query[:cursor_pos] + key + query[cursor_pos:]
                     cursor_pos += 1
                     filt = filt_list(); sel = first_selectable(filt); scroll = 0
