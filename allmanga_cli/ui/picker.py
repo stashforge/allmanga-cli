@@ -597,7 +597,6 @@ def tui_pick(
                 continue
 
             key = _get_key(tty_fd)
-            termios.tcflush(tty_fd, termios.TCIFLUSH)
             last_key_time = time.time()
             _needs_redraw = True
 

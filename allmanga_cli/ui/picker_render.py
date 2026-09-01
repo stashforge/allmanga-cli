@@ -20,7 +20,7 @@ def loading_frame(style=None):
 def get_key(descriptor):
     char = os.read(descriptor, 1)
     if char == b"\x1b":
-        if select.select([descriptor], [], [], 0.2)[0]:
+        if select.select([descriptor], [], [], 0.025)[0]:
             second = os.read(descriptor, 1)
             if second in (b"[", b"O"):
                 third = os.read(descriptor, 1)
