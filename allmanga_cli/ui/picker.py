@@ -201,6 +201,7 @@ def tui_pick(
     show_help   = False
     last_poster_tick = 0
     last_poster_key  = None
+    last_clock_minute = int(time.time() // 60)
     pending_delete_index = None
     boundary_hint = ""
     boundary_hint_time = 0.0
