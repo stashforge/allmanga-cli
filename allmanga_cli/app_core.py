@@ -363,7 +363,10 @@ sanitize_history_list = storage.sanitize_history_list
 write_history_progress = storage.write_history_progress
 set_last_synced_progress = storage.set_last_synced_progress
 
-from allmanga_cli.domain.metadata import prepare_show_display_state
+from allmanga_cli.domain.metadata import (
+    prepare_show_display_state,
+    batch_prepare_shows_display_state,
+)
 
 get_resume_time = storage.get_resume_time
 load_resume_time = storage.get_resume_time

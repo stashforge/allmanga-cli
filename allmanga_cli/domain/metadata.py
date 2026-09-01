@@ -451,6 +451,95 @@ def prepare_show_display_state(show, ttype="sub", sync_enabled=None):
     return show
 
 
+def batch_prepare_shows_display_state(shows, ttype="sub"):
+    """Pre-warm cheap metadata and watch progress for a list of shows in a single in-memory pass."""
+    if not shows:
+        return shows
+    from allmanga_cli.context import FLAGS as runtime_flags
+    from allmanga_cli.core.storage import load_history, load_prefs
+    from allmanga_cli.domain.matching import is_same_show
+    from allmanga_cli.state import preferences as preference_state
+
+    if runtime_flags.incognito_mode:
+        for s in shows:
+            if isinstance(s, dict):
+                prepare_show_display_state(s, ttype)
+        return shows
+
+    try:
+        history_list = load_history()
+    except Exception:
+        history_list = []
+
+    try:
+        prefs = load_prefs()
+    except Exception:
+        prefs = {}
+
+    for show in shows:
+        if not isinstance(show, dict):
+            continue
+        if "_local_progress" in show:
+            continue
+
+        raw_anilist_show = bool(
+            show.get("_anilist_list")
+            and not show.get("_allanime_name")
+            and not show.get("aniListId")
+        )
+        if raw_anilist_show:
+            show["aniListId"] = str(show.get("_id"))
+
+        if runtime_flags.sync_force_off:
+            sync_enabled = False
+        elif raw_anilist_show or (runtime_flags.sync_force_on and show.get("aniListId")):
+            sync_enabled = True
+        else:
+            sync_pref = preference_state.title_sync_preference(prefs, show)
+            sync_enabled = sync_pref is True
+        show["_sync_enabled"] = bool(sync_enabled)
+
+        if "watched_episodes" in show:
+            watched_count = len(show["watched_episodes"])
+            show["_local_progress"] = watched_count
+            if watched_count > 0:
+                def safe_num(x):
+                    try: return float(x)
+                    except ValueError: return -1
+                show["_local_episode_label"] = max(show["watched_episodes"], key=safe_num)
+            else:
+                show["_local_episode_label"] = "0"
+        else:
+            matched_entry = None
+            for entry in history_list:
+                entry_show = entry.get("show")
+                if is_same_show(entry_show, show):
+                    matched_entry = entry
+                    break
+
+            if matched_entry:
+                ep_val = str(matched_entry.get("episode") or "0")
+                show["_local_progress"] = 1 if ep_val != "0" else 0
+                show["_local_episode_label"] = ep_val
+                hist_show = matched_entry.get("show") or {}
+                if not show.get("aniListId") and not show.get("_episode_ids"):
+                    for k in (
+                        "altNames", "englishName", "nativeName", "status", "episodeCount",
+                        "aniListId", "malId", "score", "genres", "_next_airing_ep",
+                        "_next_airing_at", "_next_airing_time", "_episode_ids", "_episode_labels"
+                    ):
+                        if not show.get(k) and hist_show.get(k):
+                            show[k] = hist_show[k]
+            else:
+                show["_local_progress"] = 0
+                show["_local_episode_label"] = "0"
+
+        if not show.get("_progress_authority"):
+            show["_progress_authority"] = "AL" if sync_enabled else "LOCAL"
+
+    return shows
+
+
 def apply_provider_metadata_to_history_show(show, provider_show):
     changed = False
 

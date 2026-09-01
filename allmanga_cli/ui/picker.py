@@ -478,7 +478,7 @@ def tui_pick(
             overlay = f"\033[{poster_row};1H{native_poster}"
 
         # Differential write: only send ANSI escape sequences for rows that actually changed
-        prev_lines = None if (clear_prefix or poster_changed) else last_rendered_lines
+        prev_lines = last_rendered_lines
         frame = _absolute_terminal_frame(out, rows, cols, previous_lines=prev_lines)
         last_rendered_lines = list(out)
 
@@ -531,7 +531,7 @@ def tui_pick(
                 new_opts, new_hdr, _done = live_fn(query)
                 was_done = live_done
                 live_done = bool(_done)
-                if not was_done and live_done and initial_query and query == initial_query:
+                if (new_opts or live_done) and initial_query and query == initial_query:
                     query = ""
                     cursor_pos = 0
                 if new_opts != options:
@@ -547,6 +547,8 @@ def tui_pick(
                     _needs_redraw = True
 
                 if _done and auto_select_single_when_done and len(options) == 1:
+                    render(filt)
+                    time.sleep(0.05)
                     result = 0
                     break
 
@@ -842,6 +844,7 @@ def tui_pick(
                 if info_fn is not None and filt and sel < len(filt) and filt[sel] not in disabled_indices:
                     info_fn(filt[sel])
                     last_poster_key = None
+                    last_rendered_lines = None
                     _needs_redraw = True
             elif key == " " and multi_select:
                 boundary_hint = ""; boundary_action = ""

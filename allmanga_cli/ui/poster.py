@@ -149,7 +149,7 @@ class PosterManager:
             self.set_status(show, "failed")
             return ""
 
-        # Search existing covers across all read directories (incognito temp first, then main cache)
+        # Search existing ANSI covers across all read directories (incognito temp first, then main cache)
         for r_dir in self.read_cache_dirs():
             cached_ansi = os.path.join(r_dir, f"{url_hash}.ansi")
             if os.path.exists(cached_ansi):
@@ -157,35 +157,6 @@ class PosterManager:
                     with open(cached_ansi, "r", encoding="utf-8") as f:
                         raw = f.read()
                     if raw.strip():
-                        with self.poster_lock:
-                            self._raw_cache[url_hash] = raw
-                            show["_poster_raw"] = raw
-                            show["_poster_status"] = "ready"
-                            show["_poster_status_time"] = time.time()
-                        return raw
-                except Exception:
-                    pass
-
-            cached_path = os.path.join(r_dir, f"{url_hash}.jpg")
-            if os.path.exists(cached_path):
-                try:
-                    os.utime(cached_path, None)
-                except Exception:
-                    pass
-                try:
-                    process = subprocess.run(
-                        chafa_cover_command(cached_path),
-                        capture_output=True,
-                        text=True,
-                        timeout=10,
-                    )
-                    if process.returncode == 0 and process.stdout.strip():
-                        raw = process.stdout.rstrip("\n")
-                        try:
-                            with open(cached_ansi, "w", encoding="utf-8") as f:
-                                f.write(raw)
-                        except Exception:
-                            pass
                         with self.poster_lock:
                             self._raw_cache[url_hash] = raw
                             show["_poster_raw"] = raw
@@ -207,60 +178,72 @@ class PosterManager:
         return ""
 
     def _download(self, show, url, url_hash, cache_dir, cached_path):
-        time.sleep(0.15)
+        time.sleep(0.50)
         hovered = self.hovered_show_id()
         target_id = show.get("_id") or show.get("id") or show.get("title") or show.get("name")
         if hovered and target_id and str(hovered) != str(target_id):
             self._unmark_download(url_hash)
             return
 
+        # Check if jpg already exists in any read cache dir
+        existing_jpg = None
+        for r_dir in self.read_cache_dirs():
+            p = os.path.join(r_dir, f"{url_hash}.jpg")
+            if os.path.exists(p):
+                existing_jpg = p
+                break
+
         temporary_path = None
         try:
-            os.makedirs(cache_dir, exist_ok=True)
-            image_data = fetch_cover_bytes(url)
-            descriptor, temporary_path = tempfile.mkstemp(
-                suffix=".jpg",
-                prefix="allmanga_tmp_",
-            )
-            with os.fdopen(descriptor, "wb") as temporary:
-                temporary.write(image_data)
+            render_src_jpg = existing_jpg
+            if not render_src_jpg:
+                os.makedirs(cache_dir, exist_ok=True)
+                image_data = fetch_cover_bytes(url)
+                descriptor, temporary_path = tempfile.mkstemp(
+                    suffix=".jpg",
+                    prefix="allmanga_tmp_",
+                )
+                with os.fdopen(descriptor, "wb") as temporary:
+                    temporary.write(image_data)
 
-            if shutil.which("magick"):
-                converted = subprocess.run(
-                    [
-                        "magick",
-                        temporary_path,
-                        "-resize",
-                        "400x600",
-                        cached_path,
-                    ],
-                    capture_output=True,
-                    timeout=10,
-                )
-                if converted.returncode != 0:
-                    raise RuntimeError("ImageMagick could not decode cover")
-            elif shutil.which("ffmpeg"):
-                converted = subprocess.run(
-                    [
-                        "ffmpeg",
-                        "-y",
-                        "-i",
-                        temporary_path,
-                        "-vf",
-                        "scale=400:-1",
-                        cached_path,
-                    ],
-                    capture_output=True,
-                    timeout=10,
-                )
-                if converted.returncode != 0:
-                    raise RuntimeError("ffmpeg could not decode cover")
-            else:
-                shutil.copy2(temporary_path, cached_path)
+                if shutil.which("magick"):
+                    converted = subprocess.run(
+                        [
+                            "magick",
+                            temporary_path,
+                            "-resize",
+                            "400x600",
+                            cached_path,
+                        ],
+                        capture_output=True,
+                        timeout=10,
+                    )
+                    if converted.returncode != 0:
+                        raise RuntimeError("ImageMagick could not decode cover")
+                elif shutil.which("ffmpeg"):
+                    converted = subprocess.run(
+                        [
+                            "ffmpeg",
+                            "-y",
+                            "-i",
+                            temporary_path,
+                            "-vf",
+                            "scale=400:-1",
+                            cached_path,
+                        ],
+                        capture_output=True,
+                        timeout=10,
+                    )
+                    if converted.returncode != 0:
+                        raise RuntimeError("ffmpeg could not decode cover")
+                else:
+                    shutil.copy2(temporary_path, cached_path)
+
+                render_src_jpg = cached_path
 
             enforce_cache_limits(cache_dir)
             process = subprocess.run(
-                chafa_cover_command(cached_path),
+                chafa_cover_command(render_src_jpg),
                 capture_output=True,
                 text=True,
                 timeout=10,
