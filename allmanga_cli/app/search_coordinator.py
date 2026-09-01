@@ -51,8 +51,10 @@ def make_provider_oneshot_search(query: str, ttype: str, provider_id: str | None
             
         return live_fn, get_results, get_loading, get_error
 
+    enriching = False
+
     def _fetch():
-        nonlocal loading, results, error
+        nonlocal loading, enriching, results, error
         try:
             shows = None
             al_shows = None
@@ -81,14 +83,27 @@ def make_provider_oneshot_search(query: str, ttype: str, provider_id: str | None
             for t in threads: t.join()
 
             if shows:
-                shows = enrich_provider_results(shows, token, al_shows)
-
-            if shows:
-                for s in shows:
-                    if s.get("status") == "NOT_YET_RELEASED":
-                        continue
-                    results.append(s)
+                from ..core.enrichment import enrich_provider_results_fast, enrich_provider_results_background
+                shows, unmatched = enrich_provider_results_fast(shows, al_shows)
+                prepared = [s for s in shows if s.get("status") != "NOT_YET_RELEASED"]
+                import allmanga_cli.app_core as app_core
+                app_core.batch_prepare_shows_display_state(prepared, ttype)
+                results.extend(prepared)
                 _provider_search_cache[cache_key] = list(results)
+
+                if unmatched:
+                    enriching = True
+                    from ..ui import picker as _picker_mod
+                    def _bg_worker():
+                        nonlocal enriching
+                        try:
+                            def _on_bg_updated():
+                                _picker_mod._needs_redraw = True
+                            enrich_provider_results_background(unmatched, token, _on_bg_updated)
+                        finally:
+                            enriching = False
+                            _picker_mod._needs_redraw = True
+                    threading.Thread(target=_bg_worker, daemon=True).start()
 
         except Exception as e:
             if not error:
@@ -106,12 +121,13 @@ def make_provider_oneshot_search(query: str, ttype: str, provider_id: str | None
         return results
 
     def get_loading():
-        if loading:
-            try: w = os.get_terminal_size().columns
-            except OSError: w = 80
+        try: w = os.get_terminal_size().columns
+        except OSError: w = 80
 
-            msg = "Searching…"
-            return _loading_line(msg, w, spinner_style)
+        if loading:
+            return _loading_line("Searching…", w, spinner_style)
+        if enriching:
+            return _loading_line("Enriching metadata…", w, spinner_style)
         return ""
 
     def get_error():
@@ -119,7 +135,7 @@ def make_provider_oneshot_search(query: str, ttype: str, provider_id: str | None
 
     def live_fn(q=""):
         opts = [f"{s.get('name')}" for s in results]
-        return opts, get_loading(), not loading
+        return opts, get_loading(), (not loading and not enriching)
 
     return live_fn, get_results, get_loading, get_error
 
@@ -139,7 +155,9 @@ def make_anilist_oneshot_search(token: str, initial_query: str):
         try:
             res = search_anilist(token, initial_query, raise_errors=True)
             if res:
-                results = res
+                import allmanga_cli.app_core as app_core
+                app_core.batch_prepare_shows_display_state(res, "sub")
+                results.extend(res)
         except SearchFailure as exc:
             error = str(exc)
         finally:

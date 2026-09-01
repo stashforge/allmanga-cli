@@ -62,51 +62,43 @@ def _merge_anilist_into_provider(provider_show, anilist_show):
 
     return provider_show
 
-def enrich_provider_results(results, token, fuzzy_anilist_results=None):
+def enrich_provider_results_fast(results, fuzzy_anilist_results=None):
     """
-    Takes a list of provider results and batch-fetches corresponding AniList data 
-    if the provider scraped 'aniListId' or 'malId'. Applies fuzzy fallback matching 
-    if 'fuzzy_anilist_results' is provided.
-    
-    Returns the enriched results.
+    Fast in-memory matching pass. Matches provider results against the AniList search results
+    already in RAM without making any extra network calls.
+    Returns (results, unmatched_shows_with_ids).
     """
     if not results:
-        return results
+        return results, []
 
-    reset_title_cache()  # fresh cache per batch, avoids unbounded growth
+    reset_title_cache()
 
-    al_ids = [s.get("aniListId") for s in results if s.get("aniListId")]
-    mal_ids = [s.get("malId") for s in results if s.get("malId")]
-    
-    exact_matches = []
-    if al_ids or mal_ids:
-        # Pass token if available so private entries can be fetched if user is logged in
-        try:
-            exact_matches = fetch_anilist_by_ids(token or "", anilist_ids=al_ids, mal_ids=mal_ids)
-        except Exception as e:
-            logging.getLogger(__name__).debug(f"Failed batch AniList fetch: {e}")
-
-    by_anilist_id = {str(m["_id"]): m for m in exact_matches if m.get("_id")}
-    by_mal_id = {str(m["malId"]): m for m in exact_matches if m.get("malId")}
+    al_shows = fuzzy_anilist_results or []
+    by_anilist_id = {str(m["_id"]): m for m in al_shows if m.get("_id")}
+    by_mal_id = {str(m["malId"]): m for m in al_shows if m.get("malId")}
 
     pending = {}
     unmatched_ids = set()
+    unmatched_shows_with_ids = []
 
     for s in results:
         matched = None
-        if s.get("aniListId"):
-            matched = by_anilist_id.get(str(s["aniListId"]))
-        elif s.get("malId"):
-            matched = by_mal_id.get(str(s["malId"]))
+        if s.get("aniListId") and str(s["aniListId"]) in by_anilist_id:
+            matched = by_anilist_id[str(s["aniListId"])]
+            s["_match_source"] = "id"
+        elif s.get("malId") and str(s["malId"]) in by_mal_id:
+            matched = by_mal_id[str(s["malId"])]
+            s["_match_source"] = "id"
 
         if matched:
             pending[id(s)] = matched
-            s["_match_source"] = "id"
         else:
             unmatched_ids.add(id(s))
+            if s.get("aniListId") or s.get("malId"):
+                unmatched_shows_with_ids.append(s)
 
     stored_lookup = {}
-    if unmatched_ids and fuzzy_anilist_results:
+    if unmatched_ids and al_shows:
         ids = [s.get("_id") for s in results if id(s) in unmatched_ids and s.get("_id")]
         stored_lookup = get_source_anilist_matches(ids)
 
@@ -114,27 +106,89 @@ def enrich_provider_results(results, token, fuzzy_anilist_results=None):
     for s in results:
         matched = pending.get(id(s))
 
-        if not matched and id(s) in unmatched_ids and fuzzy_anilist_results:
+        if not matched and id(s) in unmatched_ids and al_shows:
             stored = stored_lookup.get(s.get("_id")) or {}
             stored_id = str(stored.get("_id") or "")
             if stored_id:
                 matched = next(
-                    (c for c in fuzzy_anilist_results if str(c.get("_id") or "") == stored_id),
+                    (c for c in al_shows if str(c.get("_id") or "") == stored_id),
                     None,
                 )
             if matched:
                 s["_match_source"] = "stored"
             else:
-                matched = choose_confident_match(s, fuzzy_anilist_results)
+                matched = choose_confident_match(s, al_shows)
                 if matched:
                     s["_match_source"] = "fuzzy"
 
         if matched:
             to_save.append((s, matched))
             _merge_anilist_into_provider(s, matched)
+            # Remove from unmatched if fuzzy matched
+            if s in unmatched_shows_with_ids:
+                unmatched_shows_with_ids.remove(s)
 
-    save_source_anilist_matches(to_save)
-    return results
+    if to_save:
+        save_source_anilist_matches(to_save)
+
+    return results, unmatched_shows_with_ids
+
+
+def enrich_provider_results_background(unmatched_shows, token="", on_updated_callback=None):
+    """
+    Background worker that quietly backfills AniList metadata for shows whose IDs
+    were not present in the initial query results.
+    """
+    if not unmatched_shows:
+        return
+
+    al_ids = [s.get("aniListId") for s in unmatched_shows if s.get("aniListId")]
+    mal_ids = [s.get("malId") for s in unmatched_shows if s.get("malId")]
+
+    if not al_ids and not mal_ids:
+        return
+
+    try:
+        exact_matches = fetch_anilist_by_ids(token or "", anilist_ids=al_ids, mal_ids=mal_ids)
+        if not exact_matches:
+            return
+
+        by_al = {str(m["_id"]): m for m in exact_matches if m.get("_id")}
+        by_mal = {str(m["malId"]): m for m in exact_matches if m.get("malId")}
+
+        to_save = []
+        updated = False
+        for s in unmatched_shows:
+            matched = None
+            if s.get("aniListId") and str(s["aniListId"]) in by_al:
+                matched = by_al[str(s["aniListId"])]
+            elif s.get("malId") and str(s["malId"]) in by_mal:
+                matched = by_mal[str(s["malId"])]
+
+            if matched:
+                s["_match_source"] = "id"
+                to_save.append((s, matched))
+                _merge_anilist_into_provider(s, matched)
+                updated = True
+
+        if to_save:
+            save_source_anilist_matches(to_save)
+
+        if updated and on_updated_callback:
+            on_updated_callback()
+    except Exception as e:
+        logging.getLogger(__name__).debug(f"Background AniList enrich error: {e}")
+
+
+def enrich_provider_results(results, token, fuzzy_anilist_results=None):
+    """
+    Legacy sync wrapper. Performs fast in-memory enrichment first, and fetches any missing
+    IDs synchronously if requested.
+    """
+    enriched, unmatched = enrich_provider_results_fast(results, fuzzy_anilist_results)
+    if unmatched:
+        enrich_provider_results_background(unmatched, token=token)
+    return enriched
 
 
 def enrich_show_if_missing(show: dict) -> None:

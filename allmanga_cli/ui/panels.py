@@ -113,22 +113,15 @@ def render_search_header(
     shows = get_results_fn()
     loading_msg = get_loading_fn()
 
-    # Case A: Live loading in progress
-    if loading_msg:
-        line1 = ""
-        line2 = f"{C_HINT}Use Up/Down to browse previous searches.{C_RESET}"
-        line3 = f"\033[38;5;250mProvider: \033[1;97m{source_name}{C_RESET}" if source_name else ""
-        line4 = loading_msg
-        return chr(10).join([line1, line2, line3, line4])
-
-    # Case B: Active results available
+    # Case A: Active results available
     if shows and 0 <= selected_idx < len(shows):
         selected_show = shows[selected_idx]
         badge_list = list(badges or [])
-        # Keep query concise (max 16 chars) so shortcuts are never crowded or truncated
         short_query = f'"{truncate_display(safe_query, 16)}"' if safe_query else ""
         items = [p for p in [source_name, short_query, *badge_list, "Enter=select", "?=Help", "Left=search", f"Esc={esc_action}"] if p]
         footer_nav = " • ".join(items)
+        if loading_msg:
+            footer_nav = f"{loading_msg}  │  {footer_nav}"
         lines = render_header_card(
             selected_show,
             ttype=ttype,
@@ -137,6 +130,14 @@ def render_search_header(
             main_title=selected_show.get("name"),
         )
         return chr(10).join(lines)
+
+    # Case B: Live search in progress with no results yet
+    if loading_msg:
+        line1 = ""
+        line2 = f"{C_HINT}Use Up/Down to browse previous searches.{C_RESET}"
+        line3 = f"\033[38;5;250mProvider: \033[1;97m{source_name}{C_RESET}" if source_name else ""
+        line4 = loading_msg
+        return chr(10).join([line1, line2, line3, line4])
 
     # Case C: No matches found / Filter query mismatch
     line1 = ""
