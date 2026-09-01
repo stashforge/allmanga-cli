@@ -201,12 +201,11 @@ def tui_pick(
     show_help   = False
     last_poster_tick = 0
     last_poster_key  = None
-    last_clock_minute = int(time.time() // 60)
     pending_delete_index = None
     boundary_hint = ""
     boundary_hint_time = 0.0
     boundary_action = ""
-    last_blink_phase = -1
+    last_rendered_buf = ""
     last_key_time = time.time()
     disabled_indices = set(disabled_indices or ())
     marked_indices: set[int] = set()
@@ -462,16 +461,17 @@ def tui_pick(
         frame = _absolute_terminal_frame(out, rows, cols)
         cursor_goto = f"\033]12;#89dceb\007\033[?12h\033[5 q\033[{prompt_row};{cursor_col}H\033[?25h"
         buf = (
-
-
             f"{clear_prefix}\033[?25l"
             + frame
             + overlay
             + cursor_goto
         )
 
-        tty_file.write(buf.encode())
-        tty_file.flush()
+        nonlocal last_rendered_buf
+        if buf != last_rendered_buf:
+            last_rendered_buf = buf
+            tty_file.write(buf.encode())
+            tty_file.flush()
 
     # -----------------------------------------------------------------------
     # Main event loop
@@ -562,11 +562,6 @@ def tui_pick(
                         last_poster_tick = now
                         _needs_redraw = True
 
-            blink_phase = 0 if (now - last_key_time < 0.4) else (int(now * 2) % 2)
-            if blink_phase != last_blink_phase:
-                last_blink_phase = blink_phase
-                _needs_redraw = True
-
             if _needs_redraw:
                 render(filt)
                 _needs_redraw = False
@@ -582,7 +577,6 @@ def tui_pick(
             key = _get_key(tty_fd)
             termios.tcflush(tty_fd, termios.TCIFLUSH)
             last_key_time = time.time()
-            last_blink_phase = 0
             _needs_redraw = True
 
 
