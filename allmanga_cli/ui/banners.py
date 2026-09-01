@@ -33,7 +33,8 @@ def print_episode_header(title: str, ep: object, total: int) -> None:
     total:
         Total number of episodes in the catalog.
     """
-    B, R, LG = "\033[1m", "\033[0m", "\033[38;5;248m"
+    TITLE_C, R, SUB_C = "\033[1;38;2;145;185;245m", "\033[0m", "\033[38;2;170;180;195m"
+    LABEL_C = "\033[1;38;2;190;180;235m"
     clean, sn, stype = _extract_title_parts(title)
     info_bits = []
     if sn:
@@ -43,6 +44,6 @@ def print_episode_header(title: str, ep: object, total: int) -> None:
     ep_str = f"episode {ep} / {total}"
     if info_bits:
         ep_str += f"  \u2022  {' \u2022 '.join(info_bits)}"
-    print(f"\n\033[2;36mnow playing\033[0m\n{B}{clean}{R}")
-    print(f"{LG}{ep_str}{R}")
+    print(f"\n{LABEL_C}now playing{R}\n{TITLE_C}{clean}{R}")
+    print(f"{SUB_C}{ep_str}{R}")
     print()

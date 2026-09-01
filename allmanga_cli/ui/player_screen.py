@@ -47,8 +47,9 @@ from .spinner import spinner_frame
 if TYPE_CHECKING:
     from ..context import UiState, CliFlags
 
-SECTION_LABEL = "\033[1;37m"
-TEXT_COLOR = "\033[38;2;195;200;210m"
+TITLE_COLOR = "\033[1;38;2;145;185;245m"
+SECTION_LABEL = "\033[1;38;2;190;180;235m"
+TEXT_COLOR = "\033[38;2;170;180;195m"
 RESET = "\033[0m"
 
 
@@ -420,7 +421,7 @@ def render(
     # ── Unified Header ──
     content.append("")
     for tl in _wrap_title(title, w - 4, 2).splitlines():
-        content.append(f"\033[1;97m{tl}\033[0m")
+        content.append(f"{TITLE_COLOR}{tl}{RESET}")
     if alt_title:
         for atl in _wrap_title(alt_title, w - 4, 2).splitlines():
             content.append(f"{TEXT_COLOR}{atl}\033[0m")
