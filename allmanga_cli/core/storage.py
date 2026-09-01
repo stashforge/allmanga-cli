@@ -417,7 +417,7 @@ def load_history():
 def get_history_entry(show, ttype="sub"):
     if is_incognito():
         return None
-    show_id = str((show or {}).get("_id") or "")
+    show_id = str((show or {}).get("_id") or (show or {}).get("id") or "")
     if not show_id:
         return None
     from allmanga_cli.domain.matching import is_same_show
@@ -490,7 +490,7 @@ def episode_id_for_progress(show, ttype, progress):
     return str(progress)
 
 
-def write_history_progress(show, progress, ttype, *, last_synced=None, touch=False):
+def write_history_progress(show, progress, ttype, last_synced=None, touch=False):
     global _history_cache
     if is_incognito():
         return None
@@ -524,10 +524,12 @@ def write_history_progress(show, progress, ttype, *, last_synced=None, touch=Fal
     elif last_synced is not None:
         entry["last_synced_progress"] = max(0, int(last_synced))
     from allmanga_cli.domain.matching import is_same_show
+    cfg = load_config()
+    auto_merge = bool(cfg.get("auto_merge_history", True))
     history = [
         item for item in history
         if not (
-            is_same_show(item.get("show", {}), show)
+            is_same_show(item.get("show", {}), show, strict=not auto_merge)
             and item.get("translation_type", "sub") == ttype
         )
     ]

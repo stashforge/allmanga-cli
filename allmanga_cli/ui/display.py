@@ -128,7 +128,7 @@ def clear_terminal_images():
 def _poster_footer_line(show, default_text, width):
     # If default_text is a toast feedback message (not navigation shortcuts), show only the message
     clean_text = re.sub(r'\033\[[0-9;]*m', '', str(default_text or "")).strip()
-    is_nav_footer = any(k in clean_text for k in ("Enter=", "Enter/Right=", "Left=", "Left/Esc=", "result(s)"))
+    is_nav_footer = any(k in clean_text.lower() for k in ("enter", "left", "esc", "tab", "result"))
     if not is_nav_footer or clean_text.startswith('*') or clean_text.startswith('✓') or clean_text.startswith('✔'):
         return _poster_manager.footer_line(show, default_text, width)
 

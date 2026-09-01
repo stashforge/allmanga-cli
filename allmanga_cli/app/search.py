@@ -50,6 +50,8 @@ def _session_badges(flags, args, *, search_context=False):
 # HISTORY
 # ---------------------------------------------------------------------------
 history_refresh_status = {}
+_history_session_refreshed = False
+
 def handle_history_state(
     flags: CliFlags,
     ui: UiState,
@@ -74,27 +76,41 @@ def handle_history_state(
     def _rebuild_history_view():
         nonlocal filtered_hist, hopts
         filtered_hist = app_core.filter_history_entries(hist, history_mode)
-        hopts = [app_core.format_history_entry(entry) for entry in filtered_hist]
+        new_hopts = [app_core.format_history_entry(entry) for entry in filtered_hist]
+        hopts[:] = new_hopts
 
     _history_open_time = time.time()
-    history_refresh_status["BATCH"] = "Checking for new episodes..."
-    def _batch_refresh_worker():
-        try:
-            if app_core.refresh_history_anilist_airing_batch(hist):
-                _rebuild_history_view()
-            for entry in hist:
-                s_obj = entry.get("show", {})
-                s_id = str(s_obj.get("_id") or "")
-                if s_id and (
-                    app_core.get_show_anilist_id(s_obj)
-                    or s_obj.get("_anilist_airing_checked_at", 0) >= _history_open_time
-                ):
-                    _refreshed_history_ids.add(s_id)
-        finally:
-            history_refresh_status.pop("BATCH", None)
-            _picker_mod._needs_redraw = True
 
-    threading.Thread(target=_batch_refresh_worker, daemon=True).start()
+    def _start_batch_refresh():
+        nonlocal _history_open_time
+        _history_open_time = time.time()
+        history_refresh_status["BATCH"] = "Checking for new episodes..."
+        _picker_mod._needs_redraw = True
+
+        def _worker():
+            try:
+                if app_core.refresh_history_anilist_airing_batch(hist):
+                    _rebuild_history_view()
+                for entry in hist:
+                    s_obj = entry.get("show", {})
+                    s_id = str(s_obj.get("_id") or "")
+                    if s_id and (
+                        app_core.get_show_anilist_id(s_obj)
+                        or s_obj.get("_anilist_airing_checked_at", 0) >= _history_open_time
+                    ):
+                        _refreshed_history_ids.add(s_id)
+            except Exception:
+                pass
+            finally:
+                history_refresh_status.pop("BATCH", None)
+                _picker_mod._needs_redraw = True
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    global _history_session_refreshed
+    if not _history_session_refreshed:
+        _history_session_refreshed = True
+        _start_batch_refresh()
 
     _hover_index = -1
     _hover_start_time = time.time()
@@ -141,6 +157,8 @@ def handle_history_state(
                 if changed:
                     app_core.patch_history_entry_show(show_id, entry.get("translation_type", "sub"), show)
                     _rebuild_history_view()
+            except Exception:
+                pass
             finally:
                 _in_flight_hover_refresh.discard(show_id)
                 history_refresh_status.pop("SINGLE", None)
@@ -155,7 +173,7 @@ def handle_history_state(
             "Enter/Right open",
             "Left search",
             "Tab/Ctrl+N next",
-            "Shift+Tab/Ctrl+P prev",
+            "Ctrl+R refresh",
             "Del/Ctrl+D delete",
             "Esc quit",
         )
@@ -193,7 +211,7 @@ def handle_history_state(
                 msg = "No completed titles."
             else:
                 msg = "Watch history is empty."
-            parts.append(f"\033[38;5;244m{msg}\033[0m")
+            parts.extend(["", f"\033[38;5;244m{msg}\033[0m", ""])
         elif 0 <= si < len(filtered_hist):
             h = filtered_hist[si]
             tt = h.get("translation_type", "sub")
@@ -209,7 +227,7 @@ def handle_history_state(
 
         if status_msg:
             spinner = spinner_frame(spinner_from_config(cfg))
-            parts.append(f"\033[36m{spinner} {status_msg}\033[0m")
+            parts.append(app_core._poster_footer_line(selected_show, f"\033[36m{spinner} {status_msg}\033[0m", w))
         else:
             parts.append(_history_footer(selected_entry, w))
 
@@ -224,7 +242,8 @@ def handle_history_state(
             if app_core.delete_history_entry(show.get("_id"), h.get("translation_type", "sub")):
                 hist = app_core.load_history()
                 filtered_hist = app_core.filter_history_entries(hist, history_mode)
-                hopts = [app_core.format_history_entry(x) for x in filtered_hist]
+                new_hopts = [app_core.format_history_entry(x) for x in filtered_hist]
+                hopts[:] = new_hopts
         return hopts, _hist_hdr(0)
 
     def _set_history_mode(next_index):
@@ -232,12 +251,17 @@ def handle_history_state(
         history_mode = history_modes[next_index % len(history_modes)]
         ui.history_filter = history_mode
         filtered_hist = app_core.filter_history_entries(hist, history_mode)
-        hopts = [app_core.format_history_entry(entry) for entry in filtered_hist]
+        new_hopts = [app_core.format_history_entry(entry) for entry in filtered_hist]
+        hopts[:] = new_hopts
         return hopts, _hist_hdr(0)
 
     def _hist_tab(_selected=None, direction=1):
         mode_index = history_modes.index(history_mode)
         return _set_history_mode(mode_index + direction)
+
+    def _hist_refresh(_selected=None):
+        _start_batch_refresh()
+        return hopts, _hist_hdr(0)
 
     def _hist_tick():
         now = time.time()
@@ -254,6 +278,7 @@ def handle_history_state(
         header_fn=_hist_hdr,
         top_header_fn=_hist_top_hdr,
         tab_fn=_hist_tab,
+        reverse_fn=_hist_refresh,
         delete_fn=_hist_delete,
         live_fn=lambda _query: (list(hopts), "", False),
         info_fn=app_core.make_info_fn(lambda: [e.get("show", {}) for e in filtered_hist], ui),

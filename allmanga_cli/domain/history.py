@@ -4,7 +4,7 @@ import time
 
 from .metadata import positive_int
 from .titles import get_show_display_title
-from .episodes import episode_id_at, episode_index_for_id
+from .episodes import clean_episode_identifier, episode_id_at, episode_index_for_id
 
 
 def format_relative_time(timestamp, now=None):
@@ -63,12 +63,34 @@ def local_progress(entries, show, translation_type="sub"):
         or _episode_ids_for_translation(target_entry.get("show", {}), translation_type)
         or []
     )
+    labels = (
+        show.get("_episode_labels")
+        or target_entry.get("show", {}).get("_episode_labels")
+        or {}
+    )
     if episode_ids:
+        if labels and str(episode_id) in labels:
+            clean_lbl = clean_episode_identifier(labels[str(episode_id)])
+            if clean_lbl:
+                return clean_lbl
+
+        clean_eid = clean_episode_identifier(str(episode_id))
+        if clean_eid and not str(episode_id).startswith(("http://", "https://", "/")):
+            return clean_eid
+
         index = episode_index_for_id(
             [str(episode) for episode in episode_ids],
             episode_id,
+            labels=labels,
         )
-        return index + 1 if index is not None else None
+        if index is not None:
+            cand_id = episode_ids[index]
+            if labels and str(cand_id) in labels:
+                clean_lbl = clean_episode_identifier(labels[str(cand_id)])
+                if clean_lbl:
+                    return clean_lbl
+            return index + 1
+        return None
     try:
         return max(0, int(float(str(episode_id))))
     except (TypeError, ValueError):

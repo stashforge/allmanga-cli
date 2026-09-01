@@ -450,7 +450,7 @@ def tui_pick(
 
         poster_changed = poster_key != last_poster_key
         clear_prefix = (
-            terminal_images.clear_now() + "\033[2J"
+            terminal_images.clear_now()
             if poster_changed and (poster_key is not None or last_poster_key is not None)
             else ""
         )

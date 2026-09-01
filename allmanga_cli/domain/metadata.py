@@ -59,14 +59,22 @@ def format_ep_progress(label, progress, total, local_only=False):
         progress = int(p) if p == p.to_integral_value() else str(p.normalize())
     except (_dec.InvalidOperation, TypeError, ValueError):
         progress = str(progress).strip()
+        if progress.lower().startswith("episode "):
+            progress = progress[8:].strip()
         if not progress or progress.lower() == "none":
             return ""
     prefix = f"\033[38;5;244mWatched{DIM}"
     return f"{prefix} {progress}/{total}" if total else f"{prefix} {progress}"
 
 
-def format_total_episodes(anime):
+def format_total_episodes(anime, ttype="sub"):
     total = positive_int(anime.get("episodeCount"))
+    if not total:
+        avail_map = anime.get("availableEpisodes") or {}
+        if isinstance(avail_map, dict):
+            total = positive_int(avail_map.get(ttype)) or positive_int(avail_map.get("sub")) or positive_int(avail_map.get("dub"))
+        if not total:
+            total = positive_int(anime.get("_provider_latest"))
     return f"\033[38;5;244mEP{DIM} {total}" if total else ""
 
 
@@ -88,20 +96,21 @@ def format_progress(anime, local_only=False, ttype="sub"):
     if not local_label:
         local_label = local_progress
 
-    import decimal
-    try:
-        local_num = decimal.Decimal(str(local_label))
-    except decimal.InvalidOperation:
-        if local_progress is not None and str(local_progress) != "0":
-            local_label = local_progress
-            try:
-                local_num = decimal.Decimal(str(local_label))
-            except decimal.InvalidOperation:
-                local_num = decimal.Decimal(0)
-        else:
-            local_num = decimal.Decimal(0)
+    from .episodes import resolve_dual_episode_label, parse_episode_dual_numbers
+    dual_lbl = resolve_dual_episode_label(anime, local_label or local_progress)
+    if dual_lbl:
+        local_label = dual_lbl
 
-    if total is not None:
+    import decimal
+
+    local_prim, local_sec = parse_episode_dual_numbers(str(local_label or ""))
+    try:
+        local_num = decimal.Decimal(str(local_prim or local_label))
+    except (decimal.InvalidOperation, TypeError, ValueError):
+        local_num = decimal.Decimal(0)
+
+    # Only adjust total if not a dual-number bracket tag
+    if total is not None and not local_sec:
         try:
             total_dec = decimal.Decimal(str(total))
             if local_num > total_dec:
@@ -121,16 +130,16 @@ def format_progress(anime, local_only=False, ttype="sub"):
                 anilist_num = int(float(str(anilist_progress)))
             except (ValueError, TypeError):
                 pass
-                
+
         anilist_context = bool(anime.get("_anilist_context"))
         if (sync_enabled or anilist_context) and anilist_progress is not None:
-            if local_num > anilist_num:
+            if local_num > anilist_num and not local_sec:
                 return format_ep_progress("LOCAL", local_label, total, local_only)
-            return format_ep_progress("AL", anilist_progress, total, local_only)
+            display_p = local_label if local_sec else anilist_progress
+            return format_ep_progress("AL", display_p, total, local_only)
         if authority == "AL" and sync_enabled and anilist_progress is not None:
-            if local_num > anilist_num:
-                return format_ep_progress("LOCAL", local_label, total, local_only)
-            return format_ep_progress("AL", anilist_progress, total, local_only)
+            display_p = local_label if local_sec else anilist_progress
+            return format_ep_progress("AL", display_p, total, local_only)
     if local_progress is not None:
         return format_ep_progress("LOCAL", local_label, total, local_only)
     return ""
@@ -139,8 +148,29 @@ def format_progress(anime, local_only=False, ttype="sub"):
 
 def format_available_episodes(anime, ttype="sub", local_only=False):
     from allmanga_cli.domain.history import history_available_episode_count, history_full_episode_count
+    from .episodes import parse_episode_dual_numbers, clean_episode_identifier
+
     if str(anime.get("status") or "").upper() != "RELEASING":
         return ""
+
+    eids = anime.get("_episode_ids") or []
+    labels = anime.get("_episode_labels") or {}
+    sec_tag = None
+    first_num = None
+    last_num = None
+
+    if eids:
+        first_lbl = str(labels.get(eids[0], labels.get(str(eids[0]), eids[0])))
+        last_lbl = str(labels.get(eids[-1], labels.get(str(eids[-1]), eids[-1])))
+        prim_f, sec_f = parse_episode_dual_numbers(first_lbl)
+        prim_l, sec_l = parse_episode_dual_numbers(last_lbl)
+
+        sec_tag = sec_l or sec_f
+        try:
+            first_num = int(prim_f or clean_episode_identifier(first_lbl))
+            last_num = int(sec_l or prim_l or clean_episode_identifier(last_lbl))
+        except (ValueError, TypeError):
+            pass
 
     next_episode = positive_int(anime.get("_next_airing_ep"))
     if next_episode:
@@ -150,21 +180,32 @@ def format_available_episodes(anime, ttype="sub", local_only=False):
             full = history_full_episode_count(entry)
             if full and available_count >= full:
                 return ""
+        if first_num and first_num > 1 and last_num:
+            return f"Avail {available_count} [{last_num}]"
+        if sec_tag:
+            return f"Avail {available_count} [{sec_tag}]"
         return f"Avail {available_count}"
 
-    available = anime.get("availableEpisodes", {}).get(ttype)
+    total = positive_int(anime.get("episodeCount"))
+    available = anime.get("availableEpisodes", {}).get(ttype) if isinstance(anime.get("availableEpisodes"), dict) else None
     try:
         available = int(available)
     except (TypeError, ValueError):
         available = None
-    if available is not None and available >= 0:
+
+    if not available and eids:
+        available = len(eids)
+
+    if available is not None and available > 0:
+        if first_num and first_num > 1 and last_num:
+            return f"Avail {available} [{last_num}]"
+        if sec_tag:
+            return f"Avail {available} [{sec_tag}]"
+        if total is not None and available == total:
+            return ""
         return f"Avail {available}"
 
-    try:
-        progress = max(0, int(anime.get("_anilist_progress") or 0))
-    except (TypeError, ValueError):
-        progress = 0
-    return f"Avail {progress}"
+    return ""
 
 
 def format_next_airing(anime, now=None):
@@ -283,7 +324,7 @@ def format_info_metadata_line(
     else:
         progress = format_progress(anime, local_only=local_only, ttype=ttype)
         if not progress:
-            progress = format_total_episodes(anime)
+            progress = format_total_episodes(anime, ttype=ttype)
             
         # For downloads, if we show Watched X/Y where Y is downloaded count,
         # also show the anime's actual total episodes if available.
@@ -327,7 +368,7 @@ def format_info_metadata_line(
         details.append(sub_dub_label)
     if progress:
         details.append(progress)
-    if available:
+    if available and (not progress or str(available).split()[-1] not in str(progress)):
         details.append(available)
     if next_airing:
         details.append(f"\033[38;5;117m{next_airing}{DIM}")
@@ -382,6 +423,28 @@ def prepare_show_display_state(show, ttype="sub", sync_enabled=None):
     else:
         show["_local_progress"] = get_local_progress(show, ttype)
         show["_local_episode_label"] = get_local_episode_label(show, ttype)
+        from allmanga_cli.core.storage import get_history_entry
+        entry = get_history_entry(show, ttype)
+        if entry and isinstance(entry.get("show"), dict):
+            hist_show = entry["show"]
+            for k in (
+                "altNames",
+                "englishName",
+                "nativeName",
+                "status",
+                "episodeCount",
+                "aniListId",
+                "malId",
+                "score",
+                "genres",
+                "_next_airing_ep",
+                "_next_airing_at",
+                "_next_airing_time",
+                "_episode_ids",
+                "_episode_labels",
+            ):
+                if not show.get(k) and hist_show.get(k):
+                    show[k] = hist_show[k]
     if not show.get("_progress_authority"):
         show["_progress_authority"] = "AL" if sync_enabled else "LOCAL"
     return show

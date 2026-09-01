@@ -139,17 +139,34 @@ def handle_details_state(
     ui.action_prev_state = ui.search_prev_state or "SEARCH"
 
     # Resolve correct initial episode based on progress
-    prog = int(s.get("_anilist_progress") or s.get("_local_progress") or 0) if (from_anilist_context or use_anilist) else int(s.get("_local_progress") or 0)
+    local_p = s.get("_local_progress")
+    local_lbl = s.get("_local_episode_label") or local_p
+    al_p = s.get("_anilist_progress")
+
+    watched_idx = None
+    if episode_ids:
+        if local_p is not None:
+            watched_idx = episode_index_for_id(episode_ids, str(local_p), labels=s.get("_episode_labels"))
+            if watched_idx is None and local_lbl:
+                watched_idx = episode_index_for_id(episode_ids, str(local_lbl), labels=s.get("_episode_labels"))
+        if watched_idx is None and al_p:
+            try:
+                al_int = int(al_p)
+                if 0 < al_int <= len(episode_ids):
+                    watched_idx = al_int - 1
+            except (ValueError, TypeError):
+                pass
+
     playback_status = str(s.get("_anilist_list", "")).upper() if use_anilist else ""
-    is_completed = (playback_status == "COMPLETED") or (len(episode_ids) > 0 and prog >= len(episode_ids))
+    is_completed = (playback_status == "COMPLETED") or (watched_idx is not None and watched_idx == len(episode_ids) - 1 and str(s.get("status") or "").upper() == "FINISHED")
+
     if episode_ids:
         if is_completed:
             ms.current_ep_index = 0
             ms.current_ep = episode_id_at(episode_ids, 0)
-        elif prog > 0 and prog < len(episode_ids):
-            target_idx = max(0, prog - 1)
-            ms.current_ep_index = target_idx
-            ms.current_ep = episode_id_at(episode_ids, target_idx)
+        elif watched_idx is not None:
+            ms.current_ep_index = watched_idx
+            ms.current_ep = episode_id_at(episode_ids, watched_idx)
         elif ms.current_ep_index is None:
             ms.current_ep_index = 0
             ms.current_ep = episode_id_at(episode_ids, 0)

@@ -13,6 +13,9 @@ from ..domain.episodes import (
     episode_index_for_id,
     episode_progress_number,
     anilist_progress_target_for_episode,
+    parse_episode_dual_numbers,
+    resolve_dual_episode_label,
+    clean_episode_identifier,
 )
 from ..playback.rules import marked_watched_osd
 from ..ui.help import picker_help
@@ -69,8 +72,16 @@ def handle_action_menu_state(
 
     al_prog = int(action_show.get("_anilist_progress") or 0)
     local_p = app_core.get_local_progress(action_show, ttype)
-    local_prog_val = int(local_p) if local_p is not None else 0
-    eff_prog = al_prog if (from_anilist_context or use_anilist) else local_prog_val
+    local_lbl = action_show.get("_local_episode_label") or local_p
+    resolved_lbl = resolve_dual_episode_label(action_show, local_lbl or local_p)
+    l_prim, l_sec = parse_episode_dual_numbers(resolved_lbl)
+
+    try:
+        local_prog_val = int(l_prim or clean_episode_identifier(str(local_p or 0)))
+    except (ValueError, TypeError):
+        local_prog_val = 0
+
+    eff_prog = al_prog if (from_anilist_context or use_anilist) and al_prog > 0 else local_prog_val
 
     total_count = action_show.get("episodeCount")
     try: total_count = int(total_count) if total_count is not None else 0
@@ -79,8 +90,8 @@ def handle_action_menu_state(
     playback_status = str(action_show.get("_anilist_list", "")).upper() if use_anilist else ""
     is_completed = bool(
         playback_status == "COMPLETED"
-        or (ms.total_eps > 0 and eff_prog >= ms.total_eps)
         or (total_count > 0 and eff_prog >= total_count)
+        or (ms.total_eps > 0 and not l_sec and eff_prog >= ms.total_eps)
     )
 
     def _check_watched():
@@ -90,7 +101,10 @@ def handle_action_menu_state(
         else:
             import decimal
             try:
-                current_ep_num = decimal.Decimal(str(episode_progress_number(ms.current_ep, (ms.current_ep_index or 0) + 1)))
+                cur_idx = ms.current_ep_index if ms.current_ep_index is not None else 0
+                if l_sec:
+                    return cur_idx < eff_prog
+                current_ep_num = decimal.Decimal(str(episode_progress_number(ms.current_ep, cur_idx + 1)))
                 if from_anilist_context or use_anilist or action_show.get("_progress_authority") == "AL":
                     return current_ep_num <= al_prog
                 else:
@@ -116,7 +130,7 @@ def handle_action_menu_state(
                 or 0
             )
 
-        # Primary Action (Continue vs Start Rewatch vs Play Next vs Play vs Replay)
+        # Primary Action (Continue vs Start Rewatch vs Play vs Play Next vs Replay)
         if resume_time > 0:
             opts.append("Continue")
             acts.append("CONTINUE")
@@ -125,29 +139,21 @@ def handle_action_menu_state(
             opts.append("Start Rewatch")
             acts.append("REWATCH")
             action_hints["Start Rewatch"] = "play EP 1 from start"
-
+        elif not is_watched:
+            opts.append("Play")
+            acts.append("PLAY_CURRENT")
+            action_hints["Play"] = f"play {playback_mod._fmt_ep(current_ep_label)}"
         elif next_ep is not None:
             opts.append("Play Next")
-            if not flags.incognito_mode and not is_watched:
-                acts.append("TRACK_NEXT")
-                if is_tracking and target_prog is not None:
-                    action_hints["Play Next"] = f"save {playback_mod._fmt_ep(current_ep_label)} · sync AL EP {target_prog} · play {playback_mod._fmt_ep(next_ep_label)}"
-                else:
-                    action_hints["Play Next"] = f"save {playback_mod._fmt_ep(current_ep_label)} • play {playback_mod._fmt_ep(next_ep_label)}"
-            else:
-                acts.append("NEXT")
-                action_hints["Play Next"] = f"play {playback_mod._fmt_ep(next_ep_label)}"
-        elif not is_watched and resume_time == 0 and ms.current_ep_index == 0:
-            opts.append("Play")
-            acts.append("PLAY_FIRST")
-            action_hints["Play"] = f"play {playback_mod._fmt_ep(current_ep_label)}"
+            acts.append("NEXT")
+            action_hints["Play Next"] = f"play {playback_mod._fmt_ep(next_ep_label)}"
         else:
             opts.append("Replay")
             acts.append("REPLAY")
             action_hints["Replay"] = "from start"
 
-        # Replay (if not primary action)
-        if "Replay" not in opts:
+        # Replay (if not primary action and current episode is watched)
+        if is_watched and "Replay" not in opts:
             opts.append("Replay")
             acts.append("REPLAY")
             action_hints["Replay"] = "from start"
@@ -177,10 +183,11 @@ def handle_action_menu_state(
         # Progress
         opts.append("Progress")
         acts.append("PROGRESS")
+        local_ep_hint = playback_mod._fmt_ep(resolved_lbl) if resolved_lbl else f"EP {local_prog_val}"
         if show_anilist_actions:
-            action_hints["Progress"] = f"local EP {local_prog_val} · AL EP {al_prog}"
+            action_hints["Progress"] = f"local {local_ep_hint} · AL EP {al_prog}"
         else:
-            action_hints["Progress"] = f"local EP {local_prog_val}"
+            action_hints["Progress"] = f"local {local_ep_hint}"
 
         # Status & Rate (AniList)
         if show_anilist_actions:
@@ -195,13 +202,21 @@ def handle_action_menu_state(
             acts.append("RATE")
             action_hints["Rate"] = score_str
 
-        # Change Match / Link Provider / Link AniList
+        # Change Match / Link Provider / Change Provider / Link AniList
         if not getattr(ms, "_is_downloads", False):
             has_provider_link = bool(action_show.get("_provider") and action_show.get("_has_provider_link") is not False)
             if from_anilist_context:
                 opts.append("Change Match" if has_provider_link else "Link Provider")
                 acts.append("CHANGE_MATCH")
                 action_hints[opts[-1]] = "link different streaming title"
+            elif (getattr(ui, "action_prev_state", "") == "HISTORY" or getattr(ui, "search_prev_state", "") == "HISTORY") and has_provider_link:
+                opts.append("Change Provider")
+                acts.append("CHANGE_PROVIDER")
+                action_hints["Change Provider"] = "switch streaming source"
+                if has_token and sync_enabled and action_show.get("_id") and not has_anilist_link:
+                    opts.append("Link AniList")
+                    acts.append("LINK_ANILIST")
+                    action_hints["Link AniList"] = "link tracking title"
             elif has_token and sync_enabled and action_show.get("_id"):
                 opts.append("Change Match" if has_anilist_link else "Link AniList")
                 acts.append("CHANGE_MATCH" if has_anilist_link else "LINK_ANILIST")
@@ -211,7 +226,9 @@ def handle_action_menu_state(
         if ms.total_eps > 1:
             opts.append("Episodes")
             acts.append("EPISODES")
-            action_hints["Episodes"] = f"browse (1–{ms.total_eps})"
+            first_lbl = playback_mod._display_episode_label(action_show, episode_ids[0], ttype)
+            last_lbl = playback_mod._display_episode_label(action_show, episode_ids[-1], ttype)
+            action_hints["Episodes"] = f"browse ({first_lbl}–{last_lbl})" if (first_lbl and last_lbl) else f"browse (1–{ms.total_eps})"
 
         # Mirrors (if not downloads)
         if not getattr(ms, "_is_downloads", False):
@@ -384,7 +401,7 @@ def handle_action_menu_state(
         else:
             app_core.with_loading(
                 "Updating progress…",
-                app_core.write_history_progress, action_show, prev_num, ttype, False
+                app_core.write_history_progress, action_show, prev_num, ttype, touch=False
             )
             app_core.set_action_feedback(action_show, f"✔ Marked {playback_mod._fmt_ep(current_ep_label)} unwatched")
         app_core.save_resume_time(ms.show_id, ms.current_ep, 0)
@@ -398,9 +415,7 @@ def handle_action_menu_state(
         playback_mod._clear_episode_source_state(ms)
         return "PLAY"
 
-    elif a == "PLAY_FIRST":
-        ms.current_ep_index = 0
-        ms.current_ep = episode_id_at(episode_ids, 0)
+    elif a in ("PLAY", "PLAY_FIRST", "PLAY_CURRENT"):
         ms.selected_stream = None
         app_core._clear_streams()
         playback_mod._clear_episode_source_state(ms)
@@ -478,6 +493,39 @@ def handle_action_menu_state(
 
     elif a == "RATE":
         return "UPDATE_SCORE"
+
+    elif a == "CHANGE_PROVIDER":
+        old_id = action_show.get("_id")
+        old_progress = action_show.get("_local_progress")
+        old_label = action_show.get("_local_episode_label")
+        target_pid = action_show.get("_provider") or getattr(args, "provider", None) or (cfg or {}).get("provider")
+        new_match = app_core._run_manual_match_search(
+            flags, ui, action_show, ttype,
+            provider_id=target_pid,
+            allow_provider_change=True,
+        )
+        if new_match:
+            new_match["_has_provider_link"] = True
+            new_match["_local_progress"] = old_progress
+            new_match["_local_episode_label"] = old_label
+            app_core.prepare_show_display_state(new_match, ttype, use_anilist)
+            ui.ui_show_ctx = new_match
+            ui.ui_ttype_ctx = ttype
+            ms.shows = [new_match]
+            ms.show_id = new_match.get("_id")
+            ms.show_title = get_show_display_title(new_match)
+            episode_ids = app_core.with_loading("Linking new provider…", app_core.ensure_episode_ids, new_match, ttype)
+            ms.total_eps = len(episode_ids) or (new_match.get("availableEpisodes", {}).get(ttype, 0))
+            if episode_ids:
+                target_idx = episode_index_for_id(episode_ids, str(old_progress or old_label or ""))
+                ms.current_ep_index = target_idx if target_idx is not None else 0
+                ms.current_ep = episode_id_at(episode_ids, ms.current_ep_index)
+            if old_id and old_id != ms.show_id:
+                app_core.delete_history_entry(old_id, ttype)
+                app_core.save_history(new_match, ms.current_ep or old_progress or 0, ttype)
+                app_core.patch_history_entry_show(ms.show_id, ttype, new_match)
+            app_core.set_action_feedback(new_match, f"✔ Switched provider to {app_core.provider_display_name(new_match.get('_provider'))}")
+        return "DETAILS"
 
     elif a in ("CHANGE_MATCH", "LINK_ANILIST"):
         if not from_anilist_context:

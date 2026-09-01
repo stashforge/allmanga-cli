@@ -54,12 +54,22 @@ def render_header_card(
         line4 = _poster_footer_line({}, footer_text or "", width) if footer_text is not None else ""
         return [line1, line2, line3, line4]
 
+    if "_local_progress" not in show and not local_only:
+        from ..domain.metadata import prepare_show_display_state
+        prepare_show_display_state(show, ttype)
+
     # Line 1: Primary Title
     title = main_title if main_title else get_show_display_title(show)
     line1 = f"{C_TITLE}{_t(title, width)}{C_RESET}"
 
-    # Line 2: Alternative Title
+    # Line 2: Alternative Title (or Genres fallback)
     alt = get_display_titles(show, title)
+    if not alt:
+        genres = show.get("genres") or show.get("_provider_genres")
+        if isinstance(genres, list) and genres:
+            alt = " • ".join(str(g) for g in genres if g)
+        elif isinstance(genres, str) and genres.strip():
+            alt = genres.strip().replace(", ", " • ")
     line2 = f"{C_ALT}{_t(alt, width)}{C_RESET}" if alt else f"{C_ALT}No alternative title{C_RESET}"
 
     # Line 3: Metadata Badges

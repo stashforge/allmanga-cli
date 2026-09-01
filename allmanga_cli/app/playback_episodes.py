@@ -34,12 +34,18 @@ def _episode_labels_for(show: dict, ttype: str) -> dict:
 def _display_episode_label(show: dict, episode_id, ttype: str) -> str:
     labels = _episode_labels_for(show, ttype)
     raw = str(labels.get(str(episode_id)) or episode_id)
+    from allmanga_cli.domain.episodes import resolve_dual_episode_label
+    dual = resolve_dual_episode_label(show, raw)
+    if dual:
+        return dual
     return clean_episode_identifier(raw) or raw
 
 
 def _fmt_ep(label):
     raw = str(label).strip()
-    clean = clean_episode_identifier(raw) or raw
+    from allmanga_cli.domain.episodes import parse_episode_dual_numbers
+    _, sec = parse_episode_dual_numbers(raw)
+    clean = raw if sec else (clean_episode_identifier(raw) or raw)
     label_str = clean
     if not label_str:
         return "EP ?"

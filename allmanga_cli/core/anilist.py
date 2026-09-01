@@ -21,6 +21,7 @@ import getpass
 from ..context import FLAGS
 from ..core import reporting
 from ..core import storage
+from ..state import paths
 from ..core.api import (
     anilist_account_cache_key,
     read_json_response,
@@ -662,5 +663,5 @@ def refresh_history_anilist_airing_batch(history_entries):
                     changed = True
 
     if changed:
-        storage._atomic_write_json(_paths.HISTORY_PATH, storage.sanitize_history_list(history_entries), indent=2)
+        storage._atomic_write_json(paths.HISTORY_PATH, storage.sanitize_history_list(history_entries), indent=2)
     return changed

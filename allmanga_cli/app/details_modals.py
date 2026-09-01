@@ -50,9 +50,60 @@ def handle_update_progress_state(
             _highest_num = len(episode_ids)
         released = max(released, _highest_num)
 
-    max_progress = max(released, prog)
-    if max_progress <= 0:
-        max_progress = max(prog, 1)
+    al_id = app_core.get_show_anilist_id(s)
+    has_token = bool(cfg.get("anilist_token")) and not flags.incognito_mode
+    sync_active = bool(al_id and has_token and resolve_tracking_fn(ui.search_prev_state, args, cfg, s))
+
+    from ..domain.episodes import (
+        build_progress_entries,
+        parse_episode_dual_numbers,
+        resolve_dual_episode_label,
+        clean_episode_identifier,
+    )
+    entries = build_progress_entries(s, episode_ids, labels=s.get("_episode_labels"), ttype=ttype_local)
+    progress_entries = list(reversed(entries))
+
+    local_lbl = s.get("_local_episode_label") or local_p
+    resolved_watched = resolve_dual_episode_label(s, local_lbl or local_p)
+    w_prim, w_sec = parse_episode_dual_numbers(resolved_watched)
+
+    try:
+        cur_rel = int(s.get("_anilist_progress") or w_prim or 0)
+    except (ValueError, TypeError):
+        cur_rel = 0
+
+    try:
+        cur_abs = int(w_sec or clean_episode_identifier(str(local_p or 0)) or 0)
+    except (ValueError, TypeError):
+        cur_abs = 0
+
+    def _is_entry_watched(entry):
+        if entry.get("id") == "0":
+            return False
+        ep_rel = entry.get("anilist_progress", 0)
+        try:
+            ep_abs = int(entry.get("ep_number", 0))
+        except (ValueError, TypeError):
+            ep_abs = 0
+        if cur_rel > 0 and ep_rel <= cur_rel:
+            return True
+        if cur_abs > 0 and ep_abs <= cur_abs:
+            return True
+        return False
+
+    def _is_entry_current(entry):
+        if entry.get("id") == "0":
+            return False
+        ep_rel = entry.get("anilist_progress", 0)
+        try:
+            ep_abs = int(entry.get("ep_number", 0))
+        except (ValueError, TypeError):
+            ep_abs = 0
+        if cur_rel > 0 and ep_rel == cur_rel:
+            return True
+        if cur_abs > 0 and ep_abs == cur_abs:
+            return True
+        return False
 
     def _progress_hdr(si):
         try: w = os.get_terminal_size().columns
@@ -62,34 +113,29 @@ def handle_update_progress_state(
         parts.append(app_core._poster_footer_line(s, "Enter/Right=set progress  Ctrl+R=flip  ? = Help  Left/Esc=back", w))
         return "\n".join(parts)
 
-    progress_order = list(range(max_progress, -1, -1))
+    def _format_entry_label(entry):
+        lbl = entry["label"]
+        if _is_entry_watched(entry):
+            return f"\033[38;5;244m{lbl}\033[0m"
+        return lbl
 
-    def _progress_label(p):
-        label = f"{p}/{max_progress}"
-        if p <= prog:
-            return f"\033[38;5;244m{label}\033[0m"
-        return label
-
-    al_id = app_core.get_show_anilist_id(s)
-    has_token = bool(cfg.get("anilist_token")) and not flags.incognito_mode
-    sync_active = bool(al_id and has_token and resolve_tracking_fn(ui.search_prev_state, args, cfg, s))
-
-
-    progress_opts = [_progress_label(p) for p in progress_order]
+    progress_opts = [_format_entry_label(e) for e in progress_entries]
     progress_hints = {}
-    for p in progress_order:
-        key = f"{p}/{max_progress}"
-        if p == prog:
-            progress_hints[key] = "current"
-        elif p < prog:
-            progress_hints[key] = "lower progress"
+    for e in progress_entries:
+        lbl = e["label"]
+        if e.get("id") == "0":
+            progress_hints[lbl] = "reset"
+        elif _is_entry_current(e):
+            progress_hints[lbl] = "current"
+        elif _is_entry_watched(e):
+            progress_hints[lbl] = "lower progress"
         else:
-            progress_hints[key] = "sync to AniList" if sync_active else "mark watched"
+            progress_hints[lbl] = "sync to AniList" if sync_active else "mark watched"
 
     def _progress_tab_fn(opt=None):
-        nonlocal progress_order, progress_opts
-        progress_order.reverse()
-        progress_opts = [_progress_label(p) for p in progress_order]
+        nonlocal progress_entries, progress_opts
+        progress_entries.reverse()
+        progress_opts = [_format_entry_label(e) for e in progress_entries]
         return (progress_opts, _progress_hdr(0))
 
     hd9 = picker_help(
@@ -112,35 +158,41 @@ def handle_update_progress_state(
     )
 
     if idx >= 0:
-        next_progress = progress_order[idx]
+        chosen = progress_entries[idx]
+        al_target = chosen["anilist_progress"]
+        local_target = chosen["ep_number"]
+        target_ep_id = chosen["provider_id"]
+
         if sync_active:
-            status_value = tracking_status_for_progress(s, next_progress) if next_progress > 0 else None
+            status_value = tracking_status_for_progress(s, al_target) if al_target > 0 else None
             updated = app_core.with_loading(
                 "Syncing to AniList…",
                 app_core.update_anilist_entry,
                 cfg["anilist_token"],
                 int(al_id),
-                progress=next_progress,
+                progress=al_target,
                 status=status_value,
                 show=s,
             )
             if updated:
-                apply_tracking_progress_local(s, next_progress, status_value)
+                apply_tracking_progress_local(s, al_target, status_value)
                 s["_progress_authority"] = "AL"
-                app_core.set_action_feedback(s, f"✔ Synced EP {next_progress} to AniList")
+                if target_ep_id and str(target_ep_id) != "0":
+                    app_core.write_history_progress(s, target_ep_id, ttype_local, touch=True)
+                s["_local_progress"] = local_target
+                s["_local_episode_label"] = chosen["label"]
+                app_core.set_action_feedback(s, f"✔ Synced {chosen['label']} to AniList")
             else:
                 app_core.err("AniList sync failed.")
         else:
-            if episode_ids and next_progress > 0:
-                target_idx = min(next_progress - 1, len(episode_ids) - 1)
-                target_ep = episode_ids[target_idx]
+            if target_ep_id and str(target_ep_id) != "0":
+                app_core.write_history_progress(s, target_ep_id, ttype_local, touch=True)
             else:
-                target_ep = str(next_progress)
-            app_core.write_history_progress(s, target_ep, ttype_local, touch=True)
-            s["_local_progress"] = next_progress
-            s["_local_episode_label"] = str(target_ep)
+                app_core.write_history_progress(s, "0", ttype_local, touch=True)
+            s["_local_progress"] = local_target
+            s["_local_episode_label"] = chosen["label"]
             s["_progress_authority"] = "LOCAL"
-            app_core.set_action_feedback(s, f"✔ Saved progress: EP {next_progress}")
+            app_core.set_action_feedback(s, f"✔ Saved progress: {chosen['label']}")
 
     return "DETAILS"
 

@@ -22,35 +22,65 @@ def is_contiguous_legacy_catalog(episode_ids):
     ]
 
 
+def parse_episode_dual_numbers(raw: str) -> tuple[str, str | None]:
+    """Parse primary episode number and optional bracket/franchise number (e.g. '1 [77]' -> ('1', '77'))."""
+    s = str(raw or "").strip()
+    if not s:
+        return "", None
+    m_bracket = re.search(r"\[\s*([0-9]+(?:\.[0-9]+)?)\s*\]|\(\s*([0-9]+(?:\.[0-9]+)?)\s*\)", s)
+    secondary = None
+    if m_bracket:
+        bracket_val = m_bracket.group(1) or m_bracket.group(2)
+        if bracket_val:
+            secondary = bracket_val.lstrip("0") or "0"
+    clean_s = re.sub(r"\[.*?\]|\(.*?\)", "", s).strip()
+    m_prim = re.search(r"(?:^|[-_.\s]|(?:ep|episode|part)\s*)([0-9]+(?:\.[0-9]+)?)(?:[-_.\s]|$)", clean_s, re.I)
+    primary = ""
+    if m_prim:
+        primary = m_prim.group(1).lstrip("0") or "0"
+    return primary, secondary
+
+
 def episode_index_for_id(episode_ids, episode_id, labels=None):
-    episode_string = str(episode_id)
+    if not episode_ids or episode_id is None:
+        return None
+    episode_string = str(episode_id).strip()
+    if not episode_string:
+        return None
     if episode_string in episode_ids:
         return episode_ids.index(episode_string)
 
-    try:
-        numeric = decimal.Decimal(episode_string)
-    except decimal.InvalidOperation:
-        return None
+    target_prim, target_sec = parse_episode_dual_numbers(episode_string)
+    target_clean = clean_episode_identifier(episode_string)
+    target_num = target_prim or target_clean
 
-    matches = []
+    exact_matches = []
+    secondary_matches = []
+
     for index, candidate in enumerate(episode_ids):
-        if labels and candidate in labels:
-            try:
-                if decimal.Decimal(str(labels[candidate])) == numeric:
-                    matches.append(index)
-                    continue
-            except decimal.InvalidOperation:
-                pass
+        candidate_str = str(candidate).strip()
+        lbl = str(labels.get(candidate, "")) if labels else ""
+        if not lbl:
+            lbl = str(labels.get(candidate_str, "")) if labels else ""
+        
+        # Exact string/label equality
+        if lbl and lbl.strip().lower() == episode_string.lower():
+            return index
 
-        try:
-            if decimal.Decimal(str(candidate)) == numeric:
-                matches.append(index)
-        except decimal.InvalidOperation:
-            continue
+        prim, sec = parse_episode_dual_numbers(lbl or candidate_str)
+        clean_cand = clean_episode_identifier(lbl or candidate_str)
 
-    if len(matches) == 1:
-        return matches[0]
+        if target_num and (prim == target_num or clean_cand == target_num):
+            exact_matches.append(index)
+        elif sec and (sec == target_num or (target_sec and sec == target_sec)):
+            secondary_matches.append(index)
 
+    if len(exact_matches) == 1:
+        return exact_matches[0]
+    if not exact_matches and len(secondary_matches) == 1:
+        return secondary_matches[0]
+
+    # If ambiguous (multiple matches), return None so interactive picker can handle it
     return None
 
 
@@ -146,14 +176,18 @@ def episode_progress_number(episode_id, fallback=0):
             pass
     return fallback
 
-def highest_episode_number(episode_ids):
+def highest_episode_number(episode_ids, labels=None):
     if not episode_ids:
         return 0
     max_val = None
     has_numeric = False
     for eid in episode_ids:
+        lbl = str(labels.get(eid, "")) if labels else ""
+        if not lbl:
+            lbl = str(labels.get(str(eid), "")) if labels else ""
+        clean_num = clean_episode_identifier(lbl or str(eid))
         try:
-            val = decimal.Decimal(str(eid))
+            val = decimal.Decimal(clean_num)
             if max_val is None or val > max_val:
                 max_val = val
             has_numeric = True
@@ -225,3 +259,121 @@ def anilist_progress_target_for_episode(label, fallback=0):
         return fallback
 
     return int(value.to_integral_value(rounding=ROUND_FLOOR))
+
+
+def build_progress_entries(show: dict, episode_ids: list[str] | None = None, labels: dict | None = None, ttype: str = "sub") -> list[dict]:
+    """Build a list of explicit episode progress dictionaries with canonical numbers, labels, provider IDs, and AniList counts."""
+    show = show or {}
+    episode_ids = episode_ids or show.get("_episode_ids") or []
+    labels = labels or show.get("_episode_labels") or {}
+
+    al_id = show.get("aniListId")
+    al_total = show.get("episodeCount")
+
+    entries = [{
+        "id": "0",
+        "ep_number": 0,
+        "label": "0 / Unwatched",
+        "provider_id": "0",
+        "anilist_progress": 0,
+        "is_available": True,
+        "index": -1,
+    }]
+
+    if not episode_ids:
+        total = int(al_total or show.get("availableEpisodes", {}).get(ttype, 0) or 0)
+        for num in range(1, total + 1):
+            entries.append({
+                "id": str(num),
+                "ep_number": num,
+                "label": f"Episode {num}",
+                "provider_id": str(num),
+                "anilist_progress": num,
+                "is_available": True,
+                "index": num - 1,
+            })
+        return entries
+
+    first_num = None
+    if episode_ids:
+        first_lbl = str(labels.get(episode_ids[0], labels.get(str(episode_ids[0]), episode_ids[0])))
+        prim, sec = parse_episode_dual_numbers(first_lbl)
+        try:
+            first_num = int(prim or clean_episode_identifier(first_lbl))
+        except (ValueError, TypeError):
+            first_num = 1
+
+    has_offset = bool(al_id and first_num and first_num > 1)
+
+    for idx, ep_id in enumerate(episode_ids):
+        ep_id_str = str(ep_id)
+        raw_lbl = str(labels.get(ep_id, labels.get(ep_id_str, ep_id_str)))
+        prim, sec = parse_episode_dual_numbers(raw_lbl)
+        clean = clean_episode_identifier(raw_lbl)
+
+        # Dual label logic
+        if has_offset and not sec:
+            rel_num = idx + 1
+            abs_num = first_num + idx
+            display_lbl = f"Episode {rel_num} [{abs_num}]"
+            al_num = rel_num
+            local_num = abs_num
+        elif sec: # e.g. Donghua with '1 [77]'
+            display_lbl = raw_lbl if raw_lbl.lower().startswith("episode") else f"Episode {raw_lbl}"
+            al_num = int(prim) if prim and prim.isdigit() else idx + 1
+            try:
+                local_num = int(sec)
+            except (ValueError, TypeError):
+                local_num = sec
+        else:
+            display_lbl = raw_lbl if raw_lbl.lower().startswith("episode") else f"Episode {raw_lbl}"
+            try:
+                local_num = int(prim) if prim and prim.isdigit() else (int(clean) if clean and clean.isdigit() else idx + 1)
+            except (ValueError, TypeError):
+                local_num = prim or clean or str(idx + 1)
+            al_num = local_num if isinstance(local_num, int) else idx + 1
+
+        entries.append({
+            "id": ep_id_str,
+            "ep_number": local_num,
+            "label": display_lbl,
+            "provider_id": ep_id_str,
+            "anilist_progress": al_num,
+            "is_available": True,
+            "index": idx,
+        })
+    return entries
+
+
+def resolve_dual_episode_label(anime, ep_val) -> str:
+    """Resolve episode value to dual formatted string (e.g. '15 [87]') if season offset exists."""
+    if ep_val is None or str(ep_val).strip() == "" or str(ep_val) == "0":
+        return ""
+    s_val = str(ep_val).strip()
+    prim, sec = parse_episode_dual_numbers(s_val)
+    if sec:
+        return f"{prim} [{sec}]"
+
+    anime = anime or {}
+    al_id = anime.get("aniListId")
+    eids = anime.get("_episode_ids") or []
+    labels = anime.get("_episode_labels") or {}
+
+    if al_id and eids:
+        first_lbl = str(labels.get(eids[0], labels.get(str(eids[0]), eids[0])))
+        p_f, s_f = parse_episode_dual_numbers(first_lbl)
+        try:
+            first_num = int(p_f or clean_episode_identifier(first_lbl))
+        except (ValueError, TypeError):
+            first_num = 1
+
+        if first_num > 1:
+            try:
+                cur_num = int(prim or clean_episode_identifier(s_val))
+                if cur_num >= first_num:
+                    rel_num = cur_num - first_num + 1
+                    return f"{rel_num} [{cur_num}]"
+            except (ValueError, TypeError):
+                pass
+
+    return prim or clean_episode_identifier(s_val) or s_val

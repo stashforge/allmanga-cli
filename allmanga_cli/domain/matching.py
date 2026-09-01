@@ -239,12 +239,10 @@ def match_score_details(anilist, allmanga):
             return details
 
     # Signal 7: Quarter / Season (Object-first)
-    anilist_quarter = str(
-        (anilist.get("season") or {}).get("quarter") or ""
-    ).casefold()
-    allmanga_quarter = str(
-        (allmanga.get("season") or {}).get("quarter") or ""
-    ).casefold()
+    al_s_obj = anilist.get("season")
+    am_s_obj = allmanga.get("season")
+    anilist_quarter = str(al_s_obj.get("quarter") if isinstance(al_s_obj, dict) else "").casefold()
+    allmanga_quarter = str(am_s_obj.get("quarter") if isinstance(am_s_obj, dict) else "").casefold()
     if anilist_quarter and allmanga_quarter == anilist_quarter:
         details["score"] += 4
     return details
@@ -285,30 +283,35 @@ best_allanime_match = best_provider_match
 
 
 
-def is_same_show(show1, show2):
+def is_same_show(show1, show2, strict=False):
     """Robustly determine if two show dicts represent the same title."""
     if not show1 or not show2:
         return False
-        
-    id1 = str(show1.get("_id") or "")
-    id2 = str(show2.get("_id") or "")
+
+    id1 = str(show1.get("_id") or show1.get("id") or "")
+    id2 = str(show2.get("_id") or show2.get("id") or "")
     if id1 and id1 == id2:
         return True
-        
+
     al1 = str(show1.get("aniListId") or show1.get("_anilist_id") or "")
     al2 = str(show2.get("aniListId") or show2.get("_anilist_id") or "")
     if al1 and al1 == al2:
         return True
-        
+
     mal1 = str(show1.get("malId") or show1.get("myanimelist_id") or "")
     mal2 = str(show2.get("malId") or show2.get("myanimelist_id") or "")
     if mal1 and mal1 == mal2:
         return True
-        
-    # Fallback to exact title match
-    t1, t2 = _cached_match_titles(show1), _cached_match_titles(show2)
-    score, exact = title_match_score(t1, t2)
-    return bool(exact)
+
+    if strict:
+        return False
+
+    # Multi-signal scoring with contradiction verification (score >= 60)
+    details = match_score_details(show1, show2)
+    if not details.get("contradiction") and details.get("score", 0) >= 60:
+        return True
+
+    return False
 
 
 def extract_franchise_query(title: str) -> str:

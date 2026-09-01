@@ -98,7 +98,7 @@ class AnimeXinProvider(WordPressAnimeProvider):
         available = _latest_episode_count(latest)
         import re
         is_ended = bool(re.search(r"\b\[?END\]?\b", latest, re.I))
-        status = "FINISHED" if is_ended else None
+        status = "FINISHED" if is_ended else "RELEASING"
         ttype = "dub" if sub_type == "dub" else "sub"
         return build_title(
             provider=self.id,
