@@ -371,6 +371,7 @@ def handle_anilist_browse_state(
     if not al_base_shows:
         app_core.err("No anime found in this AniList list.")
         return "ANILIST_MENU"
+    app_core.batch_prepare_shows_display_state(al_base_shows, ttype)
 
     sort_mode = normalize_anilist_sort_mode(cfg.get("anilist_sort", "recent"))
     sort_reverse = bool(cfg.get("anilist_sort_reverse", False))
@@ -559,18 +560,17 @@ def handle_anilist_search_state(
     # Step 3: Title Selection Page
     app_core.enter_alt_screen()
 
-    initial_opts = [f"{s.get('name', 'Unknown')}" for s in get_results()]
+    shows_list = get_results()
+    if shows_list:
+        app_core.batch_prepare_shows_display_state(shows_list, "sub")
+    initial_opts = [f"{s.get('name', 'Unknown')}" for s in shows_list]
     esc_action = "back" if ms.anilist_search_parent != "QUIT" else "quit"
-
-    if len(initial_opts) == 1:
-        idx = 0
-    else:
-        hd4 = picker_help(
-            "Select anime",
-            "New search",
-            "Back" if ms.anilist_search_parent != "QUIT" else "Quit",
-        )
-        idx = tui_pick(
+    hd4 = picker_help(
+        "Select anime",
+        "New search",
+        "Back" if ms.anilist_search_parent != "QUIT" else "Quit",
+    )
+    idx = tui_pick(
             flags, ui,
             "Search Anime", initial_opts,
             header_fn=_search_result_header(
@@ -608,8 +608,7 @@ def handle_anilist_search_state(
         return "ANILIST_SEARCH"
     else:
         s = shows[idx]
-        if len(shows) > 1:
-            ms.just_searched = False
+        ms.just_searched = False
         return _open_anilist_show_from_picker(flags, ui, ms, args, ttype, s, "ANILIST_SEARCH", cfg)
 
     return "ANILIST_SEARCH"

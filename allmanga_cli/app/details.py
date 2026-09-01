@@ -347,7 +347,6 @@ def handle_details_state(
         direct_single = (
             ui.search_prev_state in ("SEARCH", "ANILIST_SEARCH")
             and len(ms.shows) <= 1
-            and ms.just_searched
         )
         nav_text = "Left=search • Esc=quit" if direct_single else "Left/Esc=back"
         if direct_single and ui.search_prev_state == "ANILIST_SEARCH":
@@ -393,7 +392,6 @@ def handle_details_state(
     direct_single = (
         ui.search_prev_state in ("SEARCH", "ANILIST_SEARCH")
         and len(ms.shows) <= 1
-        and ms.just_searched
     )
 
     hd5 = picker_help(
@@ -436,6 +434,9 @@ def handle_details_state(
 
     if idx == -3:
         previous = ui.search_prev_state
+        if direct_single:
+            ms.query_str = ""
+            return "ANILIST_SEARCH" if previous == "ANILIST_SEARCH" else "SEARCH"
         if should_clear_query_on_child_left(previous, direct_single):
             ms.query_str = ""
         return previous

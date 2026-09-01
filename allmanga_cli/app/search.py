@@ -469,12 +469,12 @@ def handle_search_state(
     # Step 3: Title Selection Page
     app_core.enter_alt_screen()
 
-    initial_opts = [f"{s.get('name', 'Unknown')}" for s in get_results()]
-    if len(initial_opts) == 1:
-        idx = 0
-    else:
-        hd2 = picker_help("Select anime", "New search", "Quit")
-        idx = tui_pick(
+    shows_list = get_results()
+    if shows_list:
+        app_core.batch_prepare_shows_display_state(shows_list, ttype)
+    initial_opts = [f"{s.get('name', 'Unknown')}" for s in shows_list]
+    hd2 = picker_help("Select anime", "New search", "Quit")
+    idx = tui_pick(
             flags, ui,
             search_title, initial_opts,
             header_fn=_search_result_header(provider_name, ms.query_str, ttype, get_results, get_loading, get_error_fn=get_error),
@@ -519,8 +519,7 @@ def handle_search_state(
         ui.ui_show_ctx = s
         ui.ui_ttype_ctx = ttype
         ms.just_picked_anime = True
-        if len(shows) > 1:
-            ms.just_searched = False
+        ms.just_searched = False
         app_core.set_navigation_context(ui, search_prev="SEARCH", ep_prev="DETAILS", action_prev="DETAILS")
 
 
