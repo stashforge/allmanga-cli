@@ -7,9 +7,12 @@ import sys
 import importlib.metadata
 
 try:
-    __version__ = importlib.metadata.version("allmanga-cli")
+    from .. import __version__
 except Exception:
-    __version__ = "unknown"
+    try:
+        __version__ = importlib.metadata.version("allmanga-cli")
+    except Exception:
+        __version__ = "0.7.0"
 
 from allmanga_cli.providers import available_providers, _DEFAULT_PROVIDER_ID
 
