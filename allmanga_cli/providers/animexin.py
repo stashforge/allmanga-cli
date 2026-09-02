@@ -78,6 +78,8 @@ class AnimeXinProvider(WordPressAnimeProvider):
             return json.loads(response.read().decode(charset, errors="replace"))
 
     def _search_ajax(self, query: str) -> list[dict]:
+        if not query or not query.strip():
+            return []
         try:
             payload = self._ajax_fetch(query)
         except Exception:

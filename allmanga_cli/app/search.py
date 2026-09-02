@@ -66,6 +66,11 @@ def handle_history_state(
         app_core.warn("Watch history is empty.")
         return "QUIT"
 
+    # Pre-warm all history shows display state in RAM immediately
+    shows = [h.get("show") for h in hist if isinstance(h.get("show"), dict)]
+    if shows:
+        app_core.batch_prepare_shows_display_state(shows, ttype)
+
     history_modes = ["Active", "Up to date", "Completed", "All"]
     history_mode = ui.history_filter
     if history_mode not in history_modes:
@@ -77,6 +82,9 @@ def handle_history_state(
     def _rebuild_history_view():
         nonlocal filtered_hist, hopts
         filtered_hist = app_core.filter_history_entries(hist, history_mode)
+        fshows = [h.get("show") for h in filtered_hist if isinstance(h.get("show"), dict)]
+        if fshows:
+            app_core.batch_prepare_shows_display_state(fshows, ttype)
         new_hopts = [app_core.format_history_entry(entry) for entry in filtered_hist]
         hopts[:] = new_hopts
 
@@ -243,6 +251,9 @@ def handle_history_state(
             if app_core.delete_history_entry(show.get("_id"), h.get("translation_type", "sub")):
                 hist = app_core.load_history()
                 filtered_hist = app_core.filter_history_entries(hist, history_mode)
+                fshows = [x.get("show") for x in filtered_hist if isinstance(x.get("show"), dict)]
+                if fshows:
+                    app_core.batch_prepare_shows_display_state(fshows, ttype)
                 new_hopts = [app_core.format_history_entry(x) for x in filtered_hist]
                 hopts[:] = new_hopts
         return hopts, _hist_hdr(0)
@@ -252,6 +263,9 @@ def handle_history_state(
         history_mode = history_modes[next_index % len(history_modes)]
         ui.history_filter = history_mode
         filtered_hist = app_core.filter_history_entries(hist, history_mode)
+        fshows = [entry.get("show") for entry in filtered_hist if isinstance(entry.get("show"), dict)]
+        if fshows:
+            app_core.batch_prepare_shows_display_state(fshows, ttype)
         new_hopts = [app_core.format_history_entry(entry) for entry in filtered_hist]
         hopts[:] = new_hopts
         return hopts, _hist_hdr(0)
@@ -552,7 +566,7 @@ def handle_search_state(
         else:
             ms.current_ep = episode_id_at(episode_ids, 0)
 
-        ms.current_ep_index = episode_index_for_id(episode_ids, ms.current_ep)
+        ms.current_ep_index = episode_index_for_id(episode_ids, ms.current_ep, labels=s.get("_episode_labels"))
 
         if episode_ids and ms.current_ep_index is not None:
             ms.current_ep = episode_id_at(episode_ids, ms.current_ep_index)

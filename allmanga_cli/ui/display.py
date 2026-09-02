@@ -303,6 +303,7 @@ def with_loading(msg, fn, *args, **kwargs):
             raise result["error"]
         return result.get("value")
     finally:
+        sys.stdout.write(f"\033[{h};1H\033[2K")
         reporting.set_status_sink(old_sink)
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
         termios.tcflush(fd, termios.TCIFLUSH)

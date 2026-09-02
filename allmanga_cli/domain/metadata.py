@@ -165,7 +165,7 @@ def format_available_episodes(anime, ttype="sub", local_only=False):
         prim_f, sec_f = parse_episode_dual_numbers(first_lbl)
         prim_l, sec_l = parse_episode_dual_numbers(last_lbl)
 
-        sec_tag = sec_l or sec_f
+        sec_tag = sec_l
         try:
             first_num = int(prim_f or clean_episode_identifier(first_lbl))
             last_num = int(sec_l or prim_l or clean_episode_identifier(last_lbl))
@@ -180,8 +180,6 @@ def format_available_episodes(anime, ttype="sub", local_only=False):
             full = history_full_episode_count(entry)
             if full and available_count >= full:
                 return ""
-        if first_num and first_num > 1 and last_num:
-            return f"Avail {available_count} [{last_num}]"
         if sec_tag:
             return f"Avail {available_count} [{sec_tag}]"
         return f"Avail {available_count}"
@@ -197,8 +195,6 @@ def format_available_episodes(anime, ttype="sub", local_only=False):
         available = len(eids)
 
     if available is not None and available > 0:
-        if first_num and first_num > 1 and last_num:
-            return f"Avail {available} [{last_num}]"
         if sec_tag:
             return f"Avail {available} [{sec_tag}]"
         if total is not None and available == total:
@@ -381,6 +377,8 @@ def format_info_metadata_line(
 def prepare_show_display_state(show, ttype="sub", sync_enabled=None):
     if not show:
         return show
+    if "_local_progress" in show and "_sync_enabled" in show and "_progress_authority" in show:
+        return show
     from allmanga_cli.context import FLAGS as runtime_flags
     from allmanga_cli.core.storage import get_title_sync, get_local_progress, get_local_episode_label
 
@@ -476,6 +474,26 @@ def batch_prepare_shows_display_state(shows, ttype="sub"):
     except Exception:
         prefs = {}
 
+    # Build fast O(1) history indexes
+    id_to_entry = {}
+    al_to_entry = {}
+    name_to_entry = {}
+    for entry in history_list:
+        if not isinstance(entry, dict):
+            continue
+        es = entry.get("show")
+        if not isinstance(es, dict):
+            continue
+        eid = es.get("_id")
+        if eid:
+            id_to_entry[str(eid)] = entry
+        al_id = es.get("aniListId")
+        if al_id:
+            al_to_entry[str(al_id)] = entry
+        ename = es.get("name")
+        if ename:
+            name_to_entry[str(ename).strip().lower()] = entry
+
     for show in shows:
         if not isinstance(show, dict):
             continue
@@ -510,12 +528,17 @@ def batch_prepare_shows_display_state(shows, ttype="sub"):
             else:
                 show["_local_episode_label"] = "0"
         else:
-            matched_entry = None
-            for entry in history_list:
-                entry_show = entry.get("show")
-                if is_same_show(entry_show, show):
-                    matched_entry = entry
-                    break
+            sid = str(show.get("_id") or "")
+            sal = str(show.get("aniListId") or "")
+            sname = str(show.get("name") or "").strip().lower()
+
+            matched_entry = id_to_entry.get(sid) or al_to_entry.get(sal) or name_to_entry.get(sname)
+            if matched_entry is None:
+                for entry in history_list:
+                    entry_show = entry.get("show")
+                    if is_same_show(entry_show, show):
+                        matched_entry = entry
+                        break
 
             if matched_entry:
                 ep_val = str(matched_entry.get("episode") or "0")

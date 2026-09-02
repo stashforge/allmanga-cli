@@ -795,6 +795,9 @@ def tui_pick(
                             disabled_indices.update(res[2] or ())
                         filt = filt_list()
                         sel  = first_selectable(filt)
+                        last_rendered_lines = None
+                        last_poster_key = None
+                        _needs_redraw = True
 
             elif key in ("SHIFT_TAB", "CTRL_P"):
                 boundary_hint = ""; boundary_action = ""
@@ -811,6 +814,9 @@ def tui_pick(
                             disabled_indices.update(res[2] or ())
                         filt = filt_list()
                         sel  = first_selectable(filt)
+                        last_rendered_lines = None
+                        last_poster_key = None
+                        _needs_redraw = True
             elif key == "CTRL_R":
                 boundary_hint = ""; boundary_action = ""
                 if reverse_fn:
@@ -823,6 +829,9 @@ def tui_pick(
                             disabled_indices.update(res[2] or ())
                         filt = filt_list()
                         sel  = first_selectable(filt)
+                        last_rendered_lines = None
+                        last_poster_key = None
+                        _needs_redraw = True
             elif key in ("DELETE", "CTRL_D"):
                 boundary_hint = ""; boundary_action = ""
                 if is_search and query_history:

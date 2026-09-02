@@ -12,6 +12,7 @@ from ..domain.episodes import (
     episode_id_at,
     episode_index_for_id,
     episode_progress_number,
+    highest_episode_number,
     anilist_progress_target_for_episode,
     parse_episode_dual_numbers,
     resolve_dual_episode_label,
@@ -87,11 +88,17 @@ def handle_action_menu_state(
     try: total_count = int(total_count) if total_count is not None else 0
     except ValueError: total_count = 0
 
+    highest_ep = highest_episode_number(episode_ids, labels=ui.ui_show_ctx.get("_episode_labels"))
+    try:
+        highest_ep_num = int(highest_ep)
+    except (TypeError, ValueError):
+        highest_ep_num = ms.total_eps
+
     playback_status = str(action_show.get("_anilist_list", "")).upper() if use_anilist else ""
     is_completed = bool(
         playback_status == "COMPLETED"
         or (total_count > 0 and eff_prog >= total_count)
-        or (ms.total_eps > 0 and not l_sec and eff_prog >= ms.total_eps)
+        or (highest_ep_num > 0 and eff_prog >= highest_ep_num and str(action_show.get("status") or "").upper() == "FINISHED")
     )
 
     def _check_watched():
@@ -139,6 +146,11 @@ def handle_action_menu_state(
             opts.append("Start Rewatch")
             acts.append("REWATCH")
             action_hints["Start Rewatch"] = "play EP 1 from start"
+        elif eff_prog > 0:
+            opts.append("Play Next")
+            target_ep_label = next_ep_label if is_watched and next_ep is not None else current_ep_label
+            acts.append("NEXT" if is_watched and next_ep is not None else "PLAY_CURRENT")
+            action_hints["Play Next"] = f"play {playback_mod._fmt_ep(target_ep_label)}"
         elif not is_watched:
             opts.append("Play")
             acts.append("PLAY_CURRENT")
@@ -152,8 +164,8 @@ def handle_action_menu_state(
             acts.append("REPLAY")
             action_hints["Replay"] = "from start"
 
-        # Replay (if not primary action and current episode is watched)
-        if is_watched and "Replay" not in opts:
+        # Replay (if not primary action)
+        if "Replay" not in opts:
             opts.append("Replay")
             acts.append("REPLAY")
             action_hints["Replay"] = "from start"

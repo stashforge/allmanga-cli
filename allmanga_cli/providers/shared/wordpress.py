@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import html
 import re
+import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
@@ -356,6 +357,9 @@ def dtube_to_uuid(video_id: str) -> str:
 
 
 def episode_number(value: str, fallback: str = "") -> str:
+    match_dual = re.search(r"\b(?:episode|eps?)\s*[-:]?\s*(\d+(?:\.\d+)?)\s*(\[\s*\d+(?:\.\d+)?\s*\])", value, re.I)
+    if match_dual:
+        return f"{match_dual.group(1)} {match_dual.group(2)}"
     match = re.search(r"\b(?:episode|eps?)\s*[-:]?\s*(\d+(?:\.\d+)?)\b", value, re.I)
     return match.group(1) if match else fallback
 
@@ -372,10 +376,20 @@ class WordPressAnimeProvider:
 
     def search(self, query: str, ttype: str = "sub") -> list[dict]:
         del ttype
-        url = f"{self.base_url}/?{urllib.parse.urlencode({'s': query})}"
+        query_str = str(query or "").strip()
+        if not query_str:
+            url = f"{self.base_url}/"
+        else:
+            url = f"{self.base_url}/?{urllib.parse.urlencode({'s': query_str})}"
         domains = getattr(self, 'domains', [])
+        try:
+            html = self._fetch(url)
+        except urllib.error.HTTPError as exc:
+            if exc.code in (401, 403) and not query_str:
+                return []
+            raise
         entries = [
-            entry for entry in parse_cards(self.base_url, self._fetch(url), only_main=True, valid_domains=domains)
+            entry for entry in parse_cards(self.base_url, html, only_main=True, valid_domains=domains)
             if not is_episode_url(entry.url)
         ]
         return [self._title_from_entry(entry) for entry in entries]
@@ -533,7 +547,11 @@ class WordPressAnimeProvider:
         entries = list(reversed(parse_series(self.base_url, self._fetch(provider_id), valid_domains=domains)))
         episodes = []
         for index, entry in enumerate(entries):
-            label = entry.meta or episode_number(entry.title, str(index + 1))
+            dual_num = episode_number(entry.title) if entry.title else ""
+            if "[" in dual_num or "(" in dual_num:
+                label = dual_num
+            else:
+                label = entry.meta or dual_num or str(index + 1)
             episodes.append(build_episode(
                 episode_id=entry.url,
                 label=label,

@@ -117,8 +117,57 @@ def update_available_count_from_episode_ids(show: dict, ttype: str, episode_ids:
             for key, value in dict(labels or {}).items()
             if str(key) and str(value)
         }
-        show["_episode_labels_ttype"] = ttype
     return changed
+
+
+import concurrent.futures
+import threading
+
+_in_flight_catalog_tasks: dict[tuple[str, str], concurrent.futures.Future] = {}
+_catalog_task_lock = threading.Lock()
+_catalog_executor = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="CatalogFetch")
+
+
+def _perform_catalog_fetch(show: dict, ttype: str, status_cb: Callable[[str], None] | None = None, status_msg: str | None = None) -> list[str]:
+    show_id = title_provider_id(show)
+    p_key = title_provider_key(show)
+    task_key = (f"{p_key}:{show_id}" if show_id else str(id(show)), ttype)
+    try:
+        if show_id:
+            if not show.get("_title_enriched") and not show.get("aniListId") and not show.get("_anilist_score"):
+                if callable(status_cb):
+                    status_cb("Loading title info…")
+                enrich_show_if_missing(show)
+            if callable(status_cb):
+                status_cb(status_msg or f"Loading {ttype.upper()} episodes…")
+            catalog = _provider_for_title(show).episode_catalog(show_id, ttype)
+        else:
+            catalog = {
+                "state": "unavailable",
+                "ids": [],
+                "error": "This title has no provider ID for episode lookup.",
+            }
+
+        if catalog.get("state") == "loaded":
+            show["_episode_catalog_state"] = "loaded"
+            show.pop("_episode_catalog_error", None)
+            update_available_count_from_episode_ids(
+                show,
+                ttype,
+                catalog["ids"],
+                catalog.get("detail"),
+                catalog.get("labels"),
+            )
+            return catalog["ids"]
+
+        show["_episode_ids_ttype"] = ttype
+        show["_episode_catalog_error"] = catalog.get("error", "No episodes available.")
+        show.pop("_episode_ids", None)
+        show["_episode_catalog_state"] = "unavailable"
+        return []
+    finally:
+        with _catalog_task_lock:
+            _in_flight_catalog_tasks.pop(task_key, None)
 
 
 def ensure_episode_ids(show: dict, ttype: str, status_cb: Callable[[str], None] | None = None, status_msg: str | None = None) -> list[str]:
@@ -139,44 +188,27 @@ def ensure_episode_ids(show: dict, ttype: str, status_cb: Callable[[str], None] 
         eps = show.get("availableEpisodesDetail", {}).get(ttype, [])
         return _normalize_episode_ids(eps)
 
-    if show_id:
-        if not show.get("_title_enriched") and not show.get("aniListId") and not show.get("_anilist_score"):
-            if callable(status_cb):
-                status_cb("Loading title info…")
-            enrich_show_if_missing(show)
-        if callable(status_cb):
-            status_cb(status_msg or f"Loading {ttype.upper()} episodes…")
-        catalog = _provider_for_title(show).episode_catalog(show_id, ttype)
+    p_key = title_provider_key(show)
+    task_key = (f"{p_key}:{show_id}" if show_id else str(id(show)), ttype)
 
-    else:
-        catalog = {
-            "state": "unavailable",
-            "ids": [],
-            "error": "This title has no provider ID for episode lookup.",
-        }
+    with _catalog_task_lock:
+        fut = _in_flight_catalog_tasks.get(task_key)
+        if fut is None:
+            fut = _catalog_executor.submit(_perform_catalog_fetch, show, ttype, status_cb, status_msg)
+            _in_flight_catalog_tasks[task_key] = fut
 
-    if catalog["state"] == "loaded":
-        show["_episode_catalog_state"] = "loaded"
-        show.pop("_episode_catalog_error", None)
-        update_available_count_from_episode_ids(
-            show,
-            ttype,
-            catalog["ids"],
-            catalog.get("detail"),
-            catalog.get("labels"),
-        )
-        return catalog["ids"]
-
-    show["_episode_ids_ttype"] = ttype
-    show["_episode_catalog_error"] = catalog["error"]
-    if legacy_ids:
-        show["_episode_ids"] = legacy_ids
-        show["_episode_catalog_state"] = "legacy_contiguous"
-        return legacy_ids
-
-    show.pop("_episode_ids", None)
-    show["_episode_catalog_state"] = "unavailable"
-    return []
+    try:
+        return fut.result(timeout=15)
+    except concurrent.futures.TimeoutError:
+        debug_warn(f"Catalog fetch timed out for {task_key}")
+        show["_episode_catalog_state"] = "unavailable"
+        show["_episode_catalog_error"] = "Episode catalog lookup timed out."
+        return []
+    except Exception as e:
+        debug_warn(f"Catalog fetch failed for {task_key}", e)
+        show["_episode_catalog_state"] = "unavailable"
+        show["_episode_catalog_error"] = str(e)
+        return []
 
 
 def check_translation_switch_capability(show: dict, current_ttype: str, target_ttype: str) -> tuple[bool, str]:

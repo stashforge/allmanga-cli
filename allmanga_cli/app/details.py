@@ -78,12 +78,8 @@ def handle_details_state(
         app_core.patch_history_entry_show(s.get("_id"), ttype_local, s)
 
     ms.current_ep_index = episode_index_for_id(
-        episode_ids, ms.current_ep, labels=ui.ui_show_ctx.get("_episode_labels")
+        episode_ids, ms.current_ep, labels=s.get("_episode_labels")
     )
-    if ms.current_ep_index is None:
-        ms.current_ep_index = 0
-        if episode_ids:
-            ms.current_ep = episode_id_at(episode_ids, 0)
 
     from_anilist_context = ui.search_prev_state in (
         "ANILIST_BROWSE", "ANILIST_SEARCH", "ANILIST_AIRING"
@@ -164,10 +160,12 @@ def handle_details_state(
         if is_completed:
             ms.current_ep_index = 0
             ms.current_ep = episode_id_at(episode_ids, 0)
+        elif ms.current_ep_index is not None and 0 <= ms.current_ep_index < len(episode_ids):
+            ms.current_ep = episode_id_at(episode_ids, ms.current_ep_index)
         elif watched_idx is not None:
             ms.current_ep_index = watched_idx
             ms.current_ep = episode_id_at(episode_ids, watched_idx)
-        elif ms.current_ep_index is None:
+        else:
             ms.current_ep_index = 0
             ms.current_ep = episode_id_at(episode_ids, 0)
 

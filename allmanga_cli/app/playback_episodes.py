@@ -26,9 +26,13 @@ _RST    = "\033[0m"
 
 
 def _episode_labels_for(show: dict, ttype: str) -> dict:
-    if not show or show.get("_episode_labels_ttype") != ttype:
+    if not show:
         return {}
-    return show.get("_episode_labels") or {}
+    labels = show.get("_episode_labels") or {}
+    labels_ttype = show.get("_episode_labels_ttype")
+    if labels_ttype and labels_ttype != ttype:
+        return {}
+    return labels
 
 
 def _display_episode_label(show: dict, episode_id, ttype: str) -> str:

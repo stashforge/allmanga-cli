@@ -39,6 +39,7 @@ from allmanga_cli.domain.episodes import (
     episode_index_for_id,
     episode_label,
     episode_progress_number,
+    highest_episode_number,
     is_contiguous_legacy_catalog as _is_contiguous_legacy_catalog,
     normalize_episode_ids as _normalize_episode_ids,
 )
