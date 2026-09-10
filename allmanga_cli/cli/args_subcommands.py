@@ -9,6 +9,7 @@ from .args_common import (
     _auth_action,
     _add_provider_option,
     _add_debug_option,
+    _add_plain_option,
     _add_search_options,
     _add_download_options,
     _add_anilist_options,
@@ -119,6 +120,7 @@ def add_downloads_subcommand(commands):
     )
     global_options = downloads.add_argument_group("Global options")
     _add_debug_option(global_options, suppress_default=True)
+    _add_plain_option(global_options, suppress_default=True)
     global_options.add_argument(
         "-h", "--help", action="help", help="Show this help message and exit"
     )
@@ -246,6 +248,7 @@ def add_auth_subcommand(commands):
     )
     global_options = auth.add_argument_group("Global options")
     _add_debug_option(global_options, suppress_default=True)
+    _add_plain_option(global_options, suppress_default=True)
     global_options.add_argument(
         "-h", "--help", action="help", help="Show this help message and exit"
     )
@@ -276,6 +279,7 @@ def add_providers_subcommand(commands):
         "-h", "--help", action="help", help="Show this help message and exit"
     )
     _add_debug_option(global_options)
+    _add_plain_option(global_options)
     return providers
 
 
@@ -314,6 +318,7 @@ def add_completion_subcommand(commands):
     )
     global_options = completion.add_argument_group("Global options")
     _add_debug_option(global_options, suppress_default=True)
+    _add_plain_option(global_options, suppress_default=True)
     global_options.add_argument(
         "-h", "--help", action="help", help="Show this help message and exit"
     )

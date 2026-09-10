@@ -167,6 +167,9 @@ def set_alt_screen_active(active):
 
 
 def enter_alt_screen():
+    from ..context import FLAGS
+    if getattr(FLAGS, "plain_mode", False) or not sys.stdin.isatty():
+        return
     global _alt_screen_active
     pending_image_clear = terminal_images.clear_if_active()
     if not _alt_screen_active:
@@ -187,6 +190,9 @@ except Exception:
 
 
 def exit_alt_screen():
+    from ..context import FLAGS
+    if getattr(FLAGS, "plain_mode", False) or not sys.stdin.isatty():
+        return
     global _alt_screen_active
     if _alt_screen_active:
         try:
@@ -237,6 +243,10 @@ atexit.register(restore_terminal)
 # ---------------------------------------------------------------------------
 
 def with_loading(msg, fn, *args, **kwargs):
+    from ..context import FLAGS
+    if getattr(FLAGS, "plain_mode", False) or not sys.stdin.isatty():
+        return fn(*args, **kwargs)
+
     spinner_style = kwargs.pop("_spinner_style", _spinner_style)
     try:
         ts = os.get_terminal_size()

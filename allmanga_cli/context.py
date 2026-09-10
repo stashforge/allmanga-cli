@@ -46,6 +46,9 @@ class CliFlags:
     show_image: bool = False
     """``--cover`` flag: render cover images inside the picker."""
 
+    plain_mode: bool = False
+    """``--plain`` / ``--no-tui`` flag: disable full-screen TUI and use line-by-line numbered prompts."""
+
     spinner_style: object = "braille"
     """Resolved configured spinner style name or custom frame list."""
 
@@ -59,6 +62,7 @@ class CliFlags:
 FLAGS = CliFlags(
     debug_mode="--debug" in sys.argv[1:],
     incognito_mode="--incognito" in sys.argv[1:],
+    plain_mode=any(arg in sys.argv[1:] for arg in ("--plain", "--no-tui")),
 )
 
 

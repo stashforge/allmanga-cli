@@ -206,6 +206,18 @@ def _add_debug_option(parser, *, suppress_default=False):
         kwargs["default"] = argparse.SUPPRESS
     parser.add_argument("--debug", **kwargs)
 
+
+def _add_plain_option(parser, *, suppress_default=False):
+    kwargs = {
+        "dest": "plain",
+        "action": "store_true",
+        "help": "Run in plain text mode (disable full-screen TUI)",
+    }
+    if suppress_default:
+        kwargs["default"] = argparse.SUPPRESS
+    parser.add_argument("--plain", "--no-tui", **kwargs)
+
+
 def _add_search_options(parser):
     playback = parser.add_argument_group("Playback options")
     playback.add_argument("-e", "--episode", type=str, help="Episode number or range")
@@ -261,6 +273,7 @@ def _add_search_options(parser):
         help="Do not save history or update AniList",
     )
     _add_debug_option(global_options, suppress_default=True)
+    _add_plain_option(global_options, suppress_default=True)
     global_options.add_argument(
         "-h", "--help", action="help", help="Show this help message and exit"
     )
@@ -292,6 +305,7 @@ def _add_download_options(parser):
     _add_provider_option(output)
     global_options = parser.add_argument_group("Global options")
     _add_debug_option(global_options, suppress_default=True)
+    _add_plain_option(global_options, suppress_default=True)
     global_options.add_argument(
         "-h", "--help", action="help", help="Show this help message and exit"
     )
@@ -318,6 +332,7 @@ def _add_anilist_options(parser, *, search=False):
         help="Do not save activity or update AniList",
     )
     _add_debug_option(global_options, suppress_default=True)
+    _add_plain_option(global_options, suppress_default=True)
     global_options.add_argument(
         "-h", "--help", action="help", help="Show this help message and exit"
     )
@@ -369,6 +384,7 @@ def _add_resume_options(parser):
         help="Do not save history or update AniList",
     )
     _add_debug_option(global_options, suppress_default=True)
+    _add_plain_option(global_options, suppress_default=True)
     global_options.add_argument(
         "-h", "--help", action="help", help="Show this help message and exit"
     )

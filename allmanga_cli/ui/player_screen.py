@@ -152,6 +152,9 @@ _ticker_stop_event: threading.Event = threading.Event()
 def start_loading_ticker(poster_manager=None, ui=None) -> None:
     """Start background ticker thread that smoothly animates the spinner and timer."""
     global _ticker_thread
+    from ..context import FLAGS
+    if getattr(FLAGS, "plain_mode", False) or not sys.stdin.isatty():
+        return
     _ticker_stop_event.clear()
     if _ticker_thread and _ticker_thread.is_alive():
         return
@@ -223,6 +226,10 @@ def deactivate(close_alt: bool = False) -> None:
         terminal_images.clear_now()
     except Exception:
         pass
+    from ..context import FLAGS
+    if getattr(FLAGS, "plain_mode", False) or not sys.stdin.isatty():
+        _player_ui_state["active"] = False
+        return
     if close_alt:
         # Exit alt screen
         sys.stdout.write("\033[?1049l\033[?25h")
@@ -242,6 +249,15 @@ def add_status_line(message: str, color: str = "\033[94m") -> bool:
     s = _player_ui_state
     if not s["active"]:
         return False
+    from ..context import FLAGS
+    if getattr(FLAGS, "plain_mode", False) or not sys.stdin.isatty():
+        if sys.stdout.isatty():
+            sys.stdout.write(f"{color}{message}\033[0m\n")
+        else:
+            from .plain_picker import strip_ansi
+            sys.stdout.write(f"{strip_ansi(message)}\n")
+        sys.stdout.flush()
+        return True
     s["status_lines"].append(f"{color}{message}\033[0m")
     if len(s["status_lines"]) > 8:
         s["status_lines"].pop(0)
@@ -309,6 +325,10 @@ def render(
     """
     s = _player_ui_state
     if not s["active"]:
+        return
+
+    from ..context import FLAGS
+    if getattr(FLAGS, "plain_mode", False) or not sys.stdin.isatty():
         return
 
     # Fall back to cached poster_manager / ui if caller didn't pass them

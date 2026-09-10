@@ -14,6 +14,7 @@ from .args_common import (
     _provider_command_names,
     _set_cli_defaults,
     _add_debug_option,
+    _add_plain_option,
     _add_anilist_options,
     _provider_help,
     _help_color_enabled,
@@ -57,6 +58,7 @@ def build_command_parser():
         "-v", "--version", action="version", version=f"%(prog)s {__version__}", help="Show program's version number and exit"
     )
     _add_debug_option(global_options)
+    _add_plain_option(global_options)
 
     register_all_subcommands(commands)
     return parser

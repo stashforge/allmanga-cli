@@ -160,15 +160,47 @@ def tui_pick(
     """
     global _needs_redraw
 
+    if getattr(flags, "plain_mode", False) or not sys.stdin.isatty():
+        from .plain_picker import plain_pick
+        return plain_pick(
+            flags, ui, prompt, options,
+            header=header, hints=hints, live_fn=live_fn,
+            header_fn=header_fn, top_header_fn=top_header_fn,
+            tab_fn=tab_fn, reverse_fn=reverse_fn, delete_fn=delete_fn,
+            right_fn=right_fn, info_fn=info_fn, multi_select=multi_select,
+            is_search=is_search, query_history=query_history,
+            help_dict=help_dict, hide_separator=hide_separator,
+            count_total=count_total,
+            return_query_on_enter=return_query_on_enter,
+            initial_query=initial_query,
+            auto_select_single_when_done=auto_select_single_when_done,
+            tick_fn=tick_fn,
+            keep_cursor_hidden_on_select=keep_cursor_hidden_on_select,
+            select_fn=select_fn,
+            disabled_indices=disabled_indices,
+        )
+
     def current_prompt() -> str:
         return str(prompt() if callable(prompt) else prompt)
 
     def fallback_pick():
-        return fallback_tui_pick(
-            current_prompt(),
-            options,
+        from .plain_picker import plain_pick
+        return plain_pick(
+            flags, ui, prompt, options,
+            header=header, hints=hints, live_fn=live_fn,
+            header_fn=header_fn, top_header_fn=top_header_fn,
+            tab_fn=tab_fn, reverse_fn=reverse_fn, delete_fn=delete_fn,
+            right_fn=right_fn, info_fn=info_fn, multi_select=multi_select,
+            is_search=is_search, query_history=query_history,
+            help_dict=help_dict, hide_separator=hide_separator,
+            count_total=count_total,
             return_query_on_enter=return_query_on_enter,
             initial_query=initial_query,
+            auto_select_single_when_done=auto_select_single_when_done,
+            tick_fn=tick_fn,
+            keep_cursor_hidden_on_select=keep_cursor_hidden_on_select,
+            select_fn=select_fn,
+            disabled_indices=disabled_indices,
         )
 
     tty_fd = -1

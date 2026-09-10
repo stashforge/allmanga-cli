@@ -333,8 +333,9 @@ def handle_play_state(
                     except Exception:
                         pass
 
-                    sys.stdout.write("\033[?1049h\033[2J\033[H\033[?25h")
-                    sys.stdout.flush()
+                    if not getattr(flags, "plain_mode", False) and sys.stdin.isatty():
+                        sys.stdout.write("\033[?1049h\033[2J\033[H\033[?25h")
+                        sys.stdout.flush()
 
                     orig_termios = None
                     try:
@@ -374,8 +375,9 @@ def handle_play_state(
                     except Exception:
                         pass
 
-                    sys.stdout.write("\033[2J\033[H\033[?25l")
-                    sys.stdout.flush()
+                    if not getattr(flags, "plain_mode", False) and sys.stdin.isatty():
+                        sys.stdout.write("\033[2J\033[H\033[?25l")
+                        sys.stdout.flush()
                     try:
                         from ..ui.player_screen import render as _render
                         _render(poster_manager=getattr(app_core, "_poster_manager", None), ui=ui)
