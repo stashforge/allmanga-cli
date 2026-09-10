@@ -11,6 +11,7 @@ from typing import Any
 from ..context import CliFlags, UiState, MachineState
 from ..domain.titles import get_show_display_title
 from ..domain.episodes import (
+    clean_episode_identifier,
     episode_id_at,
     episode_index_for_id,
     episode_progress_number,
@@ -68,7 +69,7 @@ def handle_play_state(
 
     if ms.current_ep_index is None:
         app_core._exit_player_screen()
-        app_core.err(f"EP {ms.current_ep} is not present in the provider catalog.")
+        app_core.err(f"EP {clean_episode_identifier(str(ms.current_ep)) or ms.current_ep} is not present in the provider catalog.")
         return "EPISODE"
 
     ms.current_ep = episode_id_at(episode_ids, ms.current_ep_index)
@@ -760,7 +761,7 @@ def handle_play_state(
                     show_ctx = ui.ui_show_ctx
                     new_status = tracking_status_for_progress(show_ctx, pending_progress)
 
-                    def _pending_sync_success(ep=pending_ep, ctx=show_ctx):
+                    def _pending_sync_success(ep=pending_progress, ctx=show_ctx):
                         app_core.set_action_feedback(ctx, f"✔ Synced EP {ep} to AniList")
                     def _pending_sync_failure(ctx=show_ctx):
                         app_core.set_action_feedback(ctx, "Saved offline • AniList sync pending")
@@ -776,7 +777,7 @@ def handle_play_state(
                         },
                     )
                     if queued:
-                        app_core.set_action_feedback(show_ctx, f"Sync queued: EP {pending_ep}")
+                        app_core.set_action_feedback(show_ctx, f"Sync queued: EP {pending_progress}")
                 else:
                     sync_pending = False
 
@@ -825,13 +826,13 @@ def handle_play_state(
                     queued = app_core.queue_anilist_progress(
                         tkn, ms.show_title, progress_ep, al_id,
                         show_ctx, ttype, new_status,
-                        on_success=lambda ep=ms.current_ep, ctx=show_ctx:
+                        on_success=lambda ep=progress_ep, ctx=show_ctx:
                             app_core.set_action_feedback(ctx, f"✔ Synced EP {ep} to AniList"),
                         on_failure=lambda ctx=show_ctx:
                             app_core.set_action_feedback(ctx, "Saved offline • AniList sync pending"),
                     )
                     if queued:
-                        app_core.set_action_feedback(show_ctx, f"Sync queued: EP {ms.current_ep}")
+                        app_core.set_action_feedback(show_ctx, f"Sync queued: EP {progress_ep}")
 
             if result == "EOF" and (args.binge or cfg.get("binge")) and auto_scrobbled:
                 if ms.current_ep_index + 1 < ms.total_eps:
@@ -858,9 +859,12 @@ def handle_play_state(
                 app_core._ipc_player.quit()
                 if not auto_scrobbled:
                     if played_seconds < 5.0 and duration <= 0:
+                        ep_fmt = playback_mod._fmt_ep(
+                            current_ep_label or clean_episode_identifier(str(ms.current_ep)) or ms.current_ep
+                        )
                         app_core.set_action_feedback(
                             ui.ui_show_ctx,
-                            f"Playback failed or was interrupted on EP {ms.current_ep}."
+                            f"Playback failed or was interrupted on {ep_fmt}."
                         )
                     elif time_pos > 0:
                         next_ep = episode_id_at(episode_ids, ms.current_ep_index + 1) if (ms.current_ep_index is not None and ms.current_ep_index + 1 < ms.total_eps) else ms.current_ep
@@ -889,8 +893,7 @@ def handle_play_state(
                         queued = app_core.queue_anilist_progress(
                             tkn, ms.show_title, progress_ep, al_id,
                             show_ctx, ttype, new_status,
-                            on_success=lambda ep=ms.current_ep, ctx=show_ctx:
-
+                            on_success=lambda ep=progress_ep, ctx=show_ctx:
                                 app_core.set_action_feedback(ctx, f"✔ Synced EP {ep} to AniList"),
                             on_failure=lambda ctx=show_ctx:
                                 app_core.set_action_feedback(ctx, "Saved offline • AniList sync pending"),

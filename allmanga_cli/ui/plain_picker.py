@@ -26,12 +26,20 @@ def _emit(text: str, output_fn: Callable[..., None] = print) -> None:
         output_fn(text)
 
 
+SPINNER_CHARS = set("⣾⣽⣻⢿⡿⣟⣯⣷⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+
+
 def _clean_header_lines(hdr: str) -> list[str]:
-    """Clean multi-line header, stripping TUI-specific navigation footers."""
+    """Clean multi-line header, stripping TUI-specific navigation footers and spinners."""
     cleaned_lines = []
     for raw_line in str(hdr or "").splitlines():
         plain = strip_ansi(raw_line).strip()
         if not plain:
+            continue
+        # Filter out lines containing spinner animations or background status
+        if any(c in plain for c in SPINNER_CHARS):
+            continue
+        if "Checking for new episodes" in plain or "Loading..." in plain or "Enriching metadata" in plain:
             continue
         # Filter out TUI-specific keybinding footers
         if any(marker in plain for marker in (
@@ -95,25 +103,35 @@ def plain_pick(
     current_header = header
 
     if live_fn is not None:
-        import time
-        live_done = False
-        printed_searching = False
-        while not live_done:
-            try:
-                live_opts, live_hdr, _done = live_fn(initial_query)
-                live_done = bool(_done)
-                if live_opts:
-                    current_options = list(live_opts)
-                if live_hdr:
-                    current_header = live_hdr
-                if live_done:
-                    break
-                if not printed_searching and not current_options:
+        try:
+            live_opts, live_hdr, live_done = live_fn(initial_query)
+            if live_opts:
+                current_options = list(live_opts)
+            if live_hdr:
+                current_header = live_hdr
+        except Exception:
+            live_done = True
+
+        # If options are empty and live_fn indicates it's still loading (e.g. async search)
+        if not current_options and not live_done:
+            import time
+            start_wait = time.time()
+            printed_searching = False
+            while not live_done and (time.time() - start_wait < 15.0):
+                if not printed_searching:
                     _emit("Searching for results...", output_fn)
                     printed_searching = True
                 time.sleep(0.08)
-            except Exception:
-                break
+                try:
+                    live_opts, live_hdr, live_done = live_fn(initial_query)
+                    if live_opts:
+                        current_options = list(live_opts)
+                    if live_hdr:
+                        current_header = live_hdr
+                    if live_done or current_options:
+                        break
+                except Exception:
+                    break
 
     # Auto-select single option if requested and done
     if auto_select_single_when_done and len(current_options) == 1:
@@ -131,7 +149,12 @@ def plain_pick(
         prompt_text = str(prompt() if callable(prompt) else prompt)
 
         hdr_to_show = current_header
-        if header_fn is not None:
+        # In multi-show list pickers (top_header_fn is provided), header_fn(0) renders
+        # hover details for the 1st anime in the list. In plain mode, no anime is selected
+        # yet, so we do not display premature item 0 details.
+        # Only in single-show screens (top_header_fn is None, e.g. details, episode list)
+        # do we evaluate header_fn to display the selected show's metadata card.
+        if not hdr_to_show and header_fn is not None and top_header_fn is None:
             try:
                 hdr_eval = header_fn(0)
                 if hdr_eval:
@@ -152,13 +175,16 @@ def plain_pick(
             _emit(f"\n\033[1;36m=== {prompt_text} ===\033[0m", output_fn)
 
             if not current_options:
-                _emit("  (No selectable options)", output_fn)
+                _emit("(No selectable options)", output_fn)
                 if live_fn is None:
                     return -4
 
-            # Print Numbered Options with Hints
-            for idx, opt in enumerate(current_options):
-                clean_opt = strip_ansi(opt)
+            # Print Numbered Options with Hints (formatted as Python comments: # hint)
+            clean_opts = [strip_ansi(opt) for opt in current_options]
+            has_any_hints = bool(hints)
+            max_opt_len = max((len(o) for o in clean_opts), default=0) if has_any_hints else 0
+
+            for idx, (opt, clean_opt) in enumerate(zip(current_options, clean_opts)):
                 hint_str = ""
                 if hints is not None:
                     if isinstance(hints, dict):
@@ -168,14 +194,17 @@ def plain_pick(
 
                 clean_hint = strip_ansi(hint_str).strip()
                 if clean_hint:
+                    if clean_hint.startswith("(") and clean_hint.endswith(")"):
+                        clean_hint = clean_hint[1:-1].strip()
+                    pad = " " * (max(0, max_opt_len - len(clean_opt)) + 2) if max_opt_len <= 35 else "  "
                     _emit(
-                        f"  \033[1;34m[{idx + 1}]\033[0m {clean_opt} \033[38;5;244m({clean_hint})\033[0m",
+                        f"\033[1;34m[{idx + 1}]\033[0m {clean_opt}{pad}\033[38;5;244m# {clean_hint}\033[0m",
                         output_fn,
                     )
                 else:
-                    _emit(f"  \033[1;34m[{idx + 1}]\033[0m {clean_opt}", output_fn)
+                    _emit(f"\033[1;34m[{idx + 1}]\033[0m {clean_opt}", output_fn)
 
-            # Help / Available Actions Line
+            # Help / Available Actions Line (with gap separating from results)
             actions = ["[1-N] Select", "[q] Quit", "[b] Back"]
             if tab_fn is not None:
                 actions.append("[t] Next Tab")
@@ -184,13 +213,14 @@ def plain_pick(
             if multi_select:
                 actions[0] = "[1,2,3 or 1-4] Multi-select"
 
+            _emit("", output_fn)
             _emit(f"\033[38;5;244mActions: {', '.join(actions)}\033[0m", output_fn)
             show_options = False
 
         try:
             choice_str = input_fn("\nEnter choice: ").strip()
         except (EOFError, KeyboardInterrupt):
-            return -2
+            sys.exit(0)
 
         if not choice_str:
             continue
@@ -198,11 +228,11 @@ def plain_pick(
         lower = choice_str.lower()
 
         # Handle Quit
-        if lower in ("q", "quit", "exit", "esc"):
-            return -2
+        if lower in ("q", "quit", "exit"):
+            sys.exit(0)
 
         # Handle Back / Search
-        if lower in ("b", "back", "<", "left"):
+        if lower in ("b", "back", "<", "left", "esc"):
             return -3
 
         # Handle Help / Re-display options

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import threading
 from typing import Any, Callable
 
@@ -76,8 +77,11 @@ def make_provider_oneshot_search(query: str, ttype: str, provider_id: str | None
                 nonlocal al_shows
                 al_shows = search_anilist(token, query)
 
+            from ..context import FLAGS
+            is_plain = getattr(FLAGS, "plain_mode", False) or not sys.stdin.isatty()
+
             threads = [threading.Thread(target=_fetch_aa)]
-            if token:
+            if token and not is_plain:
                 threads.append(threading.Thread(target=_fetch_al))
 
             for t in threads: t.start()
@@ -92,7 +96,7 @@ def make_provider_oneshot_search(query: str, ttype: str, provider_id: str | None
                 results.extend(prepared)
                 _provider_search_cache[cache_key] = list(results)
 
-                if unmatched:
+                if unmatched and not is_plain:
                     enriching = True
                     from ..ui import picker as _picker_mod
                     def _bg_worker():
@@ -143,7 +147,10 @@ def make_provider_oneshot_search(query: str, ttype: str, provider_id: str | None
         if current_state != last_res_state:
             last_res_state = current_state
             cached_opts = [f"{get_show_display_title(s)}" for s in results]
-        return cached_opts, get_loading(), (not loading and not enriching)
+        from ..context import FLAGS
+        is_plain = getattr(FLAGS, "plain_mode", False) or not sys.stdin.isatty()
+        is_done = (not loading) if is_plain else (not loading and not enriching)
+        return cached_opts, get_loading(), is_done
 
     return live_fn, get_results, get_loading, get_error
 

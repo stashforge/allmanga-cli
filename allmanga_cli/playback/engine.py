@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import atexit
 import os
+import sys
 from typing import Any, Callable
 
 from ..playback.mpv import MpvIpc
@@ -32,10 +33,13 @@ def _exit_player_screen(close_alt: bool = False) -> None:
         terminal_images.clear_now()
     except Exception:
         pass
+    from ..context import FLAGS
+    if getattr(FLAGS, "plain_mode", False) or not sys.stdin.isatty():
+        _player_ui_state["active"] = False
+        return
     if close_alt:
         exit_alt_screen()
     else:
-        import sys
         sys.stdout.write("\033[2J\033[H\033[?25l")
         sys.stdout.flush()
     _player_ui_state["active"] = False

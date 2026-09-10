@@ -120,7 +120,7 @@ def handle_history_state(
         threading.Thread(target=_worker, daemon=True).start()
 
     global _history_session_refreshed
-    if not _history_session_refreshed:
+    if not _history_session_refreshed and not getattr(flags, "plain_mode", False):
         _history_session_refreshed = True
         _start_batch_refresh()
 
