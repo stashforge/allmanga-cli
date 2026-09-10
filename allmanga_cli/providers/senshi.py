@@ -73,7 +73,7 @@ class Senshi(Provider):
                 continue
                 
             title_obj = media.get("title", {})
-            title_str = title_obj.get("english") or title_obj.get("romaji") or title_obj.get("native") or "Unknown"
+            title_str = title_obj.get("romaji") or title_obj.get("english") or title_obj.get("native") or "Unknown"
             
             results.append(normalize_title(
                 {
@@ -81,6 +81,9 @@ class Senshi(Provider):
                     "malId": mal_id,
                     "aniListId": media.get("id"),
                     "name": title_str,
+                    "romajiName": title_obj.get("romaji"),
+                    "englishName": title_obj.get("english"),
+                    "nativeName": title_obj.get("native"),
                     "type": "anime",
                     "format": media.get("format"),
                     "status": media.get("status")

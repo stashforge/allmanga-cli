@@ -138,6 +138,11 @@ def activate(show: dict, current_ep: object, total_eps: int) -> None:
         "_row_bar": None,
         "_row_time": None,
     })
+    try:
+        from .picker import invalidate_screen_buffer
+        invalidate_screen_buffer()
+    except Exception:
+        pass
 
 
 _ticker_thread: threading.Thread | None = None
@@ -209,9 +214,21 @@ def deactivate(close_alt: bool = False) -> None:
         ``False`` when transitioning to the action menu.
     """
     stop_loading_ticker()
+    try:
+        from .picker import invalidate_screen_buffer
+        invalidate_screen_buffer()
+    except Exception:
+        pass
+    try:
+        terminal_images.clear_now()
+    except Exception:
+        pass
     if close_alt:
         # Exit alt screen
         sys.stdout.write("\033[?1049l\033[?25h")
+        sys.stdout.flush()
+    else:
+        sys.stdout.write("\033[2J\033[H\033[?25l")
         sys.stdout.flush()
     _player_ui_state["active"] = False
 

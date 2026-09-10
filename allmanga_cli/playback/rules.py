@@ -33,19 +33,19 @@ def playback_looks_complete(
     time_pos,
     duration,
     played_seconds=0,
+    start_time=0,
 ):
     try:
         duration = max(0.0, float(duration))
         time_pos = max(0.0, float(time_pos))
         percent = max(0.0, float(percent))
         played_seconds = max(0.0, float(played_seconds))
+        start_time = max(0.0, float(start_time))
     except (TypeError, ValueError):
         return False
     if duration <= 0:
-        return False
-
-    minimum_played = minimum_played_for_completion(duration)
-    if played_seconds < minimum_played:
+        if result == "EOF" and time_pos > 300:
+            return True
         return False
 
     remaining = max(0.0, duration - time_pos)
@@ -55,7 +55,22 @@ def playback_looks_complete(
         (percent >= 80 or position_ratio >= 0.80)
         and remaining <= 250
     )
-    return result == "EOF" or near_end or ending_reached
+
+    effective_played = played_seconds + start_time
+    minimum_played = minimum_played_for_completion(duration)
+    if effective_played < minimum_played:
+        return False
+
+    if result == "QUIT":
+        return remaining <= 30.0 or time_pos >= (duration - 30.0)
+
+    return (
+        result in ("EOF", "NEXT")
+        or near_end
+        or ending_reached
+        or remaining <= 30.0
+        or time_pos >= (duration - 30.0)
+    )
 
 
 def playback_updates_history(
@@ -64,10 +79,11 @@ def playback_updates_history(
     time_pos,
     duration,
     played_seconds=0,
+    start_time=0,
 ):
     return (
         playback_looks_complete(
-            result, percent, time_pos, duration, played_seconds
+            result, percent, time_pos, duration, played_seconds, start_time=start_time
         )
         or played_seconds >= 30
     )

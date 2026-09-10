@@ -105,19 +105,23 @@ def _fetch_pipe(payload: dict, domains: list[str]) -> dict | None:
                         f"{domain}/api/secure/pipe?e={encoded_req}",
                         headers=headers,
                         impersonate=browser,
-                        timeout=8,
+                        timeout=5,
                     )
                     if res.status_code == 200:
                         data = _decode_pipe_response(res.text.strip())
                         if data:
                             ACTIVE_DOMAIN = domain
                             return data
+                    elif res.status_code in (403, 503):
+                        # Cloudflare challenge or block; trying other impersonations won't help
+                        break
                 except Exception:
                     pass
-        data = _fetch_pipe_urllib(encoded_req, domain, headers)
-        if data:
-            ACTIVE_DOMAIN = domain
-            return data
+        else:
+            data = _fetch_pipe_urllib(encoded_req, domain, headers)
+            if data:
+                ACTIVE_DOMAIN = domain
+                return data
     return None
 
 class MiruroProvider:
@@ -169,9 +173,11 @@ class MiruroProvider:
         for media in media_list:
             results.append({
                 "_id": str(media["id"]),
-                "name": media["title"].get("english") or media["title"].get("romaji"),
+                "name": media["title"].get("romaji") or media["title"].get("english"),
+                "romajiName": media["title"].get("romaji"),
                 "englishName": media["title"].get("english"),
                 "nativeName": media["title"].get("native"),
+                "altNames": list(media.get("synonyms") or []),
                 "thumbnail": (media.get("coverImage") or {}).get("large"),
                 "banner": media.get("bannerImage"),
                 "description": media.get("description"),
@@ -207,16 +213,32 @@ class MiruroProvider:
         """
         body = {"query": gql, "variables": {"id": int(provider_id)}}
         body_bytes = json.dumps(body).encode()
-        res = self._request_json(ANILIST_URL, data=body_bytes)
+        try:
+            from ..core.storage import load_config
+            from ..services.anilist_auth import stored_anilist_token
+            token = stored_anilist_token(load_config())
+        except Exception:
+            token = ""
+        headers = {"Content-Type": "application/json", "Accept": "application/json", "User-Agent": "Mozilla/5.0"}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        req = urllib.request.Request(ANILIST_URL, data=body_bytes, headers=headers)
+        try:
+            with urllib.request.urlopen(req, timeout=10) as r:
+                res = json.loads(r.read().decode("utf-8"))
+        except Exception:
+            res = {}
         media = res.get("data", {}).get("Media")
         if not media:
             return None
             
         title_dict = {
             "_id": str(media["id"]),
-            "name": media["title"].get("english") or media["title"].get("romaji"),
+            "name": media["title"].get("romaji") or media["title"].get("english"),
+            "romajiName": media["title"].get("romaji"),
             "englishName": media["title"].get("english"),
             "nativeName": media["title"].get("native"),
+            "altNames": list(media.get("synonyms") or []),
             "thumbnail": (media.get("coverImage") or {}).get("large"),
             "banner": media.get("bannerImage"),
             "description": media.get("description"),

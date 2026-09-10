@@ -180,12 +180,14 @@ def search_anilist(token, query, raise_errors=False):
         _anilist_search_cache[cache_key] = shows
         return shows
     except SearchFailure as e:
-        debug_warn("AniList search failed", e)
+        if not raise_errors:
+            debug_warn("AniList search failed", e)
         if raise_errors:
             raise
         return []
     except Exception as e:
-        debug_warn("AniList search failed", e)
+        if not raise_errors:
+            debug_warn("AniList search failed", e)
         if raise_errors:
             raise SearchFailure(search_failure_message("AniList", e)) from e
         return []

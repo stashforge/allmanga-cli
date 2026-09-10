@@ -419,8 +419,24 @@ def fetch_episode_stream(show_id, ep_number, ttype="sub", quality="best", provid
         return source_priority(src)
 
     from ..media.resolver import generate_source_passes
-    exclude_sources = exclude_sources or set()
-    valid_sources = [s for s in sources if s.get("sourceName", "") not in exclude_sources]
+    exclude_sources = set(exclude_sources or [])
+
+    def _is_excluded(s):
+        sname = str(s.get("sourceName") or "")
+        base_name = sname.split(" (")[0].strip().lower()
+        link = str(s.get("link") or s.get("streamUrl") or "").strip().lower()
+        for ex in exclude_sources:
+            ex_str = str(ex).strip().lower()
+            if not ex_str:
+                continue
+            ex_base = ex_str.split(" (")[0].strip()
+            if ex_base and ex_base == base_name:
+                return True
+            if ex_str in sname.lower() or (link and ex_str == link):
+                return True
+        return False
+
+    valid_sources = [s for s in sources if not _is_excluded(s)]
     if not valid_sources:
         reporting.warn("All available mirrors are excluded.")
         return None

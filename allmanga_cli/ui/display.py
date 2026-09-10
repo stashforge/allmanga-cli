@@ -189,6 +189,11 @@ except Exception:
 def exit_alt_screen():
     global _alt_screen_active
     if _alt_screen_active:
+        try:
+            from .picker import invalidate_screen_buffer
+            invalidate_screen_buffer()
+        except Exception:
+            pass
         sys.stdout.write("\033[?1049l\033[?25h")
         sys.stdout.flush()
         _alt_screen_active = False
@@ -303,7 +308,13 @@ def with_loading(msg, fn, *args, **kwargs):
             raise result["error"]
         return result.get("value")
     finally:
-        sys.stdout.write(f"\033[{h};1H\033[2K")
+        if not _alt_screen_active:
+            sys.stdout.write(f"\033[{h};1H\033[2K")
+        try:
+            from .picker import invalidate_screen_row
+            invalidate_screen_row(h)
+        except Exception:
+            pass
         reporting.set_status_sink(old_sink)
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
         termios.tcflush(fd, termios.TCIFLUSH)

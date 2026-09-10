@@ -80,13 +80,16 @@ def handle_history_state(
     hopts = [app_core.format_history_entry(h) for h in filtered_hist]
 
     def _rebuild_history_view():
-        nonlocal filtered_hist, hopts
+        nonlocal filtered_hist, hopts, _hover_index
         filtered_hist = app_core.filter_history_entries(hist, history_mode)
         fshows = [h.get("show") for h in filtered_hist if isinstance(h.get("show"), dict)]
         if fshows:
             app_core.batch_prepare_shows_display_state(fshows, ttype)
         new_hopts = [app_core.format_history_entry(entry) for entry in filtered_hist]
         hopts[:] = new_hopts
+        if _hover_index >= len(filtered_hist):
+            _hover_index = max(0, len(filtered_hist) - 1) if filtered_hist else -1
+
 
     _history_open_time = time.time()
 
@@ -189,8 +192,9 @@ def handle_history_state(
         return app_core._poster_footer_line(entry.get("show", {}), default, width)
 
     def _hist_top_hdr(si):
-        if 0 <= si < len(filtered_hist):
-            show = filtered_hist[si].get("show", {})
+        if filtered_hist:
+            idx = si if 0 <= si < len(filtered_hist) else max(0, min(si, len(filtered_hist) - 1))
+            show = filtered_hist[idx].get("show", {})
             ui.hovered_show_id = show.get("_id")
             ui.hovered_show_obj = show
             app_core._hovered_show_id = ui.hovered_show_id
@@ -221,16 +225,14 @@ def handle_history_state(
             else:
                 msg = "Watch history is empty."
             parts.extend(["", f"\033[38;5;244m{msg}\033[0m", ""])
-        elif 0 <= si < len(filtered_hist):
-            h = filtered_hist[si]
+            selected_entry = {}
+        else:
+            idx = si if 0 <= si < len(filtered_hist) else max(0, min(si, len(filtered_hist) - 1))
+            h = filtered_hist[idx]
             tt = h.get("translation_type", "sub")
             selected_show = h.get("show", {})
             app_core.build_info_panel(selected_show, tt, w, parts, local_only=True, main_title=selected_show.get('name'))
-        selected_entry = (
-            filtered_hist[si]
-            if 0 <= si < len(filtered_hist)
-            else {}
-        )
+            selected_entry = h
 
         status_msg = history_refresh_status.get("BATCH") or history_refresh_status.get("SINGLE")
 
@@ -313,7 +315,7 @@ def handle_history_state(
         return "QUIT"
     if hidx == -3:
         return "SEARCH"
-    if hidx >= 0:
+    if 0 <= hidx < len(filtered_hist):
         playback_mod._clear_episode_source_state(ms)
         h = filtered_hist[hidx]
         show = h.get("show", {})
@@ -486,12 +488,33 @@ def handle_search_state(
     shows_list = get_results()
     if shows_list:
         app_core.batch_prepare_shows_display_state(shows_list, ttype)
-    initial_opts = [f"{s.get('name', 'Unknown')}" for s in shows_list]
+    initial_opts = [f"{app_core.get_show_display_title(s)}" for s in shows_list]
     hd2 = picker_help("Select anime", "New search", "Quit")
+
+    loaded_episodes_map: dict[str, list[str]] = {}
+
+    def _on_select(idx):
+        shows = get_results()
+        if not shows or not (0 <= idx < len(shows)):
+            return False
+        s = shows[idx]
+        ui.ui_show_ctx = s
+        ui.ui_ttype_ctx = ttype
+        ui.hovered_show_obj = s
+        app_core._hovered_show_id = s.get("_id") or s.get("id")
+        ep_ids = app_core.load_episode_ids_for_selection(s, ttype)
+        if not ep_ids:
+            err_msg = app_core.episode_catalog_error(s)
+            app_core.set_action_feedback(s, err_msg)
+            ui.search_error = err_msg
+            return False
+        loaded_episodes_map[str(s.get("_id") or idx)] = ep_ids
+        return True
+
     idx = tui_pick(
             flags, ui,
             search_title, initial_opts,
-            header_fn=_search_result_header(provider_name, ms.query_str, ttype, get_results, get_loading, get_error_fn=get_error),
+            header_fn=_search_result_header(provider_name, ms.query_str, ttype, get_results, get_loading, get_error_fn=lambda: (get_error() or ui.search_error)),
             top_header_fn=_search_cover_header(get_results),
             live_fn=live_fn,
             initial_query=ms.query_str,
@@ -499,6 +522,7 @@ def handle_search_state(
             help_dict=hd2,
             auto_select_single_when_done=ms.just_searched,
             info_fn=app_core.make_info_fn(get_results, ui),
+            select_fn=_on_select,
         )
 
     shows = get_results()
@@ -526,7 +550,7 @@ def handle_search_state(
         s = shows[idx]
         ms.show_id = s["_id"]
         ms.total_eps = s.get("availableEpisodes", {}).get(ttype, 0)
-        episode_ids = app_core.load_episode_ids_for_selection(s, ttype)
+        episode_ids = loaded_episodes_map.get(str(s.get("_id") or idx)) or app_core.load_episode_ids_for_selection(s, ttype)
         ms.total_eps = len(episode_ids) or ms.total_eps
         ms.show_title = get_show_display_title(s)
 
@@ -574,8 +598,10 @@ def handle_search_state(
             ms.current_ep_index = 0
             ms.current_ep = episode_id_at(episode_ids, 0)
         else:
-            app_core.set_action_feedback(s, app_core.episode_catalog_error(s))
-            return "DETAILS"
+            err_msg = app_core.episode_catalog_error(s)
+            ui.search_error = err_msg
+            app_core.set_action_feedback(s, err_msg)
+            return "SEARCH"
 
         if requested_episode_missing:
             return "EPISODE"

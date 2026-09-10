@@ -10,6 +10,11 @@ from ..core.terminal import (
 )
 
 
+def title_provider_key(title, default="allanime"):
+    from ..providers.shared.models import title_provider_key as _tpk
+    return _tpk(title, default)
+
+
 def wrap_title(text, columns, max_lines=2):
     """Wrap text within a fixed number of terminal display rows, word-aware."""
     if display_width(text) <= columns:
@@ -91,22 +96,57 @@ def extract_title_parts(title):
     return title, season, show_type
 
 
+def preferred_title_language(cfg=None) -> str:
+    """Return user-configured title language ('romaji' or 'english')."""
+    if cfg is None:
+        try:
+            from ..core.storage import load_config
+            cfg = load_config()
+        except Exception:
+            cfg = {}
+    return str((cfg or {}).get("title_language", "romaji") or "romaji").strip().lower()
+
+
+_cached_title_lang: str | None = None
+
+
+def get_cached_title_language(cfg=None) -> str:
+    """Fast in-memory getter for configured title language avoiding repeated disk/keyring access."""
+    global _cached_title_lang
+    if cfg is not None:
+        return preferred_title_language(cfg)
+    if _cached_title_lang is None:
+        _cached_title_lang = preferred_title_language()
+    return _cached_title_lang
+
+
+def invalidate_title_language_cache():
+    """Clear cached title language so config updates take effect immediately."""
+    global _cached_title_lang
+    _cached_title_lang = None
+
+
 def get_display_titles(show, main_title):
-    romaji = show.get("_display_name") or show.get("name")
+    main_clean = str(main_title or "").strip().lower()
+
+    romaji = show.get("romajiName") or show.get("_display_name") or show.get("name")
     if romaji:
-        romaji = romaji.strip()
+        romaji = str(romaji).strip()
     english = show.get("_display_english_name") or show.get("englishName")
     if english:
-        english = english.strip()
+        english = str(english).strip()
 
     alternate = ""
     if english and romaji and english.lower() != romaji.lower():
-        alternate = (
-            romaji if main_title.lower() == english.lower() else english
-        )
+        if main_clean == english.lower():
+            alternate = romaji
+        elif main_clean == romaji.lower():
+            alternate = english
+        else:
+            alternate = english
 
     if not alternate and show.get("altNames"):
-        excluded = main_title.lower()
+        excluded = main_clean
         candidates = [
             name.strip()
             for name in show["altNames"]
@@ -168,20 +208,31 @@ def get_display_titles(show, main_title):
 
     if not alternate:
         native = show.get("nativeName")
-        if native and native.strip().lower() != main_title.lower():
+        if native and native.strip().lower() != main_clean:
             alternate = native.strip()
     return sanitize_terminal_text(alternate)
 
 
-def get_show_display_title(show, fallback="Unknown", sync_enabled=None):
+def get_show_display_title(show, fallback="Unknown", sync_enabled=None, title_lang=None):
     if not show:
         return sanitize_terminal_text(fallback)
     if show.get("_anilist_context"):
         sync_enabled = True
     if sync_enabled is None:
         sync_enabled = bool(show.get("_sync_enabled"))
-    if sync_enabled:
-        title = show.get("_display_name") or show.get("name") or fallback
+
+    lang = (title_lang or get_cached_title_language()).lower()
+
+    english = (show.get("englishName") or show.get("_display_english_name") or "").strip()
+    romaji = (show.get("romajiName") or show.get("_display_name") or "").strip()
+
+    if lang == "english" and english:
+        title = english
+    elif lang == "romaji" and romaji:
+        title = romaji
+    elif sync_enabled:
+        title = show.get("_display_name") or romaji or english or show.get("name") or fallback
     else:
-        title = show.get("_allanime_name") or show.get("name") or fallback
+        title = show.get("_allanime_name") or show.get("name") or romaji or english or fallback
+
     return sanitize_terminal_text(title)

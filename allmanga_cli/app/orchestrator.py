@@ -497,7 +497,7 @@ def main() -> None:
             state = handlers.handle_anilist_browse_state(flags, ui, ms, cfg, args, cur_ttype, resolveTracking)
         elif state == "ANILIST_SEARCH":
             state = handlers.handle_anilist_search_state(flags, ui, ms, cfg, args, cur_ttype, resolveTracking)
-        elif state == "DETAILS":
+        elif state in ("DETAILS", "ACTION_MENU"):
             state = handlers.handle_details_state(flags, ui, ms, cfg, args, cur_ttype, resolveTracking)
         elif state == "UPDATE_PROGRESS":
             state = handlers.handle_update_progress_state(flags, ui, ms, cfg, args, cur_ttype, resolveTracking)
@@ -509,8 +509,6 @@ def main() -> None:
             state = handlers.handle_episode_state(flags, ui, ms, cfg, args, cur_ttype, resolveTracking)
         elif state == "PLAY":
             state = handlers.handle_play_state(flags, ui, ms, cfg, args, cur_ttype, quality, resolveTracking)
-        elif state == "ACTION_MENU":
-            state = handlers.handle_action_menu_state(flags, ui, ms, cfg, args, cur_ttype, resolveTracking)
         elif state == "MIRRORS":
             state = handlers.handle_mirrors_state(flags, ui, ms, cfg, args, cur_ttype, resolveTracking)
         else:

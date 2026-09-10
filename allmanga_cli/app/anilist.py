@@ -379,7 +379,7 @@ def handle_anilist_browse_state(
     al_shows = sort_anilist_shows(al_base_shows, sort_mode, history_for_sort)
     if sort_reverse:
         al_shows.reverse()
-    opts = [f"{s['name']}" for s in al_shows]
+    opts = [f"{app_core.get_show_display_title(s)}" for s in al_shows]
 
     def _al_top_hdr(si):
         if 0 <= si < len(al_shows):
@@ -425,7 +425,7 @@ def handle_anilist_browse_state(
         al_shows = sort_anilist_shows(al_base_shows, sort_mode, history_for_sort)
         if sort_reverse:
             al_shows.reverse()
-        opts = [f"{show['name']}" for show in al_shows]
+        opts = [f"{app_core.get_show_display_title(show)}" for show in al_shows]
         return opts, _al_hdr(0)
 
     def _al_reverse(_selected=None):
@@ -434,7 +434,7 @@ def handle_anilist_browse_state(
         cfg["anilist_sort_reverse"] = sort_reverse
         app_core.save_config(cfg)
         al_shows.reverse()
-        opts = [f"{show['name']}" for show in al_shows]
+        opts = [f"{app_core.get_show_display_title(show)}" for show in al_shows]
         return opts, _al_hdr(0)
 
     list_title = _anilist_list_label(stat)
@@ -563,7 +563,7 @@ def handle_anilist_search_state(
     shows_list = get_results()
     if shows_list:
         app_core.batch_prepare_shows_display_state(shows_list, "sub")
-    initial_opts = [f"{s.get('name', 'Unknown')}" for s in shows_list]
+    initial_opts = [f"{app_core.get_show_display_title(s)}" for s in shows_list]
     esc_action = "back" if ms.anilist_search_parent != "QUIT" else "quit"
     hd4 = picker_help(
         "Select anime",
@@ -577,7 +577,7 @@ def handle_anilist_search_state(
                 "AniList", ms.query_str, "sub",
                 get_results, get_loading,
                 esc_action=esc_action,
-                get_error_fn=get_error
+                get_error_fn=lambda: (get_error() or ui.search_error)
             ),
             top_header_fn=_search_cover_header(get_results),
             live_fn=live_fn,

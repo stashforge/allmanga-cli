@@ -34,10 +34,14 @@ def parse_episode_dual_numbers(raw: str) -> tuple[str, str | None]:
         if bracket_val:
             secondary = bracket_val.lstrip("0") or "0"
     clean_s = re.sub(r"\[.*?\]|\(.*?\)", "", s).strip()
-    m_prim = re.search(r"(?:^|[-_.\s]|(?:ep|episode|part)\s*)([0-9]+(?:\.[0-9]+)?)(?:[-_.\s]|$)", clean_s, re.I)
-    primary = ""
-    if m_prim:
-        primary = m_prim.group(1).lstrip("0") or "0"
+    cleaned = clean_episode_identifier(clean_s)
+    if cleaned and cleaned.replace(".", "", 1).isdigit():
+        primary = cleaned
+    else:
+        m_prim = re.search(r"(?:^|[-_.\s]|(?:ep|episode|part)\s*)([0-9]+(?:\.[0-9]+)?)(?:[-_.\s]|$)", clean_s, re.I)
+        primary = ""
+        if m_prim:
+            primary = m_prim.group(1).lstrip("0") or "0"
     return primary, secondary
 
 

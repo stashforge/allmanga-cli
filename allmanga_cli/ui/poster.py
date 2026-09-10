@@ -2,6 +2,7 @@
 
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -82,6 +83,9 @@ class PosterManager:
 
         default_line = fit_terminal_line(f"{hint}{trim(default_text)}{reset}", width)
         if not self.enabled() or not show:
+            return default_line
+        clean_default = re.sub(r'\033\[[0-9;]*m', '', str(default_text or "")).strip()
+        if clean_default.startswith('*') or clean_default.startswith('✓') or clean_default.startswith('✔'):
             return default_line
         with self.poster_lock:
             status = show.get("_poster_status")

@@ -48,7 +48,8 @@ def handle_details_state(
         if s.get("_id") and ui.search_prev_state in (
             "HISTORY", "SEARCH", "ANILIST_SEARCH", "ANILIST_BROWSE", "ANILIST_AIRING"
         ):
-            if s.get("_episode_catalog_state") != "loaded":
+            cat_state = s.get("_episode_catalog_state")
+            if cat_state not in ("loaded", "unavailable", "error"):
                 entry = {"show": s, "translation_type": ttype_local}
                 app_core.with_loading(
                     "Loading episodes…",
@@ -157,14 +158,29 @@ def handle_details_state(
     is_completed = (playback_status == "COMPLETED") or (watched_idx is not None and watched_idx == len(episode_ids) - 1 and str(s.get("status") or "").upper() == "FINISHED")
 
     if episode_ids:
-        if is_completed:
+        cur_has_resume = (
+            ms.current_ep is not None
+            and (app_core.get_resume_time(s.get("_id"), ms.current_ep) or 0) > 0
+        )
+        if cur_has_resume:
+            ms.current_ep_index = episode_index_for_id(episode_ids, ms.current_ep, labels=s.get("_episode_labels"))
+            if ms.current_ep_index is None:
+                ms.current_ep_index = 0
+                ms.current_ep = episode_id_at(episode_ids, 0)
+        elif is_completed:
             ms.current_ep_index = 0
             ms.current_ep = episode_id_at(episode_ids, 0)
+        elif watched_idx is not None:
+            watched_ep = episode_id_at(episode_ids, watched_idx)
+            watched_resume = app_core.get_resume_time(s.get("_id"), watched_ep) or 0
+            if watched_resume > 0:
+                target_idx = watched_idx
+            else:
+                target_idx = watched_idx + 1 if watched_idx + 1 < len(episode_ids) else watched_idx
+            ms.current_ep_index = target_idx
+            ms.current_ep = episode_id_at(episode_ids, target_idx)
         elif ms.current_ep_index is not None and 0 <= ms.current_ep_index < len(episode_ids):
             ms.current_ep = episode_id_at(episode_ids, ms.current_ep_index)
-        elif watched_idx is not None:
-            ms.current_ep_index = watched_idx
-            ms.current_ep = episode_id_at(episode_ids, watched_idx)
         else:
             ms.current_ep_index = 0
             ms.current_ep = episode_id_at(episode_ids, 0)
@@ -337,9 +353,17 @@ def handle_details_state(
         "Quit": "exit program"
     }
 
+    _hdr_cache = {}
+
     def _details_hdr(si):
         try: w = os.get_terminal_size().columns
         except OSError: w = 80
+
+        feedback = app_core.get_active_feedback(s)
+        cache_key = (w, feedback, ttype_local)
+        if cache_key in _hdr_cache:
+            return _hdr_cache[cache_key]
+
         parts = []
         app_core.build_info_panel(s, ttype_local, w, parts, local_only=getattr(ms, "_is_downloads", False))
         direct_single = (
@@ -352,7 +376,6 @@ def handle_details_state(
                 "Left=search • Esc="
                 + ("back" if ms.anilist_search_parent != "QUIT" else "quit")
             )
-        feedback = app_core.get_active_feedback(s)
         if feedback:
             full_nav_text = f"\033[38;5;222m{feedback}\033[0m"
         else:
@@ -360,10 +383,13 @@ def handle_details_state(
             if has_gaps:
                 full_nav_text = f"{len(episode_ids)} listed • {full_nav_text}"
         parts.append(app_core._poster_footer_line(s, full_nav_text, w))
-        return "\n".join(parts)
+        res = "\n".join(parts)
+        _hdr_cache[cache_key] = res
+        return res
 
     def _details_tab_fn(opt=None, direction=1):
         nonlocal ttype_local, episode_ids
+        _hdr_cache.clear()
         target_ttype = "dub" if ttype_local == "sub" else "sub"
         allowed, reason = app_core.check_translation_switch_capability(s, ttype_local, target_ttype)
         if not allowed:

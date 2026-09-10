@@ -349,6 +349,11 @@ def show_info_screen(
 
     finally:
         termios.tcsetattr(tty_fd, termios.TCSADRAIN, old_attrs)
+        try:
+            from .picker import invalidate_screen_buffer
+            invalidate_screen_buffer()
+        except Exception:
+            pass
         # Clear any native-protocol image we drew before returning to the picker,
         # so the picker can render its own image on the next redraw.
         sys.stdout.write(terminal_images.clear_now() + "\033[?25h")

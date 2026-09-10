@@ -18,6 +18,7 @@ from ..core.terminal import (
 )
 from ..domain.metadata import format_info_metadata_line
 from ..domain.titles import get_display_titles, get_show_display_title
+from ..state.preferences import get_active_feedback
 from .display import _poster_footer_line
 
 
@@ -118,10 +119,17 @@ def render_search_header(
         selected_show = shows[selected_idx]
         badge_list = list(badges or [])
         short_query = f'"{truncate_display(safe_query, 16)}"' if safe_query else ""
-        items = [p for p in [source_name, short_query, *badge_list, "Enter=select", "?=Help", "Left=search", f"Esc={esc_action}"] if p]
-        footer_nav = " • ".join(items)
-        if loading_msg:
-            footer_nav = f"{loading_msg}  │  {footer_nav}"
+        feedback = get_active_feedback(selected_show)
+        if not feedback and get_error_fn:
+            feedback = get_error_fn()
+        if feedback:
+            items = [p for p in ["Enter=select", "?=Help", "Left=search", f"Esc={esc_action}"] if p]
+            footer_nav = f"{C_WARN}* {feedback}{C_RESET}  │  {' • '.join(items)}"
+        else:
+            items = [p for p in [source_name, short_query, *badge_list, "Enter=select", "?=Help", "Left=search", f"Esc={esc_action}"] if p]
+            footer_nav = " • ".join(items)
+            if loading_msg:
+                footer_nav = f"{loading_msg}  │  {footer_nav}"
         lines = render_header_card(
             selected_show,
             ttype=ttype,

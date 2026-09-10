@@ -57,7 +57,11 @@ class AnimeGG(Provider):
 
     def search(self, query: str, ttype: str = "sub") -> list[dict[str, Any]]:
         url = f"{self.base_url}/search/?q={urllib.parse.quote(query)}"
-        html_content = self._fetch_html(url)
+        headers = dict(HEADERS)
+        headers["Referer"] = self.base_url
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req) as response:
+            html_content = response.read().decode("utf-8")
         
         results = []
         pattern = r'<a\b[^>]*href=["\']/series/([^/"\']+)["\'][^>]*class=["\'][^"\']*\bmse\b[^"\']*["\'][^>]*>([\s\S]*?)</a>'

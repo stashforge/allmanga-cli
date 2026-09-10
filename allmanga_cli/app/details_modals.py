@@ -31,10 +31,6 @@ def handle_update_progress_state(
     episode_ids = app_core.ensure_episode_ids(s, ttype_local)
 
     local_p = app_core.get_local_progress(s, ttype_local)
-    try:
-        prog = int(s.get("_anilist_progress") or local_p or 0)
-    except ValueError:
-        prog = int(local_p or 0)
 
     released = s.get("availableEpisodes", {}).get(ttype_local, 0)
     try:
@@ -105,13 +101,20 @@ def handle_update_progress_state(
             return True
         return False
 
+    _hdr_cache: dict[tuple, str] = {}
+
     def _progress_hdr(si):
         try: w = os.get_terminal_size().columns
         except OSError: w = 80
+        cache_key = (w, ttype_local, getattr(ms, "_is_downloads", False))
+        if cache_key in _hdr_cache:
+            return _hdr_cache[cache_key]
         parts = []
         app_core.build_info_panel(s, ttype_local, w, parts, local_only=getattr(ms, "_is_downloads", False))
         parts.append(app_core._poster_footer_line(s, "Enter/Right=set progress  Ctrl+R=flip  ? = Help  Left/Esc=back", w))
-        return "\n".join(parts)
+        res = "\n".join(parts)
+        _hdr_cache[cache_key] = res
+        return res
 
     def _format_entry_label(entry):
         lbl = entry["label"]
@@ -194,6 +197,12 @@ def handle_update_progress_state(
             s["_progress_authority"] = "LOCAL"
             app_core.set_action_feedback(s, f"✔ Saved progress: {chosen['label']}")
 
+        if s.get("_id") and target_ep_id and str(target_ep_id) != "0":
+            app_core.save_resume_time(s.get("_id"), target_ep_id, 0)
+
+        ms.current_ep_index = None
+        ms.current_ep = None
+
     return "DETAILS"
 
 
@@ -209,13 +218,20 @@ def handle_update_status_state(
     s = ui.ui_show_ctx
     ttype_local = ui.ui_ttype_ctx
 
+    _hdr_cache: dict[tuple, str] = {}
+
     def _status_hdr(si):
         try: w = os.get_terminal_size().columns
         except OSError: w = 80
+        cache_key = (w, ttype_local, getattr(ms, "_is_downloads", False))
+        if cache_key in _hdr_cache:
+            return _hdr_cache[cache_key]
         parts = []
         app_core.build_info_panel(s, ttype_local, w, parts, local_only=getattr(ms, "_is_downloads", False))
         parts.append(app_core._poster_footer_line(s, "Enter/Right=select  ? = Help  Left/Esc=back", w))
-        return "\n".join(parts)
+        res = "\n".join(parts)
+        _hdr_cache[cache_key] = res
+        return res
 
     status_choices = [
         ("Watching", "CURRENT"),
@@ -284,13 +300,20 @@ def handle_update_score_state(
     s = ui.ui_show_ctx
     ttype_local = ui.ui_ttype_ctx
 
+    _hdr_cache: dict[tuple, str] = {}
+
     def _score_hdr(si):
         try: w = os.get_terminal_size().columns
         except OSError: w = 80
+        cache_key = (w, ttype_local, getattr(ms, "_is_downloads", False))
+        if cache_key in _hdr_cache:
+            return _hdr_cache[cache_key]
         parts = []
         app_core.build_info_panel(s, ttype_local, w, parts, local_only=getattr(ms, "_is_downloads", False))
         parts.append(app_core._poster_footer_line(s, "Enter/Right=select  ? = Help  Left/Esc=back", w))
-        return "\n".join(parts)
+        res = "\n".join(parts)
+        _hdr_cache[cache_key] = res
+        return res
 
     opts = [str(i) for i in range(10, 0, -1)]
     hd8 = picker_help("Select score", "Go back", "Go back")

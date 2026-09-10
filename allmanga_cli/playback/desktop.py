@@ -35,6 +35,7 @@ def play_desktop(
         else ""
     )
     subtitles = stream.get("subtitles") or stream.get("vtt") or []
+    audio_tracks = stream.get("audio_tracks") or []
     referer = validate_optional_referer(stream.get("referer", ""))
     headers = proxy_filtered_headers(stream.get("headers", {}))
     resolution = stream.get("resolution", "Adaptive")
@@ -60,6 +61,8 @@ def play_desktop(
         or get_resume_time(show_id, ep_str)
         or get_resume_time(show_id, raw_ep)
     ) if show_id else 0
+    if start_time > 0:
+        start_time = max(0, start_time - 30)
     resume_message = (
         f"Resuming at {int(start_time // 60):02d}:"
         f"{int(start_time % 60):02d}"
@@ -90,6 +93,7 @@ def play_desktop(
         subtitles=subtitles,
         skip_intervals=skip_intervals,
         aniskip_auto=aniskip_auto,
+        audio_tracks=audio_tracks,
     )
 
 

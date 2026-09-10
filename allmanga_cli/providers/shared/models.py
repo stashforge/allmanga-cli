@@ -15,7 +15,7 @@ from allmanga_cli.brain.core.models import EpisodeToken
 
 
 _TITLE_SCHEMA_KEYS = {
-    "_id", "id", "name", "englishName", "nativeName", "altNames",
+    "_id", "id", "name", "englishName", "romajiName", "nativeName", "altNames",
     "thumbnail", "banner", "description", "type", "format", "status",
     "season", "airedStart", "airedEnd", "startDate", "endDate",
     "episodeCount", "availableEpisodes", "availableEpisodesDetail",
@@ -66,8 +66,9 @@ def normalize_title(
         provider_name=provider_name,
         provider_id=source_id,
         name=title.get("name") or "",
-        english_name=title.get("englishName") or "",
-        native_name=title.get("nativeName") or "",
+        english_name=title.get("englishName") or title.get("english_name") or "",
+        romaji_name=title.get("romajiName") or title.get("romaji_name") or title.get("romaji") or "",
+        native_name=title.get("nativeName") or title.get("native_name") or "",
         alt_names=title.get("altNames") or [],
         thumbnail=title.get("thumbnail") or "",
         banner=title.get("banner") or "",

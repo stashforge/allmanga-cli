@@ -78,10 +78,15 @@ class AniDBApp(Provider):
         headers = dict(NAV_HEADERS)
         headers["Referer"] = f"{self.base_url}/home"
 
-        status, html = self._fetch(url, headers=headers)
-        if status != 200:
-            log.debug(f"AniDBApp search failed: HTTP {status}")
-            return []
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=8) as response:
+            if response.status != 200:
+                import http.client
+                from ..core.api import SearchFailure
+                reason = getattr(response, "reason", None) or http.client.responses.get(response.status, "")
+                reason_suffix = f": {reason}" if reason else ""
+                raise SearchFailure(f"{self.name} request failed (HTTP {response.status}{reason_suffix}).")
+            html = response.read().decode("utf-8")
             
         results = []
         seen = set()

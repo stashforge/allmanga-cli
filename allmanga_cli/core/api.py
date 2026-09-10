@@ -47,18 +47,22 @@ def search_failure_message(source, exc):
     if type(exc).__name__ == "TMDBError":
         return str(exc)
     if isinstance(exc, urllib.error.HTTPError):
+        import http.client
+        reason = getattr(exc, "reason", None) or http.client.responses.get(exc.code, "")
+        reason_suffix = f": {reason}" if reason else ""
         if exc.code in (401, 403):
-            return f"{source} authentication or access was rejected."
+            return f"{source} authentication or access was rejected (HTTP {exc.code}{reason_suffix})."
         if exc.code == 429:
-            return f"{source} rate limit reached. Try again later."
+            return f"{source} rate limit reached (HTTP 429{reason_suffix})."
         if 500 <= exc.code <= 599:
-            return f"{source} service is temporarily unavailable."
-        return f"{source} request failed (HTTP {exc.code})."
+            return f"{source} service is temporarily unavailable (HTTP {exc.code}{reason_suffix})."
+        return f"{source} request failed (HTTP {exc.code}{reason_suffix})."
     reason = exc.reason if isinstance(exc, urllib.error.URLError) else exc
     if isinstance(reason, (TimeoutError, socket.timeout)):
         return f"{source} request timed out."
     if isinstance(exc, urllib.error.URLError):
-        return f"Could not connect to {source}."
+        reason_suffix = f": {reason}" if reason else ""
+        return f"Could not connect to {source}{reason_suffix}."
     if isinstance(exc, (json.JSONDecodeError, KeyError, TypeError)):
         return f"{source} returned an invalid response."
     return f"{source} search failed."

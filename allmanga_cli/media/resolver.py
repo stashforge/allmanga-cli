@@ -313,4 +313,4 @@ def _resolve_source_impl(source, silent=False):
             return result
 
     info(f"[{name}] extracting via yt-dlp ...")
-    return resolve_ytdlp_embed(url, name=name, priority=priority, ok=ok, warn=warn)
+    return resolve_ytdlp_embed(url, name=name, priority=priority, ok=ok, warn=warn, subtitles=source.get("subtitles"))

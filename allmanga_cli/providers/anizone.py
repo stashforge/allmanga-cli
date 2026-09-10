@@ -99,6 +99,8 @@ class AniZoneProvider:
                     results.append(anime_info)
 
             return normalize_titles(results, provider_id=self.id, provider_name=self.name, id_key="_id")
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError):
+            raise
         except Exception as e:
             _logger.debug("AniZone search error: %s", e)
             return []
@@ -225,7 +227,17 @@ class AniZoneProvider:
                     data = json.loads(m.group(2).encode('utf-8').decode('unicode_escape'))
                     stream_url = data.get('src', '').replace('\\/', '/')
                     if stream_url:
-                        source_urls.append({
+                        subtitles = []
+                        for sub in data.get("subtitles", []) or []:
+                            s_file = str(sub.get("file") or "").replace('\\/', '/')
+                            if s_file:
+                                subtitles.append({
+                                    "url": s_file,
+                                    "label": sub.get("title") or (sub.get("language") or "Subtitle").title(),
+                                    "language": sub.get("language", ""),
+                                    "default": bool(sub.get("default")),
+                                })
+                        src_dict = {
                             "sourceName": "AniZone (VidStack)",
                             "streamUrl": stream_url,
                             "type": "hls",
@@ -236,7 +248,12 @@ class AniZoneProvider:
                                 "Origin": self.base_url,
                                 "User-Agent": self.headers['User-Agent'],
                             }
-                        })
+                        }
+                        if subtitles:
+                            src_dict["subtitles"] = subtitles
+                            def_sub = next((s["url"] for s in subtitles if s.get("default")), subtitles[0]["url"])
+                            src_dict["subtitle_url"] = def_sub
+                        source_urls.append(src_dict)
                 except Exception as e:
                     _logger.debug("AniZone vidstackPlayer JSON parse error: %s", e)
 

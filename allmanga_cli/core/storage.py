@@ -260,6 +260,11 @@ def set_title_sync(show, enabled: bool):
         load_prefs(), show, enabled
     ))
     show["_sync_enabled"] = bool(enabled)
+    try:
+        from allmanga_cli.ui.info_panel import invalidate_panel_cache
+        invalidate_panel_cache()
+    except ImportError:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -452,7 +457,18 @@ def get_local_episode_label(show, ttype="sub"):
         return None
     entry = get_history_entry(show, ttype)
     if entry and "episode" in entry:
-        return entry["episode"]
+        eid = entry["episode"]
+        if str(eid) in ("0", "0.0"):
+            return "0"
+        labels = (show or {}).get("_episode_labels") or (entry.get("show") or {}).get("_episode_labels") or {}
+        if labels and str(eid) in labels:
+            return str(labels[str(eid)])
+        from ..domain.episodes import clean_episode_identifier
+        if str(eid).startswith(("http://", "https://", "/")):
+            cleaned = clean_episode_identifier(str(eid))
+            if cleaned:
+                return cleaned
+        return str(eid)
     return None
 
 
@@ -485,6 +501,19 @@ def episode_id_for_progress(show, ttype, progress):
 
     if str(progress) in episode_ids:
         return str(progress)
+
+    labels = show.get("_episode_labels") or {}
+    if labels:
+        from ..domain.episodes import clean_episode_identifier
+        clean_target = str(clean_episode_identifier(str(progress)) or progress)
+        for eid, lbl in labels.items():
+            if str(clean_episode_identifier(str(lbl)) or lbl) == clean_target or str(lbl) == str(progress) or str(eid) == str(progress):
+                return str(eid)
+
+    from ..domain.episodes import episode_index_for_id
+    ep_idx = episode_index_for_id(episode_ids, progress, labels=labels)
+    if ep_idx is not None and 0 <= ep_idx < len(episode_ids):
+        return str(episode_ids[ep_idx])
 
     if numeric_prog is not None:
         for eid in episode_ids:
@@ -546,7 +575,13 @@ def write_history_progress(show, progress, ttype, last_synced=None, touch=False)
     history = history[:paths.HISTORY_MAX]
     _atomic_write_json(paths.HISTORY_PATH, sanitize_history_list(history), indent=2)
     _history_cache = history
-    show["_local_progress"] = progress
+    show["_local_progress"] = get_local_progress(show, ttype) or progress
+    show["_local_episode_label"] = get_local_episode_label(show, ttype) or show.get("_local_progress")
+    try:
+        from allmanga_cli.ui.info_panel import invalidate_panel_cache
+        invalidate_panel_cache()
+    except ImportError:
+        pass
     return entry
 
 
@@ -566,8 +601,9 @@ def save_history(show, episode, ttype):
     if is_incognito():
         return
     episode_ids = show.get("_episode_ids") or []
+    labels = show.get("_episode_labels") or {}
     if episode_ids:
-        episode_index = episode_index_for_id(episode_ids, episode)
+        episode_index = episode_index_for_id(episode_ids, episode, labels=labels)
         if episode_index is None:
             debug_warn(
                 "Skipped history update",
@@ -623,22 +659,27 @@ def patch_history_entry_show(show_id, ttype, updated_show):
         return False
     history = load_history()
     changed = False
+    str_show_id = str(show_id)
+    safe_keys = {
+        "status", "episodeCount", "availableEpisodes", "availableEpisodesDetail",
+        "name", "englishName", "nativeName", "thumbnail", "altNames",
+        "type", "season", "airedStart", "score",
+        "_episode_ids", "_episode_ids_ttype", "_episode_labels", "_episode_labels_ttype",
+        "_episode_catalog_state", "_allanime_checked_at",
+        "aniListId", "malId", "_provider", "_provider_id", "_provider_name",
+    }
     for entry in history:
         if entry.get("translation_type", "sub") == ttype:
             s = entry.get("show")
-            if s and s.get("_id") == show_id:
-                # Merge safe provider fields from updated_show into the disk's show object
-                safe_keys = {
-                    "status", "episodeCount", "availableEpisodes", "availableEpisodesDetail",
-                    "name", "englishName", "nativeName", "thumbnail", "altNames",
-                    "type", "season", "airedStart", "score",
-                    "_episode_ids", "_episode_ids_ttype", "_episode_catalog_state", "_allanime_checked_at"
-                }
-                for k in safe_keys:
-                    v = updated_show.get(k)
-                    if v is not None and s.get(k) != v:
-                        s[k] = v
-                        changed = True
+            if s and str(s.get("_id") or s.get("id") or "") == str_show_id:
+                if s is updated_show:
+                    changed = True
+                else:
+                    for k in safe_keys:
+                        v = updated_show.get(k)
+                        if v is not None and s.get(k) != v:
+                            s[k] = v
+                            changed = True
                 break
     if changed:
         return save_refreshed_history(history)
@@ -811,7 +852,13 @@ def save_config(cfg):
     disk_cfg = dict(cfg)
     if secret_state.is_available() and secret_state.get_secret(secret_state.ANILIST_KEY):
         disk_cfg["anilist_token"] = ""
-    return save_config_file(paths.CONFIG_PATH, disk_cfg, disabled=is_incognito())
+    res = save_config_file(paths.CONFIG_PATH, disk_cfg, disabled=is_incognito())
+    try:
+        from ..domain.titles import invalidate_title_language_cache
+        invalidate_title_language_cache()
+    except Exception:
+        pass
+    return res
 
 
 def load_downloads_db():

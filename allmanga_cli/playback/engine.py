@@ -22,8 +22,22 @@ def _exit_player_screen(close_alt: bool = False) -> None:
         stop_loading_ticker()
     except Exception:
         pass
+    try:
+        from allmanga_cli.ui.picker import invalidate_screen_buffer
+        invalidate_screen_buffer()
+    except Exception:
+        pass
+    try:
+        from allmanga_cli.ui import terminal_images
+        terminal_images.clear_now()
+    except Exception:
+        pass
     if close_alt:
         exit_alt_screen()
+    else:
+        import sys
+        sys.stdout.write("\033[2J\033[H\033[?25l")
+        sys.stdout.flush()
     _player_ui_state["active"] = False
 
 

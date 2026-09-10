@@ -64,47 +64,67 @@ def fetch_skip_times(
     )
 
     results = []
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            if resp.status == 200:
-                data = json.loads(resp.read().decode("utf-8"))
-                if data.get("found") and data.get("results"):
-                    for item in data["results"]:
-                        interval = item.get("interval", {})
-                        start = float(interval.get("startTime", 0))
-                        end = float(interval.get("endTime", 0))
-                        if end > start:
-                            stype = item.get("skipType", "").lower()
-                            if "op" in stype:
-                                label = "Opening"
-                            elif "ed" in stype:
-                                label = "Ending"
-                            elif "recap" in stype:
-                                label = "Recap"
-                            else:
-                                label = stype.upper()
+    should_cache = False
+    max_attempts = 3
+    for attempt in range(max_attempts):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                if resp.status == 200:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    if data.get("found") and data.get("results"):
+                        for item in data["results"]:
+                            interval = item.get("interval", {})
+                            start = float(interval.get("startTime", 0))
+                            end = float(interval.get("endTime", 0))
+                            if end > start:
+                                stype = item.get("skipType", "").lower()
+                                if "op" in stype:
+                                    label = "Opening"
+                                elif "ed" in stype:
+                                    label = "Ending"
+                                elif "recap" in stype:
+                                    label = "Recap"
+                                else:
+                                    label = stype.upper()
 
-                            results.append({
-                                "type": stype,
-                                "start": start,
-                                "end": end,
-                                "label": label,
-                            })
-                    if results:
-                        summary = ", ".join([f"{r['label']} ({r['start']:.1f}s - {r['end']:.1f}s)" for r in results])
-                        log.debug(f"[aniskip] Found {len(results)} interval(s): {summary}")
-                else:
-                    log.debug(f"[aniskip] No skip times recorded on AniSkip for MAL ID {mal_id_int} EP {ep_num}.")
-    except urllib.error.HTTPError as exc:
-        if exc.code in (404, 500, 502, 503):
-            log.debug(f"[aniskip] No skip times recorded on AniSkip for MAL ID {mal_id_int} EP {ep_num} (HTTP {exc.code}).")
-        else:
-            log.debug(f"[aniskip] AniSkip HTTP error {exc.code}: {exc.reason}")
-            debug_warn("AniSkip HTTP error", exc)
-    except Exception as exc:
-        log.debug(f"[aniskip] AniSkip request error: {exc}")
+                                results.append({
+                                    "type": stype,
+                                    "start": start,
+                                    "end": end,
+                                    "label": label,
+                                })
+                        if results:
+                            summary = ", ".join([f"{r['label']} ({r['start']:.1f}s - {r['end']:.1f}s)" for r in results])
+                            log.debug(f"[aniskip] Found {len(results)} interval(s): {summary}")
+                    else:
+                        log.debug(f"[aniskip] No skip times recorded on AniSkip for MAL ID {mal_id_int} EP {ep_num}.")
+                    should_cache = True
+                    break
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                log.debug(f"[aniskip] No skip times recorded on AniSkip for MAL ID {mal_id_int} EP {ep_num} (HTTP 404).")
+                should_cache = True
+                break
+            elif exc.code in (500, 502, 503, 504):
+                log.debug(f"[aniskip] AniSkip HTTP {exc.code} on attempt {attempt + 1}/{max_attempts}.")
+                if attempt < max_attempts - 1:
+                    import time
+                    time.sleep(0.3)
+                    continue
+            else:
+                log.debug(f"[aniskip] AniSkip HTTP error {exc.code}: {exc.reason}")
+                debug_warn("AniSkip HTTP error", exc)
+                break
+        except Exception as exc:
+            log.debug(f"[aniskip] AniSkip request error on attempt {attempt + 1}/{max_attempts}: {exc}")
+            if attempt < max_attempts - 1:
+                import time
+                time.sleep(0.3)
+                continue
+            break
 
-    _ANISKIP_CACHE[cache_key] = results
+    if should_cache or results:
+        _ANISKIP_CACHE[cache_key] = results
     return results
 
 

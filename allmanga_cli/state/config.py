@@ -20,6 +20,7 @@ DEFAULT_CONFIG = {
     "spinner": "braille",
     "allanime_frontend_domain": "https://mkissa.to",
     "provider": "miruro",
+    "title_language": "romaji",
     "aniskip": True,
     "auto_skip": True,
 }

@@ -47,12 +47,14 @@ def search_anime(query: str, ttype: str = "sub", raise_errors: bool = False, pro
     try:
         return get_provider(provider_id, _req).search(query, ttype)
     except SearchFailure as e:
-        debug_warn(f"{provider_name} search failed", e)
+        if not raise_errors:
+            debug_warn(f"{provider_name} search failed", e)
         if raise_errors:
             raise
         return []
     except Exception as e:
-        debug_warn(f"{provider_name} search failed", e)
+        if not raise_errors:
+            debug_warn(f"{provider_name} search failed", e)
         if raise_errors:
             failure = SearchFailure(search_failure_message(provider_name, e))
             raise failure from e

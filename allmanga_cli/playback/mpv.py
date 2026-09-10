@@ -44,16 +44,21 @@ class MpvIpc:
         self.prefetched_res = None
         self.is_fetching = False
         self._pending_audio_url = ""
+        self._pending_audio_tracks = []
         self._pending_subtitle_url = ""
 
     def start(self):
-        if self.process and self.process.poll() is None: return
+        if self.process and self.process.poll() is None:
+            if self.client:
+                self.running = True
+            return
         cleanup_mpv_runtime(self.runtime_dir)
-        self.runtime_dir, self.socket_path, self.conf_path, self.chapters_path = create_mpv_runtime()
+        self.runtime_dir, self.socket_path, self.conf_path, self.chapters_path, self.lua_path = create_mpv_runtime()
         try:
             self.process = subprocess.Popen([
                 "mpv", "--idle=yes", "--keep-open=no", f"--input-ipc-server={self.socket_path}",
-                f"--input-conf={self.conf_path}", f"--chapters-file={self.chapters_path}", "--force-window=yes"
+                f"--input-conf={self.conf_path}", f"--chapters-file={self.chapters_path}",
+                f"--script={self.lua_path}", "--force-window=yes", "--no-ytdl"
             ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
             for _ in range(20):
@@ -75,17 +80,20 @@ class MpvIpc:
         self.send_cmd("observe_property", 5, "paused-for-cache")
 
     def send_cmd(self, *args):
-        if not self.running: return
+        if not self.running and not (self.process and self.process.poll() is None and self.client):
+            return
         try:
             msg = json.dumps({"command": list(args)}) + "\n"
             self.client.sendall(msg.encode("utf-8"))
+            self.running = True
         except Exception:
             self.running = False
 
     def load(
             self, url, title, headers, referer, start_time=0, osd_msg="",
-            audio_url="", subtitle_url="", subtitles=None, skip_intervals=None, aniskip_auto=True):
+            audio_url="", subtitle_url="", subtitles=None, skip_intervals=None, aniskip_auto=True, audio_tracks=None):
         self.start()
+        self.running = True
         self.props["playback-time"] = 0
         self.props["duration"] = 0
         self.props["pause"] = False
@@ -96,9 +104,14 @@ class MpvIpc:
         self.skipped_intervals = set()
         self.active_skip_prompt = None
         self.send_cmd("set_property", "force-media-title", title)
-        hf = [f"{k}: {v}" for k, v in headers.items()] if headers else []
-        if referer and "wixstatic" not in url:
-            hf.append(f"Referer: {referer}")
+        headers_dict = dict(headers) if headers else {}
+        ua = headers_dict.pop("User-Agent", None) or headers_dict.pop("user-agent", None)
+        if ua:
+            self.send_cmd("set_property", "user-agent", ua)
+        ref = referer or headers_dict.pop("Referer", None) or headers_dict.pop("referer", None)
+        if ref and "wixstatic" not in url:
+            self.send_cmd("set_property", "referrer", ref)
+        hf = [f"{k}: {v}" for k, v in headers_dict.items()]
         if hf:
             self.send_cmd("set_property", "http-header-fields", ",".join(hf))
 
@@ -122,6 +135,7 @@ class MpvIpc:
             self.send_cmd("set_property", "start", "none")
 
         self._pending_audio_url = audio_url or ""
+        self._pending_audio_tracks = list(audio_tracks) if audio_tracks else []
         self._pending_subtitle_url = subtitle_url or ""
         self._pending_subtitles = list(subtitles) if subtitles else []
 
@@ -133,6 +147,12 @@ class MpvIpc:
                 pass
 
         self.send_cmd("loadfile", url)
+        self.send_cmd(
+            "script-message",
+            "set_skip_intervals",
+            json.dumps(self.skip_intervals),
+            "yes" if self.aniskip_auto else "no",
+        )
 
 
         msg = f"{skip_msg}Now playing\n{title}\n\nShift+Right: Next  •  Shift+Left: Previous  •  Q: Quit"
@@ -141,7 +161,20 @@ class MpvIpc:
         self.initial_osd_msg = msg
 
     def _attach_pending_external_tracks(self):
-        if self._pending_audio_url:
+        if getattr(self, "_pending_audio_tracks", None):
+            for track in self._pending_audio_tracks:
+                a_url = track.get("url")
+                a_label = track.get("label") or "Audio"
+                a_lang = track.get("language") or ""
+                if a_url:
+                    mode = "select" if track.get("default") else "auto"
+                    if a_lang:
+                        self.send_cmd("audio-add", a_url, mode, a_label, a_lang)
+                    else:
+                        self.send_cmd("audio-add", a_url, mode, a_label)
+            self._pending_audio_tracks = []
+            self._pending_audio_url = ""
+        elif self._pending_audio_url:
             self.send_cmd("audio-add", self._pending_audio_url, "select")
             self._pending_audio_url = ""
         if getattr(self, "_pending_subtitles", None):
@@ -192,7 +225,7 @@ class MpvIpc:
         else:
             old_attrs = None
 
-        result = "EOF"
+        result = "QUIT"
         buf = ""
         want_skip_to = None
         want_skip_ep = None
@@ -357,6 +390,17 @@ class MpvIpc:
                     try:
                         data = self.client.recv(4096)
                         if not data:
+                            if pending_action:
+                                result = pending_action
+                            elif not initial_osd_shown or played_seconds < 2.0:
+                                curr_pos = float(self.props.get("playback-time") or 0)
+                                r_time = float(getattr(self, "resume_time", 0) or 0)
+                                if (curr_pos <= 0.0 and r_time <= 0.0) and played_seconds < 1.0:
+                                    result = "ERROR"
+                                else:
+                                    result = "QUIT"
+                            else:
+                                result = "QUIT"
                             self.running = False; break
                         buf += data.decode("utf-8")
                         while "\n" in buf:
@@ -367,6 +411,13 @@ class MpvIpc:
                                 ev = msg.get("event")
                                 if ev == "file-loaded":
                                     self._attach_pending_external_tracks()
+                                    if self.skip_intervals:
+                                        self.send_cmd(
+                                            "script-message",
+                                            "set_skip_intervals",
+                                            json.dumps(self.skip_intervals),
+                                            "yes" if self.aniskip_auto else "no",
+                                        )
                                 elif ev == "end-file":
                                     if getattr(self, "expect_ghost_eof", False):
                                         self.expect_ghost_eof = False
@@ -377,14 +428,28 @@ class MpvIpc:
                                         result = pending_action
                                         if pending_action == "QUIT":
                                             self.running = False
-                                    elif reason in ("quit", "error"):
+                                    elif reason == "error":
+                                        curr_pos = float(self.props.get("playback-time") or 0)
+                                        dur = float(self.props.get("duration", 0) or 0)
+                                        r_time = float(getattr(self, "resume_time", 0) or 0)
+                                        if dur > 0 and (curr_pos >= dur - 30.0 or r_time >= dur - 30.0):
+                                            result = "EOF"
+                                        else:
+                                            result = "ERROR"
+                                            self.send_cmd("show-text", "⚠ Playback failed. Trying next mirror...", 10000)
+                                    elif reason in ("quit", "stop"):
                                         result = "QUIT"
                                         self.running = False
-                                    elif reason == "stop":
-                                        result = "QUIT"
                                     elif reason == "eof":
-                                        result = "EOF"
-                                    done = True; break
+                                        curr_pos = float(self.props.get("playback-time") or 0)
+                                        dur = float(self.props.get("duration", 0) or 0)
+                                        r_time = float(getattr(self, "resume_time", 0) or 0)
+                                        if (played_seconds < 2.0 and curr_pos <= 0.0 and r_time <= 0.0) or (dur <= 0 and curr_pos <= 0.0 and r_time <= 0.0):
+                                            result = "ERROR"
+                                        else:
+                                            result = "EOF"
+                                    done = True
+                                    break
                                 elif ev == "property-change":
                                     name = msg.get("name")
                                     val = msg.get("data")
@@ -395,8 +460,11 @@ class MpvIpc:
 
                                         if name == "playback-time" and val is not None and not initial_osd_shown:
                                             initial_osd_shown = True
-                                            if getattr(self, "resume_time", 0) > 0:
-                                                self.send_cmd("seek", self.resume_time, "absolute")
+                                            r_time = getattr(self, "resume_time", 0) or 0
+                                            curr_val = float(val or 0)
+                                            # Only seek if MPV failed to start at resume_time (e.g. started at 00:00 instead)
+                                            if r_time > 0 and abs(curr_val - r_time) > 5.0 and curr_val < r_time:
+                                                self.send_cmd("seek", r_time, "absolute")
                                             if getattr(self, "initial_osd_msg", None):
                                                 self.send_cmd("show-text", self.initial_osd_msg, 5000)
 
@@ -409,11 +477,11 @@ class MpvIpc:
                                                 if s_start <= curr_time < (s_end - 0.5):
                                                     if s_idx not in self.skipped_intervals:
                                                         if self.aniskip_auto:
-                                                            now_mono = time.monotonic()
-                                                            if now_mono - getattr(self, "_last_seek_mono", 0) > 0.8:
-                                                                self._last_seek_mono = now_mono
-                                                                self.send_cmd("seek", s_end, "absolute")
-                                                                self.send_cmd("show-text", f"Skipped {s_label} ({fmt_time(s_start)} → {fmt_time(s_end)})", 3000)
+                                                            self.skipped_intervals.add(s_idx)
+                                                            self._last_seek_mono = time.monotonic()
+                                                            self.send_cmd("seek", s_end, "absolute")
+                                                            self.send_cmd("show-text", f"Skipped {s_label} ({fmt_time(s_start)} → {fmt_time(s_end)})", 3000)
+                                                            self.active_skip_prompt = None
                                                         else:
                                                             if self.active_skip_prompt != s_idx:
                                                                 self.active_skip_prompt = s_idx
@@ -453,7 +521,7 @@ class MpvIpc:
                                                         self.send_cmd("show-text", "")
                                                         countdown_active = False
 
-                                                if rem_sec <= 2 and self.prefetched_stream:
+                                                if rem_sec <= 5 and self.prefetched_stream:
                                                     self.expect_ghost_eof = True
                                                     result = "NEXT"
                                                     done = True

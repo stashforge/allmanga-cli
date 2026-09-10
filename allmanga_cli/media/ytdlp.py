@@ -14,7 +14,7 @@ from .dailymotion import is_dailymotion_url, stream_type_from_url
 from .urls import validate_stream_url
 
 
-def resolve_ytdlp_embed(url: str, *, name: str, priority: int, ok, warn) -> list[dict]:
+def resolve_ytdlp_embed(url: str, *, name: str, priority: int, ok, warn, subtitles: list[dict] | None = None) -> list[dict]:
     if not shutil.which("yt-dlp"):
         warn(f"[{name}] yt-dlp not found, skipping embed")
         return []
@@ -69,7 +69,7 @@ def resolve_ytdlp_embed(url: str, *, name: str, priority: int, ok, warn) -> list
             warn(f"[{name}] {last_error}")
         return None if is_unsupported else []
 
-    streams = streams_from_ytdlp_data(data, url=url, name=name, priority=priority)
+    streams = streams_from_ytdlp_data(data, url=url, name=name, priority=priority, parent_subtitles=subtitles)
     if streams:
         ok(f"[{name}] yt-dlp found {len(streams)} stream(s)")
     return streams
@@ -140,6 +140,20 @@ def _find_best_audio(formats: list[dict]) -> dict | None:
     return max(audio_formats, key=lambda f: int(float(f.get("abr") or f.get("tbr") or 0)))
 
 
+def _find_all_audio(formats: list[dict]) -> list[dict]:
+    """Find all audio-only formats."""
+    return [
+        f for f in formats
+        if f.get("vcodec") == "none"
+        and (
+            f.get("acodec") not in (None, "none")
+            or f.get("audio_ext") not in (None, "none")
+            or f.get("resolution") == "audio only"
+        )
+        and f.get("url")
+    ]
+
+
 def _is_video_format(item: dict) -> bool:
     """True if this format entry is a video (not audio-only, has video stream)."""
     vcodec = item.get("vcodec")
@@ -164,6 +178,7 @@ def _stream_from_format(
         name: str,
         priority: int,
         audio_format: dict | None = None,
+        audio_formats: list[dict] | None = None,
         is_dailymotion: bool = False) -> dict | None:
     stream_url = item.get("url")
     if not stream_url:
@@ -193,7 +208,45 @@ def _stream_from_format(
         "_bitrate": _bitrate(item),
     }
 
-    if needs_audio and audio_format:
+    if needs_audio and audio_formats:
+        audio_tracks = []
+        for af in audio_formats:
+            a_url = af.get("url")
+            if not a_url:
+                continue
+            try:
+                a_url = validate_stream_url(a_url)
+            except ValueError:
+                continue
+            lang = str(af.get("language") or "").lower()
+            track_label = af.get("format_note") or af.get("format_id") or lang or "Audio"
+            audio_tracks.append({
+                "url": a_url,
+                "label": str(track_label),
+                "language": lang,
+                "default": lang in ("ja", "jp", "jpn", "japanese"),
+            })
+
+        if audio_tracks and not any(t.get("default") for t in audio_tracks):
+            audio_tracks[0]["default"] = True
+
+        if audio_tracks:
+            def_track = next((t for t in audio_tracks if t.get("default")), audio_tracks[0])
+            stream["audio_tracks"] = audio_tracks
+            stream["audio_url"] = def_track["url"]
+            stream["android_safe"] = True
+            stream["split_video_url"] = stream_url
+            stream["split_audio_url"] = def_track["url"]
+            stream["split_width"] = item.get("width") or 1280
+            stream["split_height"] = item.get("height") or 720
+            stream["split_bandwidth"] = item.get("tbr") or item.get("vbr") or 2400
+            if is_dailymotion:
+                stream["dailymotion_video"] = stream_url
+                stream["dailymotion_audio"] = def_track["url"]
+                stream["dailymotion_width"] = item.get("width") or 1280
+                stream["dailymotion_height"] = item.get("height") or 720
+                stream["dailymotion_bandwidth"] = item.get("tbr") or item.get("vbr") or 2400
+    elif needs_audio and audio_format:
         try:
             audio_url = validate_stream_url(audio_format.get("url"))
         except ValueError:
@@ -244,7 +297,7 @@ def _manifest_stream_from_format(
     }
 
 
-def streams_from_ytdlp_data(data: dict, *, url: str, name: str, priority: int) -> list[dict]:
+def streams_from_ytdlp_data(data: dict, *, url: str, name: str, priority: int, parent_subtitles: list[dict] | None = None) -> list[dict]:
     formats = data.get("formats", [])
     _is_dm = is_dailymotion_url(url)
 
@@ -263,8 +316,11 @@ def streams_from_ytdlp_data(data: dict, *, url: str, name: str, priority: int) -
                             "url": s_url,
                             "default": lang.lower() in ("en", "eng", "english", "en-us"),
                         })
+    if not subtitles and parent_subtitles:
+        subtitles = list(parent_subtitles)
 
-    # find best audio-only format once, reuse for any split video format
+    # find all audio-only formats for multi-audio support
+    all_audios = _find_all_audio(formats) if formats else []
     best_audio = _find_best_audio(formats) if formats else None
 
     streams = []
@@ -282,6 +338,7 @@ def streams_from_ytdlp_data(data: dict, *, url: str, name: str, priority: int) -
             name=name,
             priority=priority,
             audio_format=best_audio if item.get("acodec") == "none" else None,
+            audio_formats=all_audios if item.get("acodec") == "none" else None,
             is_dailymotion=_is_dm,
         )
         if not stream:

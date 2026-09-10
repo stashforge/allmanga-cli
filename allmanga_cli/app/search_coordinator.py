@@ -14,6 +14,7 @@ from ..core.enrichment import enrich_provider_results
 from ..providers import provider_key, provider_display_name
 from ..services.catalog import search_anime
 from ..core.anilist import search_anilist
+from ..domain.titles import get_show_display_title
 from ..ui.spinner import spinner_from_config
 from ..ui.picker_render import loading_line as _loading_line
 from ..ui import display
@@ -41,13 +42,13 @@ def make_provider_oneshot_search(query: str, ttype: str, provider_id: str | None
     if cache_key in _provider_search_cache:
         loading = False
         results = _provider_search_cache[cache_key]
+        cached_opts = [f"{get_show_display_title(s)}" for s in results]
         
         def get_results(): return results
         def get_loading(): return ""
         def get_error(): return ""
         def live_fn(q=""):
-            opts = [f"{s.get('name')}" for s in results]
-            return opts, "", True
+            return cached_opts, "", True
             
         return live_fn, get_results, get_loading, get_error
 
@@ -133,9 +134,16 @@ def make_provider_oneshot_search(query: str, ttype: str, provider_id: str | None
     def get_error():
         return error
 
+    last_res_state = None
+    cached_opts = []
+
     def live_fn(q=""):
-        opts = [f"{s.get('name')}" for s in results]
-        return opts, get_loading(), (not loading and not enriching)
+        nonlocal last_res_state, cached_opts
+        current_state = (len(results), enriching)
+        if current_state != last_res_state:
+            last_res_state = current_state
+            cached_opts = [f"{get_show_display_title(s)}" for s in results]
+        return cached_opts, get_loading(), (not loading and not enriching)
 
     return live_fn, get_results, get_loading, get_error
 
@@ -174,9 +182,15 @@ def make_anilist_oneshot_search(token: str, initial_query: str):
             return _loading_line("Searching…", w, spinner_style)
         return ""
 
+    last_count = -1
+    cached_opts = []
+
     def live_fn(q=""):
-        opts = [f"{s['name']}" for s in results]
-        return opts, get_loading(), not loading
+        nonlocal last_count, cached_opts
+        if len(results) != last_count:
+            last_count = len(results)
+            cached_opts = [f"{get_show_display_title(s)}" for s in results]
+        return cached_opts, get_loading(), not loading
 
     return live_fn, lambda: list(results), get_loading, lambda: error
 

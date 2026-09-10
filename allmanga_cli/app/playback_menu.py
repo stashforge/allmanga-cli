@@ -45,8 +45,10 @@ def handle_action_menu_state(
     episode_ids = app_core.ensure_episode_ids(action_show, ttype)
 
     if not episode_ids:
-        app_core.err(app_core.episode_catalog_error(action_show))
-        return "DETAILS"
+        err_msg = app_core.episode_catalog_error(action_show)
+        app_core.set_action_feedback(action_show, err_msg)
+        ui.search_error = err_msg
+        return ui.action_prev_state or ui.search_prev_state or "SEARCH"
 
     ms.total_eps = len(episode_ids) or ms.total_eps
     ms.current_ep_index = episode_index_for_id(
@@ -113,8 +115,14 @@ def handle_action_menu_state(
                     return cur_idx < eff_prog
                 current_ep_num = decimal.Decimal(str(episode_progress_number(ms.current_ep, cur_idx + 1)))
                 if from_anilist_context or use_anilist or action_show.get("_progress_authority") == "AL":
+                    if al_prog <= 0:
+                        return False
                     return current_ep_num <= al_prog
                 else:
+                    if local_p is None:
+                        return False
+                    if local_prog_val == 0:
+                        return str(local_p) == "0" and current_ep_num == 0
                     return current_ep_num <= local_prog_val
             except (decimal.InvalidOperation, ValueError, TypeError):
                 return False
@@ -138,34 +146,30 @@ def handle_action_menu_state(
             )
 
         # Primary Action (Continue vs Start Rewatch vs Play vs Play Next vs Replay)
-        if resume_time > 0:
-            opts.append("Continue")
-            acts.append("CONTINUE")
-            action_hints["Continue"] = f"resume {playback_mod._fmt_ep(current_ep_label)} from {app_core.formatTime(resume_time)}"
-        elif is_completed:
+        if is_completed:
             opts.append("Start Rewatch")
             acts.append("REWATCH")
             action_hints["Start Rewatch"] = "play EP 1 from start"
+        elif resume_time > 0:
+            effective_resume = max(0, resume_time - 30)
+            opts.append("Continue")
+            acts.append("CONTINUE")
+            action_hints["Continue"] = f"resume {playback_mod._fmt_ep(current_ep_label)} from {app_core.format_video_time(effective_resume)}"
+        elif is_watched:
+            opts.append("Replay")
+            acts.append("REPLAY")
+            action_hints["Replay"] = f"play {playback_mod._fmt_ep(current_ep_label)} from start"
         elif eff_prog > 0:
             opts.append("Play Next")
-            target_ep_label = next_ep_label if is_watched and next_ep is not None else current_ep_label
-            acts.append("NEXT" if is_watched and next_ep is not None else "PLAY_CURRENT")
-            action_hints["Play Next"] = f"play {playback_mod._fmt_ep(target_ep_label)}"
-        elif not is_watched:
+            acts.append("PLAY_CURRENT")
+            action_hints["Play Next"] = f"play {playback_mod._fmt_ep(current_ep_label)}"
+        else:
             opts.append("Play")
             acts.append("PLAY_CURRENT")
             action_hints["Play"] = f"play {playback_mod._fmt_ep(current_ep_label)}"
-        elif next_ep is not None:
-            opts.append("Play Next")
-            acts.append("NEXT")
-            action_hints["Play Next"] = f"play {playback_mod._fmt_ep(next_ep_label)}"
-        else:
-            opts.append("Replay")
-            acts.append("REPLAY")
-            action_hints["Replay"] = "from start"
 
-        # Replay (if not primary action)
-        if "Replay" not in opts:
+        # Replay (if not primary action and not completed)
+        if "Replay" not in opts and not is_completed and (resume_time > 0 or is_watched):
             opts.append("Replay")
             acts.append("REPLAY")
             action_hints["Replay"] = "from start"
@@ -257,11 +261,18 @@ def handle_action_menu_state(
     action_hints = {}
     _build_menu()
 
+    _hdr_cache = {}
+
     def _action_hdr(si):
         C_K = "\033[38;5;244m"
         R = "\033[0m"
         try: w = os.get_terminal_size().columns
         except OSError: w = 80
+
+        feedback = app_core.get_active_feedback(action_show)
+        cache_key = (w, feedback, ttype)
+        if cache_key in _hdr_cache:
+            return _hdr_cache[cache_key]
 
         parts = []
         if action_show:
@@ -273,7 +284,6 @@ def handle_action_menu_state(
                 local_only=getattr(ms, "_is_downloads", False),
             )
 
-        feedback = app_core.get_active_feedback(action_show)
         _t = lambda s: _truncate_display(s, max(1, w - 1))
         if feedback:
             parts.append(f"\033[38;5;222m{_t(feedback)}{R}")
@@ -282,10 +292,13 @@ def handle_action_menu_state(
             prefix = f"{p_name} • " if p_name else ""
             parts.append(f"{C_K}{_t(prefix + 'Enter/Right=select • Tab=Sub/Dub • ?=Help • Left/Esc=back')}{R}")
 
-        return "\n".join(parts)
+        res = "\n".join(parts)
+        _hdr_cache[cache_key] = res
+        return res
 
     def _action_tab_fn(opt=None, direction=1):
         nonlocal ttype, episode_ids, next_ep, prev_ep, current_ep_label, next_ep_label, prev_ep_label
+        _hdr_cache.clear()
         target_ttype = "dub" if ttype == "sub" else "sub"
         allowed, reason = app_core.check_translation_switch_capability(action_show, ttype, target_ttype)
         if not allowed:
@@ -438,11 +451,15 @@ def handle_action_menu_state(
 
     elif a == "TRACK_ONLY":
         _execute_track_action()
-        return "ACTION_MENU"
+        ms.current_ep_index = None
+        ms.current_ep = None
+        return "DETAILS"
 
     elif a == "UNTRACK":
         _execute_untrack_action()
-        return "ACTION_MENU"
+        ms.current_ep_index = None
+        ms.current_ep = None
+        return "DETAILS"
 
     elif a == "PROGRESS":
         return "UPDATE_PROGRESS"
@@ -457,12 +474,8 @@ def handle_action_menu_state(
 
     elif a == "BINGE":
         args.binge = True
-        if not flags.incognito_mode and not is_watched:
-            synced = _execute_track_action()
-            ms.pending_osd_msg = marked_watched_osd(ms.current_ep, synced)
-        if next_ep is not None:
-            ms.current_ep_index += 1
-            ms.current_ep = episode_id_at(episode_ids, ms.current_ep_index)
+        ms.selected_stream = None
+        app_core._clear_streams()
         playback_mod._clear_episode_source_state(ms)
         return "PLAY"
 
@@ -573,7 +586,7 @@ def handle_action_menu_state(
             ms.current_ep = episode_id_at(episode_ids, ms.current_ep_index)
         return "DETAILS"
 
-    return "ACTION_MENU"
+    return "DETAILS"
 
 
 
@@ -590,7 +603,7 @@ def handle_download_menu_state(
     episode_ids = app_core.ensure_episode_ids(action_show, ttype)
     if not episode_ids:
         app_core.err(app_core.episode_catalog_error(action_show))
-        return "ACTION_MENU"
+        return "DETAILS"
 
     current_idx = ms.current_ep_index if ms.current_ep_index is not None and 0 <= ms.current_ep_index < len(episode_ids) else 0
     current_ep_id = episode_ids[current_idx]
@@ -624,18 +637,25 @@ def handle_download_menu_state(
     acts.append("PICK")
     hints[opts[-1]] = "custom multi-select (Space/Tab)"
 
+    _dl_hdr_cache: dict[tuple, str] = {}
+
     def _dl_hdr(si):
         C_K = "\033[38;5;244m"
         R = "\033[0m"
         try: w = os.get_terminal_size().columns
         except OSError: w = 80
+        cache_key = (w, ttype, getattr(ms, "_is_downloads", False))
+        if cache_key in _dl_hdr_cache:
+            return _dl_hdr_cache[cache_key]
         parts = []
         if action_show:
             app_core.build_info_panel(action_show, ttype, w, parts, local_only=getattr(ms, "_is_downloads", False))
         p_name = (action_show.get("_provider_name") or (action_show.get("_provider") or "").title()) if action_show else ""
         prefix = f"{p_name} • " if p_name else ""
         parts.append(f"{C_K}{_truncate_display(prefix + 'Enter=select • Left/Esc=back', max(1, w - 1))}{R}")
-        return "\n".join(parts)
+        res = "\n".join(parts)
+        _dl_hdr_cache[cache_key] = res
+        return res
 
     hd = picker_help("Download Menu", "Go back", "Go back")
     idx = tui_pick(
@@ -647,7 +667,7 @@ def handle_download_menu_state(
     )
 
     if idx in (-2, -3):
-        return "ACTION_MENU"
+        return "DETAILS"
 
     action = acts[idx]
     queued_eps = []
@@ -663,16 +683,23 @@ def handle_download_menu_state(
             f"Episode {playback_mod._display_episode_label(action_show, ep_id, ttype)}"
             for ep_id in episode_ids
         ]
+        _pick_hdr_cache: dict[tuple, str] = {}
+
         def _pick_hdr(si):
             C_K = "\033[38;5;244m"
             R = "\033[0m"
             try: w = os.get_terminal_size().columns
             except OSError: w = 80
+            cache_key = (w, ttype, getattr(ms, "_is_downloads", False))
+            if cache_key in _pick_hdr_cache:
+                return _pick_hdr_cache[cache_key]
             parts = []
             if action_show:
                 app_core.build_info_panel(action_show, ttype, w, parts, local_only=getattr(ms, "_is_downloads", False))
             parts.append(f"{C_K}{_truncate_display('Space/Tab=Toggle • Enter=Download • Left/Esc=Cancel', max(1, w - 1))}{R}")
-            return "\n".join(parts)
+            res = "\n".join(parts)
+            _pick_hdr_cache[cache_key] = res
+            return res
 
         pick_hd = picker_help("Pick episodes", "Cancel", "Cancel")
         chosen = tui_pick(
@@ -683,14 +710,14 @@ def handle_download_menu_state(
             help_dict=pick_hd,
         )
         if chosen in (-2, -3) or not isinstance(chosen, list) or not chosen:
-            return "ACTION_MENU"
+            return "DETAILS"
         queued_eps = [episode_ids[i] for i in chosen if 0 <= i < len(episode_ids)]
 
     if not queued_eps:
-        return "ACTION_MENU"
+        return "DETAILS"
 
     _execute_batch_download(flags, ui, ms, cfg, args, ttype, action_show, queued_eps)
-    return "ACTION_MENU"
+    return "DETAILS"
 
 
 def _execute_batch_download(flags, ui, ms, cfg, args, ttype, action_show, queued_eps):
@@ -700,7 +727,7 @@ def _execute_batch_download(flags, ui, ms, cfg, args, ttype, action_show, queued
     if extra_args and extra_args[0] == "--":
         extra_args = extra_args[1:]
     download_dir = cfg.get("download_dir", "")
-    from allmanga_cli.domain.titles import title_provider_key
+    from allmanga_cli.providers import title_provider_key
     provider_id = title_provider_key(action_show)
 
     success_count = 0
@@ -887,7 +914,7 @@ def handle_mirrors_state(
                     ui.ui_show_ctx,
                     f"No stream mirrors available for {playback_mod._fmt_ep(ep_label)} on {p_name}.",
                 )
-            return "ACTION_MENU"
+            return "DETAILS"
 
     def _tab_pref(opt_idx):
         if 0 <= opt_idx < len(_live_deduped):
@@ -897,7 +924,7 @@ def handle_mirrors_state(
             ui.pref_toast_time = time.time()
         return _mirror_refresh()[:2]
 
-    def _mirror_force_refresh():
+    def _mirror_force_refresh(opt=None):
         app_core._clear_streams(cur_key)
         ep_data = app_core.with_loading(
             f"Refreshing {ttype.upper()} sources…",
@@ -923,9 +950,16 @@ def handle_mirrors_state(
     )
 
     if midx in (-2, -3):
-        return "ACTION_MENU"
+        return "DETAILS"
     elif midx >= 0 and midx < len(_live_deduped):
         ms.selected_stream = _live_deduped[midx]
         return "PLAY"
     else:
-        return "ACTION_MENU"
+        if not _live_deduped and ui.ui_show_ctx:
+            p_name = (ui.ui_show_ctx.get("_provider_name") or ui.ui_show_ctx.get("_provider") or "").title() or "Provider"
+            ep_label = playback_mod._display_episode_label(ui.ui_show_ctx, ms.current_ep, ttype)
+            app_core.set_action_feedback(
+                ui.ui_show_ctx,
+                f"No stream mirrors available for {playback_mod._fmt_ep(ep_label)} on {p_name}.",
+            )
+        return "DETAILS"

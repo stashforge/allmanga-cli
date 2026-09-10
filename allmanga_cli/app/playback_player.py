@@ -95,50 +95,96 @@ def handle_play_state(
     with suppress_terminal_echo():
         provider_id = title_provider_key(ui.ui_show_ctx)
         p_name = (ui.ui_show_ctx.get("_provider_name") or ui.ui_show_ctx.get("provider_name") or provider_id).title()
-        if not is_download_mode:
-            _player_ui_state["loading_provider_name"] = p_name
-            _player_ui_state["loading_start_time"] = time.time()
-
-            try:
-                from ..ui.player_screen import start_loading_ticker
-                start_loading_ticker(
-                    poster_manager=getattr(app_core, "_poster_manager", None),
-                    ui=ui,
-                )
-            except ImportError:
-                pass
-
-        _cache_key = (ms.show_id, ms.current_ep, ttype, provider_id)
-        if getattr(ms, "_is_downloads", False):
-            ep_data = {"is_local": True}
-        elif _cache_key == ms.ep_cache_key and ms.ep_cache_data:
-            ep_data = ms.ep_cache_data
-        else:
-            app_core.info(f"[{p_name}] Requesting {playback_mod._fmt_ep(current_ep_label)} metadata...")
-            ep_data = app_core.get_episode_data(
-                ms.show_id,
-                ms.current_ep,
-                ttype,
-                provider_id=provider_id,
+        _ipc_player = app_core._ipc_player
+        is_prefetched = (
+            _ipc_player is not None
+            and getattr(_ipc_player, "prefetched_res", None) is not None
+            and (
+                str(getattr(_ipc_player, "prefetched_ep", "")) == str(ms.current_ep)
+                or getattr(_ipc_player, "prefetched_ep_id", None) == str(ms.current_ep)
+                or (isinstance(getattr(_ipc_player, "prefetched_ep", None), int) and ms.current_ep_index is not None and _ipc_player.prefetched_ep == ms.current_ep_index + 1)
+                or (getattr(_ipc_player, "prefetched_ep", None) is not None and episode_progress_number(_ipc_player.prefetched_ep) == episode_progress_number(ms.current_ep))
             )
-            ms.ep_cache_key  = _cache_key
-            ms.ep_cache_data = ep_data
-
-        if not ep_data:
-            app_core._exit_player_screen()
-            playback_mod._clear_episode_source_state(ms)
-            p_name = (ui.ui_show_ctx.get("_provider_name") or (ui.ui_show_ctx.get("_provider") or "").title() or "this provider") if ui.ui_show_ctx else "this provider"
-            if ttype == "dub":
-                msg = f"No DUB stream available for {playback_mod._fmt_ep(current_ep_label)} on {p_name}."
-            else:
-                msg = f"No stream available for {playback_mod._fmt_ep(current_ep_label)} on {p_name}."
-            app_core.set_action_feedback(
-                ui.ui_show_ctx,
-                msg,
-            )
-            return "ACTION_MENU"
+        )
 
         first_source_name = None
+        ep_data = None
+        aniskip_future = None
+        _skip_pool = None
+        _cache_key = (ms.show_id, ms.current_ep, ttype, provider_id)
+
+        if is_prefetched:
+            res = _ipc_player.prefetched_res
+            _ipc_player.prefetched_ep = None
+            _ipc_player.prefetched_stream = None
+            _ipc_player.prefetched_res = None
+            _ipc_player.prefetched_ep_id = None
+            ms.selected_stream, first_source_name, ep_data, resolved_streams = res
+            ms.ep_cache_key = _cache_key
+            ms.ep_cache_data = ep_data
+            app_core._extend_streams(resolved_streams, key=_cache_key)
+        else:
+            if not is_download_mode:
+                _player_ui_state["loading_provider_name"] = p_name
+                _player_ui_state["loading_start_time"] = time.time()
+
+                try:
+                    from ..ui.player_screen import start_loading_ticker
+                    start_loading_ticker(
+                        poster_manager=getattr(app_core, "_poster_manager", None),
+                        ui=ui,
+                    )
+                except ImportError:
+                    pass
+
+            aniskip_enabled = getattr(args, "aniskip", None)
+            if aniskip_enabled is None:
+                aniskip_enabled = cfg.get("aniskip", cfg.get("aniskip_enabled", True))
+
+            if aniskip_enabled and not is_download_mode:
+                action_show = ui.ui_show_ctx or {}
+                mal_id = app_core.get_show_mal_id(action_show)
+                ep_num = episode_progress_number(ms.current_ep)
+                if mal_id:
+                    from concurrent.futures import ThreadPoolExecutor
+                    from ..media.aniskip import fetch_skip_times
+                    _skip_pool = ThreadPoolExecutor(max_workers=1)
+                    aniskip_future = _skip_pool.submit(fetch_skip_times, mal_id, ep_num)
+
+            if getattr(ms, "_is_downloads", False):
+                ep_data = {"is_local": True}
+            elif _cache_key == ms.ep_cache_key and ms.ep_cache_data:
+                ep_data = ms.ep_cache_data
+            else:
+                app_core.info(f"[{p_name}] Requesting {playback_mod._fmt_ep(current_ep_label)} metadata...")
+                ep_data = app_core.get_episode_data(
+                    ms.show_id,
+                    ms.current_ep,
+                    ttype,
+                    provider_id=provider_id,
+                )
+                ms.ep_cache_key  = _cache_key
+                ms.ep_cache_data = ep_data
+
+            if not ep_data:
+                if _skip_pool:
+                    try:
+                        _skip_pool.shutdown(wait=False)
+                    except Exception:
+                        pass
+                app_core._exit_player_screen()
+                playback_mod._clear_episode_source_state(ms)
+                p_name = (ui.ui_show_ctx.get("_provider_name") or (ui.ui_show_ctx.get("_provider") or "").title() or "this provider") if ui.ui_show_ctx else "this provider"
+                if ttype == "dub":
+                    msg = f"No DUB stream available for {playback_mod._fmt_ep(current_ep_label)} on {p_name}."
+                else:
+                    msg = f"No stream available for {playback_mod._fmt_ep(current_ep_label)} on {p_name}."
+                app_core.set_action_feedback(
+                    ui.ui_show_ctx,
+                    msg,
+                )
+                return "DETAILS"
+
         if ms.selected_stream is None:
             _ipc_player = app_core._ipc_player
             if getattr(ms, "_is_downloads", False):
@@ -151,7 +197,7 @@ def handle_play_state(
                 local_file = app_core.find_offline_file_for_episode(ms.show_title, ms.current_ep, cfg) if not getattr(args, 'download', False) and not getattr(args, 'sources', False) else None
                 if local_file and os.path.exists(local_file):
                     res = ({"link": local_file, "resolution": "Offline (Local)", "is_local": True}, "Local File", local_file, [])
-                elif _ipc_player.prefetched_ep == ms.current_ep and _ipc_player.prefetched_res:
+                elif str(_ipc_player.prefetched_ep) == str(ms.current_ep) and _ipc_player.prefetched_res:
                     res = _ipc_player.prefetched_res
                     _ipc_player.prefetched_ep = None
                     _ipc_player.prefetched_stream = None
@@ -245,8 +291,19 @@ def handle_play_state(
                 mal_id = app_core.get_show_mal_id(action_show)
                 ep_num = episode_progress_number(ms.current_ep)
                 if mal_id:
-                    from ..media.aniskip import fetch_skip_times
-                    skips = fetch_skip_times(mal_id, ep_num)
+                    if aniskip_future is not None:
+                        try:
+                            skips = aniskip_future.result(timeout=4.0)
+                        except Exception:
+                            skips = []
+                        if _skip_pool:
+                            try:
+                                _skip_pool.shutdown(wait=False)
+                            except Exception:
+                                pass
+                    else:
+                        from ..media.aniskip import fetch_skip_times
+                        skips = fetch_skip_times(mal_id, ep_num)
                     if skips:
                         from ..ui.player_screen import _fmt_time
                         skip_parts = [f"{s['label']} ({_fmt_time(s['start'])} → {_fmt_time(s['end'])})" for s in skips]
@@ -357,7 +414,7 @@ def handle_play_state(
                 ui.ui_show_ctx,
                 msg,
             )
-            return "ACTION_MENU"
+            return "DETAILS"
 
     if args.print_url:
         app_core._exit_player_screen(close_alt=True)
@@ -475,7 +532,7 @@ def handle_play_state(
                 args.download = False
                 args._from_action_menu_download = False
                 time.sleep(1.0)
-                return ui.action_prev_state or "ACTION_MENU"
+                return ui.action_prev_state or "DETAILS"
             return "QUIT"
 
 
@@ -490,14 +547,33 @@ def handle_play_state(
             )
         if ep_idx is None:
             return None
-            
+
         target_ep = episode_id_at(episode_ids, ep_idx)
+        try:
+            app_core._ipc_player.prefetched_ep_id = str(target_ep)
+        except Exception:
+            pass
         if getattr(ms, "_is_downloads", False):
             filepath = ms._download_files.get(str(target_ep))
             if filepath:
                 return ({"link": filepath, "resolution": "Local"}, "Local File", filepath, [])
             return None
-            
+
+        if aniskip_enabled and mal_id:
+            from concurrent.futures import ThreadPoolExecutor
+            from ..media.aniskip import fetch_skip_times
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                pool.submit(fetch_skip_times, mal_id, episode_progress_number(target_ep))
+                fut_stream = pool.submit(
+                    app_core.fetch_episode_stream,
+                    ms.show_id,
+                    target_ep,
+                    ttype,
+                    cfg.get("quality", "best"),
+                    provider_id=provider_id,
+                )
+                return fut_stream.result()
+
         return app_core.fetch_episode_stream(
             ms.show_id,
             target_ep,
@@ -553,7 +629,7 @@ def handle_play_state(
             return "PLAY"
 
         app_core._exit_player_screen()
-        return "ACTION_MENU"
+        return "DETAILS"
 
     else:
         if first_source_name is not None:
@@ -584,9 +660,87 @@ def handle_play_state(
         ms.pending_osd_msg = ""
         app_core._exit_player_screen()
 
+        if result == "ERROR":
+            failed_stream = ms.selected_stream
+            failed_name = (failed_stream.get("source_name") or "selected mirror") if failed_stream else "selected mirror"
+            failed_base = failed_name.split(" (")[0].strip() if failed_name else ""
+            app_core.warn(f"Playback failed on '{failed_name}'. Attempting fallback to next mirror...")
+            app_core._ipc_player.send_cmd("show-text", f"⚠ {failed_name} failed\nFinding alternate mirror...", 10000)
+
+            cur_key = (ms.show_id, ms.current_ep, ttype, provider_id)
+            if failed_stream:
+                app_core._prune_dead_stream(cur_key, failed_stream.get("link") or failed_stream.get("streamUrl"))
+
+            # Track all failed mirrors across fallback attempts for this episode
+            failed_mirrors = getattr(ms, "_failed_mirrors", None)
+            if failed_mirrors is None:
+                failed_mirrors = set()
+            if failed_name:
+                failed_mirrors.add(failed_name)
+            if failed_base:
+                failed_mirrors.add(failed_base)
+            if failed_stream and (failed_stream.get("link") or failed_stream.get("streamUrl")):
+                failed_mirrors.add(failed_stream.get("link") or failed_stream.get("streamUrl"))
+            ms._failed_mirrors = failed_mirrors
+
+            cached_streams = app_core._stream_snapshot(ms.show_id, ms.current_ep, ttype, provider_id)
+            remaining = [
+                s for s in cached_streams
+                if (s.get("link") or s.get("streamUrl")) not in failed_mirrors
+                and (s.get("source_name") or "") not in failed_mirrors
+                and ((s.get("source_name") or "").split(" (")[0].strip()) not in failed_mirrors
+            ]
+
+            next_stream = None
+            if remaining:
+                sorted_remaining = sorted(remaining, key=lambda x: x.get("source_priority", 4))
+                for cand in sorted_remaining:
+                    if app_core.ping_stream_liveness(cand, timeout=0.8):
+                        next_stream = cand
+                        break
+                if not next_stream and sorted_remaining:
+                    next_stream = sorted_remaining[0]
+
+            # If no cached stream is viable, dynamically resolve the next mirror from the provider
+            if not next_stream:
+                if not ep_data:
+                    ep_data = app_core._get_cached_ep_data(cur_key)
+                fallback_res = app_core.fetch_episode_stream(
+                    ms.show_id,
+                    ms.current_ep,
+                    ttype,
+                    cfg.get("quality", "best"),
+                    provider_id=provider_id,
+                    exclude_sources=failed_mirrors,
+                    ep_data=ep_data,
+                )
+                if fallback_res:
+                    next_stream, fb_src_name, _, fb_streams = fallback_res
+                    app_core._extend_streams(fb_streams, key=cur_key)
+
+            if next_stream:
+                next_name = next_stream.get("source_name", "alternate mirror")
+                switch_msg = f"Playback failed on {failed_name} • Trying fallback mirror '{next_name}'..."
+                app_core.info(switch_msg)
+                ms.selected_stream = next_stream
+                ms.pending_osd_msg = f"⚠ Switched to {next_name} ({failed_name} failed)"
+                app_core.set_action_feedback(ui.ui_show_ctx, switch_msg)
+                app_core._ipc_player.send_cmd("show-text", f"⚠ {failed_name} failed\nLoading {next_name}...", 5000)
+                return "PLAY"
+
+            # All mirrors exhausted
+            app_core._ipc_player.quit()
+            ms._failed_mirrors = set()
+            app_core.set_action_feedback(
+                ui.ui_show_ctx,
+                f"Playback failed on {failed_name} and no alternate mirrors were available."
+            )
+            return "DETAILS"
+
         # Smart Auto-Scrobble & Timestamping (80% OR <150s remaining)
+        start_time = getattr(app_core._ipc_player, "resume_time", 0) or 0
         auto_scrobbled = playback_looks_complete(
-            result, percent, time_pos, duration, played_seconds
+            result, percent, time_pos, duration, played_seconds, start_time=start_time
         )
         pending_completion = app_core.get_pending_completion(ms.show_id)
 
@@ -632,14 +786,14 @@ def handle_play_state(
             not sync_enabled
             and not getattr(ms, "_is_downloads", False)
             and playback_updates_history(
-            result, percent, time_pos, duration, played_seconds
+                result, percent, time_pos, duration, played_seconds, start_time=start_time
             )
         )
         if should_update_history:
             app_core.save_history(ui.ui_show_ctx, ms.current_ep, ttype)
             
         if getattr(ms, "_is_downloads", False) and playback_updates_history(
-            result, percent, time_pos, duration, played_seconds
+            result, percent, time_pos, duration, played_seconds, start_time=start_time
         ):
             try:
                 from allmanga_cli.core.storage import update_offline_watch_status
@@ -652,10 +806,12 @@ def handle_play_state(
             except Exception:
                 pass
 
-        if auto_scrobbled:
+        if auto_scrobbled or (duration > 0 and time_pos >= duration - 30):
             app_core.save_resume_time(ms.show_id, ms.current_ep, 0)
         elif time_pos > 30:
             app_core.save_resume_time(ms.show_id, ms.current_ep, time_pos)
+        else:
+            app_core.save_resume_time(ms.show_id, ms.current_ep, 0)
 
         if result == "QUIT" or result == "EOF":
             if auto_scrobbled and resolve_tracking_fn(ui.search_prev_state, args, cfg, ui.ui_show_ctx):
@@ -675,29 +831,21 @@ def handle_play_state(
                     if queued:
                         app_core.set_action_feedback(show_ctx, f"Sync queued: EP {ms.current_ep}")
 
-            if result == "EOF" and (args.binge or cfg.get("binge")):
+            if result == "EOF" and (args.binge or cfg.get("binge")) and auto_scrobbled:
                 if ms.current_ep_index + 1 < ms.total_eps:
                     next_ep = episode_id_at(episode_ids, ms.current_ep_index + 1)
                     if flags.incognito_mode:
                         ms.pending_osd_msg = None
-                    elif auto_scrobbled:
+                    else:
                         ms.pending_osd_msg = marked_watched_osd(
                             ms.current_ep,
                             resolve_tracking_fn(ui.search_prev_state, args, cfg, ui.ui_show_ctx)
                         )
-                    else:
-                        progress_ep = episode_progress_number(ms.current_ep, ms.current_ep_index + 1)
-                        app_core.save_pending_completion(
-                            ms.show_id, ms.current_ep, progress_ep,
-                            next_ep, time_pos, duration
-                        )
-                        if time_pos > 0:
-                            app_core.save_resume_time(ms.show_id, ms.current_ep, time_pos)
-                        ms.pending_osd_msg = pending_completion_osd(ms.current_ep, next_ep)
 
                     ms.current_ep_index += 1
                     ms.current_ep = episode_id_at(episode_ids, ms.current_ep_index)
                     ms.selected_stream = None
+                    ms._failed_mirrors = set()
                     app_core._clear_streams()
                     return "PLAY"
                 else:
@@ -706,7 +854,24 @@ def handle_play_state(
                     return "QUIT"
             else:
                 app_core._ipc_player.quit()
-                return "ACTION_MENU"
+                if not auto_scrobbled:
+                    if played_seconds < 5.0 and duration <= 0:
+                        app_core.set_action_feedback(
+                            ui.ui_show_ctx,
+                            f"Playback failed or was interrupted on EP {ms.current_ep}."
+                        )
+                    elif time_pos > 0:
+                        next_ep = episode_id_at(episode_ids, ms.current_ep_index + 1) if (ms.current_ep_index is not None and ms.current_ep_index + 1 < ms.total_eps) else ms.current_ep
+                        progress_ep = episode_progress_number(ms.current_ep, (ms.current_ep_index or 0) + 1)
+                        app_core.save_pending_completion(
+                            ms.show_id, ms.current_ep, progress_ep,
+                            next_ep, time_pos, duration
+                        )
+                        app_core.save_resume_time(ms.show_id, ms.current_ep, time_pos)
+                if auto_scrobbled:
+                    ms.current_ep_index = None
+                    ms.current_ep = None
+                return "DETAILS"
 
         elif result == "NEXT":
             if ms.current_ep_index + 1 < ms.total_eps:
@@ -758,7 +923,7 @@ def handle_play_state(
                 return "PLAY"
             else:
                 app_core._ipc_player.quit()
-                return "ACTION_MENU"
+                return "DETAILS"
         else:
             app_core._ipc_player.quit()
-            return "ACTION_MENU"
+            return "DETAILS"

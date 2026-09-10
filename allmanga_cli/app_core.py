@@ -65,6 +65,7 @@ from allmanga_cli.domain.metadata import (
     format_next_airing,
     format_progress,
     format_time as formatTime,
+    format_video_time,
     format_years,
     positive_int as _positive_int,
     set_next_airing_fields,
@@ -274,6 +275,7 @@ from allmanga_cli.ui.info_panel import (
     buildYearStr,
     buildInfoMetadataLine,
     build_info_panel,
+    invalidate_panel_cache,
 )
 
 should_update_anilist_progress = anilist.should_update_anilist_progress

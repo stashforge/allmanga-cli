@@ -41,6 +41,13 @@ def buildInfoMetadataLine(
     )
 
 
+_panel_cache: dict[tuple, list[str]] = {}
+
+
+def invalidate_panel_cache() -> None:
+    _panel_cache.clear()
+
+
 def build_info_panel(
     show: dict,
     ttype: str,
@@ -51,7 +58,48 @@ def build_info_panel(
     local_only: bool = False,
     hide_anilist_status: bool | None = None,
 ) -> None:
+    if not isinstance(show, dict) or not show:
+        return
+
+    cache_key = (
+        str(show.get("_id") or id(show)),
+        ttype,
+        w,
+        override_ep_str,
+        main_title,
+        local_only,
+        hide_anilist_status,
+        show.get("_local_progress"),
+        show.get("_anilist_progress"),
+        show.get("_anilist_list"),
+        show.get("_sync_enabled"),
+    )
+    cached = _panel_cache.get(cache_key)
+    if cached is not None:
+        parts.extend(cached)
+        return
+
     prepare_show_display_state(show, ttype, show.get("_sync_enabled") if "_sync_enabled" in show else None)
+
+    cache_key_updated = (
+        str(show.get("_id") or id(show)),
+        ttype,
+        w,
+        override_ep_str,
+        main_title,
+        local_only,
+        hide_anilist_status,
+        show.get("_local_progress"),
+        show.get("_anilist_progress"),
+        show.get("_anilist_list"),
+        show.get("_sync_enabled"),
+    )
+    cached = _panel_cache.get(cache_key_updated)
+    if cached is not None:
+        _panel_cache[cache_key] = cached
+        parts.extend(cached)
+        return
+
     card_lines = render_header_card(
         show,
         ttype=ttype,
@@ -62,8 +110,12 @@ def build_info_panel(
         local_only=local_only,
         hide_anilist_status=hide_anilist_status,
     )
-    # The first 3 lines are Title, Alt Title, and Metadata
-    parts.extend(card_lines[:3])
+    res = card_lines[:3]
+    if len(_panel_cache) > 200:
+        _panel_cache.clear()
+    _panel_cache[cache_key_updated] = res
+    _panel_cache[cache_key] = res
+    parts.extend(res)
 
 
 def make_info_fn(shows_getter: Callable[[], list[dict]], ui: Any) -> Callable[[int], str]:

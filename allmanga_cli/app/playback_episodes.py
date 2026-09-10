@@ -121,9 +121,15 @@ def handle_episode_state(
 
     ep_opts = [episode_label(episode_ids[i], episode_labels) for i in display_order]
 
+    _hdr_cache: dict[tuple, str] = {}
+
     def _ep_hdr(si):
         try: w = os.get_terminal_size().columns
         except OSError: w = 80
+        feedback = app_core.get_active_feedback(show)
+        cache_key = (w, ttype, feedback, getattr(ms, "_is_downloads", False))
+        if cache_key in _hdr_cache:
+            return _hdr_cache[cache_key]
         parts = []
         if show:
             app_core.build_info_panel(show, ttype, w, parts, local_only=getattr(ms, "_is_downloads", False))
@@ -131,17 +137,19 @@ def handle_episode_state(
         _t = lambda s: _truncate_display(s, max(1, w - 1))
         direct_single = ui.ep_prev_state == "SEARCH" and len(ms.shows) <= 1 and ms.just_searched
         nav_text = "Esc=Search" if direct_single else "Esc=Back"
-        feedback = app_core.get_active_feedback(show)
         if feedback:
             parts.append(f"\033[38;5;222m{_t(feedback)}{_RST}")
         else:
             p_name = (show.get("_provider_name") or (show.get("_provider") or "").title()) if show else ""
             prefix = f"{p_name} • " if p_name else ""
             parts.append(f"{_C_HINT}{_t(prefix + 'Tab=Sub/Dub • Ctrl+R=flip • Enter=play • ?=Help • ' + nav_text)}{_RST}")
-        return "\n".join(parts)
+        res = "\n".join(parts)
+        _hdr_cache[cache_key] = res
+        return res
 
     def _ep_tab_fn(opt=None, direction=1):
         nonlocal ttype, episode_ids, episode_labels, display_order, ep_opts
+        _hdr_cache.clear()
         target_ttype = "dub" if ttype == "sub" else "sub"
         allowed, reason = app_core.check_translation_switch_capability(show, ttype, target_ttype)
         if not allowed:
@@ -172,6 +180,7 @@ def handle_episode_state(
 
     def _ep_reverse_fn(opt=None):
         nonlocal ep_opts, display_order
+        _hdr_cache.clear()
         app_core.toggle_episode_order(ms.show_id, cfg.get("episode_order", "asc"))
         display_order.reverse()
         ep_opts = [episode_label(episode_ids[i], episode_labels) for i in display_order]

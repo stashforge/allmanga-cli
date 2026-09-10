@@ -146,6 +146,20 @@ def _extract_item_season(item, titles):
     return explicit_season_number(titles)
 
 
+def _extract_item_part(item, titles):
+    part = item.get("_part") or item.get("part")
+    if isinstance(part, int) and part > 0:
+        return part
+    import re
+    for t in titles:
+        if not t:
+            continue
+        m = re.search(r"(?i)\b(?:part|cour)\s*(\d+)\b", str(t))
+        if m:
+            return int(m.group(1))
+    return None
+
+
 def match_score_details(anilist, allmanga):
     anilist_titles = _cached_match_titles(anilist)
     allmanga_titles = _cached_match_titles(allmanga)
@@ -197,6 +211,18 @@ def match_score_details(anilist, allmanga):
         return details
     elif anilist_season and allmanga_season and anilist_season == allmanga_season:
         details["score"] += 12
+
+    # Signal 4b: Part / Cour comparison
+    anilist_part = _extract_item_part(anilist, anilist_titles)
+    allmanga_part = _extract_item_part(allmanga, allmanga_titles)
+    if anilist_part is not None and allmanga_part is not None and anilist_part != allmanga_part:
+        details["contradiction"] = "part"
+        return details
+    elif (anilist_part is not None and anilist_part > 1 and allmanga_part is None) or (allmanga_part is not None and allmanga_part > 1 and anilist_part is None):
+        details["contradiction"] = "part"
+        return details
+    elif anilist_part is not None and allmanga_part is not None and anilist_part == allmanga_part:
+        details["score"] += 10
 
     # Signal 5: Media Type / Format (Object-first)
     anilist_type = str(anilist.get("format") or anilist.get("type") or "").upper().replace(" ", "_")
@@ -302,6 +328,17 @@ def is_same_show(show1, show2, strict=False):
     mal2 = str(show2.get("malId") or show2.get("myanimelist_id") or "")
     if mal1 and mal1 == mal2:
         return True
+
+    # Definitive negative checks: If both have explicit IDs that differ, they are definitely NOT the same show
+    if al1 and al2 and al1 != al2:
+        return False
+    if mal1 and mal2 and mal1 != mal2:
+        return False
+
+    p1 = str(show1.get("_provider") or show1.get("provider") or "")
+    p2 = str(show2.get("_provider") or show2.get("provider") or "")
+    if p1 and p2 and p1 == p2 and id1 and id2 and id1 != id2:
+        return False
 
     if strict:
         return False

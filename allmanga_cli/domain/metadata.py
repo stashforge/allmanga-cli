@@ -22,6 +22,17 @@ def format_time(secs):
     return " ".join(pieces[:2])
 
 
+def format_video_time(secs):
+    if not secs or int(secs) <= 0:
+        return "0:00"
+    secs = int(secs)
+    hours, remainder = divmod(secs, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    if hours > 0:
+        return f"{hours}:{minutes:02d}:{seconds:02d}"
+    return f"{minutes}:{seconds:02d}"
+
+
 def set_next_airing_fields(show, next_air):
     if not show or not next_air:
         return
@@ -377,8 +388,6 @@ def format_info_metadata_line(
 def prepare_show_display_state(show, ttype="sub", sync_enabled=None):
     if not show:
         return show
-    if "_local_progress" in show and "_sync_enabled" in show and "_progress_authority" in show:
-        return show
     from allmanga_cli.context import FLAGS as runtime_flags
     from allmanga_cli.core.storage import get_title_sync, get_local_progress, get_local_episode_label
 
@@ -547,7 +556,7 @@ def batch_prepare_shows_display_state(shows, ttype="sub"):
                 hist_show = matched_entry.get("show") or {}
                 if not show.get("aniListId") and not show.get("_episode_ids"):
                     for k in (
-                        "altNames", "englishName", "nativeName", "status", "episodeCount",
+                        "altNames", "romajiName", "englishName", "nativeName", "status", "episodeCount",
                         "aniListId", "malId", "score", "genres", "_next_airing_ep",
                         "_next_airing_at", "_next_airing_time", "_episode_ids", "_episode_labels"
                     ):
