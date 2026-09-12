@@ -438,8 +438,8 @@ def tui_pick(
             is_sel = (scroll + vi == sel)
             disabled = oi in disabled_indices
             if disabled:
-                label = _truncate_display(str(options[oi] or ""), cols)
-                out.append(f"\033[2K{_fit_terminal_line(label, cols)}")
+                label = _truncate_display(str(options[oi] or ""), max(0, cols - 2))
+                out.append(f"\033[2K{_fit_terminal_line(f'  {label}', cols)}")
                 continue
             ptr    = f"{_C_PTR}\u276f{_RST}" if is_sel and not disabled else " "
             label  = _render_item(options[oi], query, is_sel, max_w=item_max_w)

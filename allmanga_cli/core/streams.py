@@ -281,6 +281,8 @@ def start_bg_resolve(
     exclude_names: source names already resolved (skip them to avoid duplicates).
     """
     global _streams_generation, _bg_thread, _bg_generation, _bg_stats, _active_stream_key
+    if not isinstance(ep_data, dict) or ep_data.get("is_local"):
+        return
     sources = ep_data.get("episode", {}).get("sourceUrls", []) if ep_data else []
     sources = expand_direct_sources(sources)
     sources = sorted(sources, key=source_priority)

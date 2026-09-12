@@ -57,6 +57,7 @@ def handle_action_menu_state(
 
     if ms.current_ep_index is None:
         app_core.err(f"EP {ms.current_ep} is not present in the provider catalog.")
+        ui.ep_prev_state = "DETAILS"
         return "EPISODE"
 
     next_ep = episode_id_at(episode_ids, ms.current_ep_index + 1) if ms.current_ep_index + 1 < ms.total_eps else None
@@ -106,26 +107,35 @@ def handle_action_menu_state(
     def _check_watched():
         if getattr(ms, "_is_downloads", False):
             watched_eps = action_show.get("watched_episodes", [])
-            return str(ms.current_ep) in watched_eps
-        else:
-            import decimal
-            try:
-                cur_idx = ms.current_ep_index if ms.current_ep_index is not None else 0
-                if l_sec:
-                    return cur_idx < eff_prog
-                current_ep_num = decimal.Decimal(str(episode_progress_number(ms.current_ep, cur_idx + 1)))
-                if from_anilist_context or use_anilist or action_show.get("_progress_authority") == "AL":
-                    if al_prog <= 0:
-                        return False
-                    return current_ep_num <= al_prog
-                else:
-                    if local_p is None:
-                        return False
-                    if local_prog_val == 0:
-                        return str(local_p) == "0" and current_ep_num == 0
-                    return current_ep_num <= local_prog_val
-            except (decimal.InvalidOperation, ValueError, TypeError):
-                return False
+            if str(ms.current_ep) in watched_eps:
+                return True
+            from ..domain.episodes import parse_episode_dual_numbers, clean_episode_identifier
+            prim, sec = parse_episode_dual_numbers(str(current_ep_label))
+            clean = (prim or clean_episode_identifier(str(current_ep_label)) or str(current_ep_label)).lstrip("0") or "0"
+            for w in watched_eps:
+                wp, ws = parse_episode_dual_numbers(str(w))
+                wc = (wp or clean_episode_identifier(str(w)) or str(w)).lstrip("0") or "0"
+                if wc == clean or (sec and sec == ws):
+                    return True
+
+        import decimal
+        try:
+            cur_idx = ms.current_ep_index if ms.current_ep_index is not None else 0
+            if l_sec:
+                return cur_idx < eff_prog
+            current_ep_num = decimal.Decimal(str(episode_progress_number(ms.current_ep, cur_idx + 1)))
+            if from_anilist_context or use_anilist or action_show.get("_progress_authority") == "AL":
+                if al_prog <= 0:
+                    return False
+                return current_ep_num <= al_prog
+            else:
+                if local_p is None:
+                    return False
+                if local_prog_val == 0:
+                    return str(local_p) == "0" and current_ep_num == 0
+                return current_ep_num <= local_prog_val
+        except (decimal.InvalidOperation, ValueError, TypeError):
+            return False
 
     is_watched = _check_watched()
 
@@ -361,6 +371,7 @@ def handle_action_menu_state(
                     watched.append(str(ms.current_ep))
                 action_show["watched_episodes"] = watched
                 app_core.prepare_show_display_state(action_show, ttype, False)
+            app_core.save_history(action_show, ms.current_ep, ttype)
             app_core.set_action_feedback(action_show, f"✔ Marked {playback_mod._fmt_ep(current_ep_label)} watched")
             app_core.save_resume_time(ms.show_id, ms.current_ep, 0)
             return False
@@ -492,6 +503,7 @@ def handle_action_menu_state(
         return "PLAY"
 
     elif a == "EPISODES":
+        ui.ep_prev_state = "DETAILS"
         return "EPISODE"
 
     elif a == "REPLAY":

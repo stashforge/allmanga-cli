@@ -191,13 +191,13 @@ def handle_play_state(
             if getattr(ms, "_is_downloads", False):
                 filepath = ms._download_files.get(str(ms.current_ep))
                 if filepath:
-                    res = ({"link": filepath, "resolution": "Local"}, "Local File", filepath, [])
+                    res = ({"link": filepath, "resolution": "Local", "is_local": True}, "Local File", {"is_local": True, "filepath": filepath}, [])
                 else:
                     res = None
             else:
                 local_file = app_core.find_offline_file_for_episode(ms.show_title, ms.current_ep, cfg) if not getattr(args, 'download', False) and not getattr(args, 'sources', False) else None
                 if local_file and os.path.exists(local_file):
-                    res = ({"link": local_file, "resolution": "Offline (Local)", "is_local": True}, "Local File", local_file, [])
+                    res = ({"link": local_file, "resolution": "Offline (Local)", "is_local": True}, "Local File", {"is_local": True, "filepath": local_file}, [])
                 elif str(_ipc_player.prefetched_ep) == str(ms.current_ep) and _ipc_player.prefetched_res:
                     res = _ipc_player.prefetched_res
                     _ipc_player.prefetched_ep = None
@@ -399,7 +399,7 @@ def handle_play_state(
 
         if args.sources and not ui.initial_sources_prompted:
             ui.initial_sources_prompted = True
-            if first_source_name is not None:
+            if first_source_name is not None and first_source_name != "Local File" and not getattr(ms, "_is_downloads", False):
                 app_core.start_bg_resolve(ep_data, {first_source_name}, show_id=ms.show_id, ep=ms.current_ep, ttype=ttype, provider_id=provider_id)
             app_core._exit_player_screen()
             return "MIRRORS"
@@ -559,7 +559,7 @@ def handle_play_state(
         if getattr(ms, "_is_downloads", False):
             filepath = ms._download_files.get(str(target_ep))
             if filepath:
-                return ({"link": filepath, "resolution": "Local"}, "Local File", filepath, [])
+                return ({"link": filepath, "resolution": "Local", "is_local": True}, "Local File", {"is_local": True, "filepath": filepath}, [])
             return None
 
         if aniskip_enabled and mal_id:
@@ -613,7 +613,7 @@ def handle_play_state(
             aniskip_enabled=aniskip_enabled,
         )
 
-        if first_source_name is not None:
+        if first_source_name is not None and first_source_name != "Local File" and not getattr(ms, "_is_downloads", False):
             exclude = {first_source_name}
             app_core.start_bg_resolve(ep_data, exclude, show_id=ms.show_id, ep=ms.current_ep, ttype=ttype, provider_id=provider_id)
 
@@ -635,7 +635,7 @@ def handle_play_state(
         return "DETAILS"
 
     else:
-        if first_source_name is not None:
+        if first_source_name is not None and first_source_name != "Local File" and not getattr(ms, "_is_downloads", False):
             exclude = {first_source_name}
             app_core.start_bg_resolve(ep_data, exclude, show_id=ms.show_id, ep=ms.current_ep, ttype=ttype, provider_id=provider_id)
 

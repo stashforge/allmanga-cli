@@ -185,6 +185,37 @@ def handle_details_state(
             ms.current_ep_index = 0
             ms.current_ep = episode_id_at(episode_ids, 0)
 
+        if getattr(ms, "_is_downloads", False) and getattr(ms, "_download_files", None):
+            def _is_downloaded_idx(idx):
+                ep = episode_id_at(episode_ids, idx)
+                if str(ep) in ms._download_files:
+                    return True
+                lbl = (s.get("_episode_labels") or {}).get(str(ep), str(ep))
+                if str(lbl) in ms._download_files:
+                    return True
+                from ..domain.episodes import parse_episode_dual_numbers, clean_episode_identifier
+                prim, sec = parse_episode_dual_numbers(str(lbl))
+                clean = (prim or clean_episode_identifier(str(lbl)) or str(lbl)).lstrip("0") or "0"
+                if clean in ms._download_files:
+                    return True
+                return False
+
+            if not _is_downloaded_idx(ms.current_ep_index):
+                start = (watched_idx + 1) if (watched_idx is not None and watched_idx + 1 < len(episode_ids)) else 0
+                found_dl = None
+                for idx_cand in range(start, len(episode_ids)):
+                    if _is_downloaded_idx(idx_cand):
+                        found_dl = idx_cand
+                        break
+                if found_dl is None:
+                    for idx_cand in range(0, len(episode_ids)):
+                        if _is_downloaded_idx(idx_cand):
+                            found_dl = idx_cand
+                            break
+                if found_dl is not None:
+                    ms.current_ep_index = found_dl
+                    ms.current_ep = episode_id_at(episode_ids, found_dl)
+
     from .playback_menu import handle_action_menu_state
     return handle_action_menu_state(flags, ui, ms, cfg, args, ttype_local, resolve_tracking_fn)
 

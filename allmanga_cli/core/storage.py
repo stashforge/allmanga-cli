@@ -376,6 +376,10 @@ HISTORY_SHOW_STRIP_KEYS = ANILIST_HISTORY_STRIP_KEYS | {
     "_allanime_checked_at",
     "_local_progress",
     "_local_episode_label",
+    "watched_episodes",
+    "_folder_name",
+    "_download_files",
+    "_is_downloads",
 }
 
 
@@ -877,12 +881,29 @@ def load_downloads_db():
         debug_warn(f"Failed to load downloads db: {e}")
         return {"current_download_dir": "", "shows": {}}
 
+_DOWNLOADS_DB_META_STRIP_KEYS = {
+    "_poster_raw",
+    "_poster_status",
+    "_poster_status_time",
+    "_poster_failed",
+}
+
+
 def save_downloads_db(db):
     if is_incognito():
         return
+    import copy
     import os
     os.makedirs(paths.STATE_DIR, exist_ok=True)
-    _atomic_write_json(paths.DOWNLOADS_DB_PATH, db, indent=2)
+    # Strip session-only poster fields so stale/protocol-specific ANSI blobs
+    # don't persist across sessions (they'd bypass fresh chafa rendering).
+    clean_db = copy.deepcopy(db)
+    for show_data in clean_db.get("shows", {}).values():
+        meta = show_data.get("metadata")
+        if isinstance(meta, dict):
+            for key in _DOWNLOADS_DB_META_STRIP_KEYS:
+                meta.pop(key, None)
+    _atomic_write_json(paths.DOWNLOADS_DB_PATH, clean_db, indent=2)
 
 def update_offline_watch_status(title, episode):
     db = load_downloads_db()
@@ -916,17 +937,38 @@ def find_offline_file_for_episode(show_title: str, episode, cfg: dict | None = N
             return None
 
     target_ep_str = str(episode).strip()
-    EP_NUM_RE = re.compile(r'(?:^|[^\d])0*(\d+(?:\.\d+)?)(?:[^\d]|$)')
+    from allmanga_cli.domain.episodes import clean_episode_identifier, parse_episode_dual_numbers
+    t_prim, t_sec = parse_episode_dual_numbers(target_ep_str)
+    target_clean = (t_prim or clean_episode_identifier(target_ep_str) or target_ep_str).lstrip("0") or "0"
+    target_sec_clean = (t_sec.lstrip("0") or "0") if t_sec else None
+
+    EP_EXPLICIT_RE = re.compile(r'\b(?:episodes?|ep)\b[-_.\s]*([^\n]+)$', re.IGNORECASE)
+    EP_FALLBACK_RE = re.compile(r'(?:^|[^\d])0*(\d+(?:\.\d+)?)(?:[^\d]|$)')
     try:
         for fname in sorted(os.listdir(full_show_path)):
             if not fname.lower().endswith((".mp4", ".mkv", ".webm", ".avi", ".ts")):
                 continue
-            m = EP_NUM_RE.search(fname)
-            if m:
-                found_num = m.group(1).lstrip("0") or "0"
-                target_clean = target_ep_str.lstrip("0") or "0"
-                if found_num == target_clean or m.group(1) == target_ep_str:
+            stem = os.path.splitext(fname)[0]
+            m_exp = EP_EXPLICIT_RE.search(stem)
+            if m_exp:
+                raw_label = m_exp.group(1).strip()
+                f_prim, f_sec = parse_episode_dual_numbers(raw_label)
+                f_clean = (f_prim or clean_episode_identifier(raw_label) or raw_label).lstrip("0") or "0"
+                f_sec_clean = (f_sec.lstrip("0") or "0") if f_sec else None
+                if (
+                    f_clean == target_clean
+                    or raw_label == target_ep_str
+                    or (f_sec_clean and f_sec_clean == target_clean)
+                    or (target_sec_clean and f_clean == target_sec_clean)
+                    or (f_sec_clean and target_sec_clean and f_sec_clean == target_sec_clean)
+                ):
                     return os.path.join(full_show_path, fname)
+            else:
+                m = EP_FALLBACK_RE.search(fname)
+                if m:
+                    found_num = m.group(1).lstrip("0") or "0"
+                    if found_num == target_clean or m.group(1) == target_ep_str:
+                        return os.path.join(full_show_path, fname)
     except OSError:
         pass
     return None

@@ -101,6 +101,16 @@ def normalize_anilist_list_status(status):
 
 def format_progress(anime, local_only=False, ttype="sub"):
     total = positive_int(anime.get("episodeCount"))
+    orig_total = positive_int(anime.get("originalEpisodeCount"))
+    if orig_total:
+        total = max(total or 0, orig_total)
+    avail_count = (anime.get("availableEpisodes") or {}).get(ttype) if isinstance(anime.get("availableEpisodes"), dict) else None
+    avail_int = positive_int(avail_count)
+    if avail_int:
+        total = max(total or 0, avail_int)
+    eids_len = len(anime.get("_episode_ids") or [])
+    if eids_len:
+        total = max(total or 0, eids_len)
 
     local_progress = anime.get("_local_progress")
     local_label = anime.get("_local_episode_label")
@@ -417,20 +427,23 @@ def prepare_show_display_state(show, ttype="sub", sync_enabled=None):
         sync_enabled = get_title_sync(show)
     show["_sync_enabled"] = bool(sync_enabled)
     
-    if "watched_episodes" in show:
+    hist_progress = get_local_progress(show, ttype)
+    hist_label = get_local_episode_label(show, ttype)
+    if hist_progress is not None or hist_label is not None:
+        show["_local_progress"] = hist_progress
+        show["_local_episode_label"] = hist_label
+    elif "watched_episodes" in show and show["watched_episodes"]:
         watched_count = len(show["watched_episodes"])
         show["_local_progress"] = watched_count
-        if watched_count > 0:
-            def safe_num(x):
-                try: return float(x)
-                except ValueError: return -1
-            show["_local_episode_label"] = max(show["watched_episodes"], key=safe_num)
-        else:
-            show["_local_episode_label"] = "0"
+        def safe_num(x):
+            try: return float(x)
+            except ValueError: return -1
+        show["_local_episode_label"] = max(show["watched_episodes"], key=safe_num)
     else:
-        show["_local_progress"] = get_local_progress(show, ttype)
-        show["_local_episode_label"] = get_local_episode_label(show, ttype)
-        if not show.get("aniListId") and not show.get("_episode_ids"):
+        show["_local_progress"] = hist_progress
+        show["_local_episode_label"] = hist_label
+
+    if not show.get("aniListId") and not show.get("_episode_ids"):
             from allmanga_cli.core.storage import get_history_entry
             entry = get_history_entry(show, ttype)
             if entry and isinstance(entry.get("show"), dict):
@@ -526,45 +539,52 @@ def batch_prepare_shows_display_state(shows, ttype="sub"):
             sync_enabled = sync_pref is True
         show["_sync_enabled"] = bool(sync_enabled)
 
-        if "watched_episodes" in show:
-            watched_count = len(show["watched_episodes"])
-            show["_local_progress"] = watched_count
-            if watched_count > 0:
-                def safe_num(x):
-                    try: return float(x)
-                    except ValueError: return -1
-                show["_local_episode_label"] = max(show["watched_episodes"], key=safe_num)
-            else:
-                show["_local_episode_label"] = "0"
-        else:
-            sid = str(show.get("_id") or "")
-            sal = str(show.get("aniListId") or "")
-            sname = str(show.get("name") or "").strip().lower()
+        sid = str(show.get("_id") or "")
+        sal = str(show.get("aniListId") or "")
+        sname = str(show.get("name") or "").strip().lower()
 
-            matched_entry = id_to_entry.get(sid) or al_to_entry.get(sal) or name_to_entry.get(sname)
-            if matched_entry is None:
-                for entry in history_list:
-                    entry_show = entry.get("show")
-                    if is_same_show(entry_show, show):
-                        matched_entry = entry
-                        break
+        matched_entry = id_to_entry.get(sid) or al_to_entry.get(sal) or name_to_entry.get(sname)
+        if matched_entry is None:
+            for entry in history_list:
+                entry_show = entry.get("show")
+                if is_same_show(entry_show, show):
+                    matched_entry = entry
+                    break
 
-            if matched_entry:
-                ep_val = str(matched_entry.get("episode") or "0")
-                show["_local_progress"] = 1 if ep_val != "0" else 0
-                show["_local_episode_label"] = ep_val
-                hist_show = matched_entry.get("show") or {}
-                if not show.get("aniListId") and not show.get("_episode_ids"):
-                    for k in (
-                        "altNames", "romajiName", "englishName", "nativeName", "status", "episodeCount",
-                        "aniListId", "malId", "score", "genres", "_next_airing_ep",
-                        "_next_airing_at", "_next_airing_time", "_episode_ids", "_episode_labels"
-                    ):
-                        if not show.get(k) and hist_show.get(k):
-                            show[k] = hist_show[k]
-            else:
+        if matched_entry:
+            eid = matched_entry.get("episode", 0)
+            if str(eid) in ("0", "0.0"):
                 show["_local_progress"] = 0
                 show["_local_episode_label"] = "0"
+            else:
+                labels = (show or {}).get("_episode_labels") or (matched_entry.get("show") or {}).get("_episode_labels") or {}
+                lbl = None
+                if labels and str(eid) in labels:
+                    lbl = str(labels[str(eid)])
+                elif str(eid).startswith(("http://", "https://", "/")):
+                    from ..domain.episodes import clean_episode_identifier
+                    lbl = clean_episode_identifier(str(eid))
+                show["_local_episode_label"] = lbl or str(eid)
+                show["_local_progress"] = show["_local_episode_label"]
+            hist_show = matched_entry.get("show") or {}
+            if not show.get("aniListId") and not show.get("_episode_ids"):
+                for k in (
+                    "altNames", "romajiName", "englishName", "nativeName", "status", "episodeCount",
+                    "aniListId", "malId", "score", "genres", "_next_airing_ep",
+                    "_next_airing_at", "_next_airing_time", "_episode_ids", "_episode_labels"
+                ):
+                    if not show.get(k) and hist_show.get(k):
+                        show[k] = hist_show[k]
+        elif "watched_episodes" in show and show["watched_episodes"]:
+            watched_count = len(show["watched_episodes"])
+            show["_local_progress"] = watched_count
+            def safe_num(x):
+                try: return float(x)
+                except ValueError: return -1
+            show["_local_episode_label"] = max(show["watched_episodes"], key=safe_num)
+        else:
+            show["_local_progress"] = 0
+            show["_local_episode_label"] = "0"
 
         if not show.get("_progress_authority"):
             show["_progress_authority"] = "AL" if sync_enabled else "LOCAL"

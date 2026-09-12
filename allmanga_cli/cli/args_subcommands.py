@@ -118,6 +118,9 @@ def add_downloads_subcommand(commands):
         metavar="PLAYER",
         help="Player: mpv, mpvrex, vlc, next",
     )
+    output = downloads.add_argument_group("Output options")
+    output.add_argument("--cover", dest="cover", action="store_true", default=None, help="Show cover images")
+    output.add_argument("--no-cover", dest="cover", action="store_false", help="Do not show cover images")
     global_options = downloads.add_argument_group("Global options")
     _add_debug_option(global_options, suppress_default=True)
     _add_plain_option(global_options, suppress_default=True)

@@ -153,14 +153,19 @@ class PosterManager:
             self.set_status(show, "failed")
             return ""
 
-        # Search existing ANSI covers across all read directories (incognito temp first, then main cache)
+        # Fast path: if the image is already cached on disk, render via chafa immediately (~14ms)
         for r_dir in self.read_cache_dirs():
-            cached_ansi = os.path.join(r_dir, f"{url_hash}.ansi")
-            if os.path.exists(cached_ansi):
+            p = os.path.join(r_dir, f"{url_hash}.jpg")
+            if os.path.exists(p):
                 try:
-                    with open(cached_ansi, "r", encoding="utf-8") as f:
-                        raw = f.read()
-                    if raw.strip():
+                    process = subprocess.run(
+                        chafa_cover_command(p),
+                        capture_output=True,
+                        text=True,
+                        timeout=5,
+                    )
+                    if process.returncode == 0 and process.stdout.strip():
+                        raw = process.stdout.rstrip("\n")
                         with self.poster_lock:
                             self._raw_cache[url_hash] = raw
                             show["_poster_raw"] = raw
@@ -169,6 +174,7 @@ class PosterManager:
                         return raw
                 except Exception:
                     pass
+                break
 
         write_dir = self.cache_dir()
         cached_path = os.path.join(write_dir, f"{url_hash}.jpg")
@@ -182,7 +188,7 @@ class PosterManager:
         return ""
 
     def _download(self, show, url, url_hash, cache_dir, cached_path):
-        time.sleep(0.50)
+        time.sleep(0.15)
         hovered = self.hovered_show_id()
         target_id = show.get("_id") or show.get("id") or show.get("title") or show.get("name")
         if hovered and target_id and str(hovered) != str(target_id):
@@ -254,12 +260,6 @@ class PosterManager:
             )
             if process.returncode == 0 and process.stdout.strip():
                 raw = process.stdout.rstrip("\n")
-                cached_ansi = os.path.join(cache_dir, f"{url_hash}.ansi")
-                try:
-                    with open(cached_ansi, "w", encoding="utf-8") as f:
-                        f.write(raw)
-                except Exception:
-                    pass
                 with self.poster_lock:
                     self._raw_cache[url_hash] = raw
                     show["_poster_raw"] = raw

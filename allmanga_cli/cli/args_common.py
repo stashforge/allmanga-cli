@@ -176,7 +176,7 @@ def _set_cli_defaults(parser):
         history=False,
         anilist=None,
         cont=False,
-        cover=False,
+        cover=None,
         incognito=False,
         debug=False,
         json=False,
