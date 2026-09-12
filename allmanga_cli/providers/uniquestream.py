@@ -15,8 +15,6 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-
 from ..media.sources import parse_resolution_height
 from ..services.http import SSL_CTX, UA
 from .shared.base import Provider
@@ -27,6 +25,47 @@ from .shared.models import (
 )
 
 _logger = logging.getLogger(__name__)
+
+
+def _decrypt_aes_cbc(key: bytes, iv: bytes, ciphertext: bytes) -> bytes:
+    """Decrypt AES-CBC ciphertext using cryptography or pycryptodome."""
+    # 1. Try cryptography
+    try:
+        from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+        cipher = Cipher(algorithms.AES(key), modes.CBC(iv))
+        decryptor = cipher.decryptor()
+        padded = decryptor.update(ciphertext) + decryptor.finalize()
+        if padded:
+            pad_len = padded[-1]
+            if 1 <= pad_len <= 16 and padded.endswith(bytes([pad_len]) * pad_len):
+                return padded[:-pad_len]
+        return padded
+    except ImportError:
+        pass
+    except Exception as e:
+        _logger.debug("cryptography AES-CBC decryption failed: %s", e)
+
+    # 2. Try pycryptodome / pycryptodomex
+    for lib in ("Cryptodome", "Crypto"):
+        try:
+            AES = __import__(f"{lib}.Cipher", fromlist=["AES"]).AES
+            cipher = AES.new(key, AES.MODE_CBC, iv)
+            padded = cipher.decrypt(ciphertext)
+            if padded:
+                pad_len = padded[-1]
+                if 1 <= pad_len <= 16 and padded.endswith(bytes([pad_len]) * pad_len):
+                    return padded[:-pad_len]
+            return padded
+        except ImportError:
+            continue
+        except Exception as e:
+            _logger.debug("%s AES-CBC decryption failed: %s", lib, e)
+            continue
+
+    raise RuntimeError(
+        "Neither 'cryptography' nor 'pycryptodome' is installed. "
+        "Install with: pip install pycryptodome (or pip install cryptography)"
+    )
 
 try:
     from curl_cffi import requests as cffi_requests
@@ -112,11 +151,7 @@ class _UniqueStreamHlsServer:
         k = hashlib.sha256(f"key{mid}".encode("utf-8")).digest()[:16]
         iv = hashlib.sha256(f"iv{mid}".encode("utf-8")).digest()[:16]
 
-        cipher = Cipher(algorithms.AES(k), modes.CBC(iv))
-        decryptor = cipher.decryptor()
-        padded = decryptor.update(ciphertext) + decryptor.finalize()
-        pad_len = padded[-1]
-        recovered = padded[:-pad_len] if (1 <= pad_len <= 16 and padded.endswith(bytes([pad_len]) * pad_len)) else padded
+        recovered = _decrypt_aes_cbc(k, iv, ciphertext)
 
         if len(self._key_cache) > 64:
             self._key_cache.clear()
@@ -257,17 +292,7 @@ class _UniqueStreamHlsServer:
                             real_key = server_inst._fetch_real_key(key_url, mid)
                             iv_clean = (iv_hex or "0").rjust(32, "0")
                             iv = bytes.fromhex(iv_clean)
-                            cipher = Cipher(algorithms.AES(real_key), modes.CBC(iv))
-                            decryptor = cipher.decryptor()
-                            padded = decryptor.update(ciphertext) + decryptor.finalize()
-                            if padded:
-                                pad_len = padded[-1]
-                                if 1 <= pad_len <= 16 and padded.endswith(bytes([pad_len]) * pad_len):
-                                    plaintext = padded[:-pad_len]
-                                else:
-                                    plaintext = padded
-                            else:
-                                plaintext = padded
+                            plaintext = _decrypt_aes_cbc(real_key, iv, ciphertext)
                         else:
                             plaintext = ciphertext
 

@@ -80,7 +80,12 @@ def discover_provider_factories(
         name = module_info.name
         if name.startswith("_") or name in _SKIPPED_MODULES:
             continue
-        module = importlib.import_module(f"{package_name}.{name}")
+        try:
+            module = importlib.import_module(f"{package_name}.{name}")
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).debug("Failed to load provider module %s: %s", name, exc)
+            continue
         for provider_class in _provider_classes_from_module(module):
             provider_id = str(provider_class.id).casefold()
             if provider_id in _DISABLED_PROVIDERS:
@@ -95,18 +100,26 @@ def discover_provider_factories(
 
 PROVIDER_FACTORIES = discover_provider_factories()
 if _DEFAULT_PROVIDER_ID not in PROVIDER_FACTORIES:
-    from .miruro import MiruroProvider
-
-    PROVIDER_FACTORIES[_DEFAULT_PROVIDER_ID] = MiruroProvider
+    try:
+        from .miruro import MiruroProvider
+        PROVIDER_FACTORIES[_DEFAULT_PROVIDER_ID] = MiruroProvider
+    except Exception:
+        pass
 
 # Order PROVIDERS according to registry.json ordering
 PROVIDERS: dict[str, Any] = {}
 for p_id in PROVIDER_REGISTRY:
     if p_id in PROVIDER_FACTORIES:
-        PROVIDERS[p_id] = PROVIDER_FACTORIES[p_id]()
+        try:
+            PROVIDERS[p_id] = PROVIDER_FACTORIES[p_id]()
+        except Exception:
+            pass
 for p_id, factory in PROVIDER_FACTORIES.items():
     if p_id not in PROVIDERS and p_id not in _DISABLED_PROVIDERS:
-        PROVIDERS[p_id] = factory()
+        try:
+            PROVIDERS[p_id] = factory()
+        except Exception:
+            pass
 
 # Attach metadata directly to instances for backward compatibility,
 # and so providers can self-reference their JSON domains.
