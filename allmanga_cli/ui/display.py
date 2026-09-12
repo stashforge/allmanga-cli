@@ -218,10 +218,11 @@ def restore_terminal():
         pass
     # Force exit alt-screen sequence unconditionally to ensure normal buffer is restored
     reset_seq = "\033[?1049l\033[?25h\033[0m"
-    for stream in (sys.stdout, sys.stderr):
+    for stream in (sys.__stdout__, sys.stdout, sys.__stderr__, sys.stderr):
         try:
-            stream.write(reset_seq)
-            stream.flush()
+            if stream and not stream.closed:
+                stream.write(reset_seq)
+                stream.flush()
         except Exception:
             pass
     try:
@@ -247,13 +248,28 @@ def restore_terminal():
 
 def fatal_terminal_exit(message: str, code: int = 1):
     """Restore terminal completely from alt-screen and print message on the primary terminal."""
+    try:
+        if sys.__stderr__ and not sys.__stderr__.closed:
+            sys.stderr = sys.__stderr__
+    except Exception:
+        pass
+    try:
+        if sys.__stdout__ and not sys.__stdout__.closed:
+            sys.stdout = sys.__stdout__
+    except Exception:
+        pass
+
     restore_terminal()
+    time.sleep(0.02)
+
     clean_msg = f"\n{message.strip()}\n\n"
     written = False
+    target_stream = sys.__stderr__ if (sys.__stderr__ and not sys.__stderr__.closed) else sys.stderr
     try:
-        sys.stderr.write(clean_msg)
-        sys.stderr.flush()
-        written = True
+        if target_stream and not target_stream.closed:
+            target_stream.write(clean_msg)
+            target_stream.flush()
+            written = True
     except Exception:
         pass
     if not written:
