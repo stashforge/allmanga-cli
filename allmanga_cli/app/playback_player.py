@@ -223,13 +223,14 @@ def handle_play_state(
                             sname = (s.get("source_name") or "").lower()
                             res = s.get("resolution") or ""
                             prio = s.get("source_priority", 4)
-                            is_dub = " eng" in sname or "dub" in sname
+                            is_sub = "sub" in sname
+                            is_dub = ("dub" in sname) or ((" eng" in sname or "english" in sname) and not is_sub)
                             audio_penalty = 1 if (ttype == "sub" and is_dub) or (ttype == "dub" and not is_dub) else 0
                             is_hard = "hardsub" in sname or "hard-sub" in sname or "hard sub" in sname
                             is_soft = "softsub" in sname or "all sub" in sname or "multi sub" in sname
                             sub_rank = 0 if is_hard else (2 if is_soft else 1)
                             q_key = quality_preference_key(res, target_quality)
-                            return (audio_penalty, sub_rank, prio, q_key)
+                            return (sub_rank, audio_penalty, prio, q_key)
 
                         sorted_cached = sorted(cached_streams, key=_cached_sort_key)
                         for s in sorted_cached:

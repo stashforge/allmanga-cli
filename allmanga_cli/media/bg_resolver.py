@@ -168,9 +168,16 @@ def start_bg_resolve(ep_data: dict, exclude_names: set) -> None:
     """
     global _bg_thread, _bg_generation, _bg_stats
 
+    def _bg_sort_key(s):
+        sname = str(s.get("sourceName") or "").lower()
+        is_hard = "hardsub" in sname or "hard-sub" in sname or "hard sub" in sname
+        is_soft = "softsub" in sname or "all sub" in sname or "multi sub" in sname
+        sub_rank = 0 if is_hard else (2 if is_soft else 1)
+        return (sub_rank, source_priority(s))
+
     sources = sorted(
         ep_data.get("episode", {}).get("sourceUrls", []),
-        key=source_priority,
+        key=_bg_sort_key,
     )
     with _streams_lock:
         _streams_generation_local = _streams_generation + 1

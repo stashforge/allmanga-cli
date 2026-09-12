@@ -309,11 +309,15 @@ def start_bg_resolve(
     def _bg_sort_key(s):
         sname = str(s.get("sourceName") or "").lower()
         res = str(s.get("resolution") or sname)
-        is_dub = " eng" in sname or "dub" in sname
+        is_sub = "sub" in sname
+        is_dub = ("dub" in sname) or ((" eng" in sname or "english" in sname) and not is_sub)
         audio_penalty = 1 if (ttype == "sub" and is_dub) or (ttype == "dub" and not is_dub) else 0
+        is_hard = "hardsub" in sname or "hard-sub" in sname or "hard sub" in sname
+        is_soft = "softsub" in sname or "all sub" in sname or "multi sub" in sname
+        sub_rank = 0 if is_hard else (2 if is_soft else 1)
         prio = source_priority(s)
         q_key = quality_preference_key(res, "best")
-        return (audio_penalty, prio, q_key)
+        return (sub_rank, audio_penalty, prio, q_key)
 
     sources = sorted(sources, key=_bg_sort_key)
     now = time.time()
@@ -360,7 +364,7 @@ def start_bg_resolve(
                     _set_cached_ep_data(fetched_ep_data, key=stream_key)
                     raw_sources = fetched_ep_data.get("episode", {}).get("sourceUrls", [])
                     sources = expand_direct_sources(raw_sources)
-                    sources = sorted(sources, key=source_priority)
+                    sources = sorted(sources, key=_bg_sort_key)
                     with _bg_lock:
                         if _bg_generation == generation:
                             _bg_stats["total"] = len(sources)
@@ -447,14 +451,18 @@ def fetch_episode_stream(show_id, ep_number, ttype="sub", quality="best", provid
     def dynamic_prio(src):
         api_name = src.get("sourceName", "")
         if pref_name.startswith(api_name) and api_name:
-            return (-1, 0, (0, 0))
+            return (-1, 0, 0, (0, 0))
         sname = str(src.get("sourceName") or "").lower()
         res = str(src.get("resolution") or sname)
-        is_dub = " eng" in sname or "dub" in sname
+        is_sub = "sub" in sname
+        is_dub = ("dub" in sname) or ((" eng" in sname or "english" in sname) and not is_sub)
         audio_penalty = 1 if (ttype == "sub" and is_dub) or (ttype == "dub" and not is_dub) else 0
+        is_hard = "hardsub" in sname or "hard-sub" in sname or "hard sub" in sname
+        is_soft = "softsub" in sname or "all sub" in sname or "multi sub" in sname
+        sub_rank = 0 if is_hard else (2 if is_soft else 1)
         prio = source_priority(src)
         q_key = quality_preference_key(res, quality)
-        return (audio_penalty, prio, q_key)
+        return (sub_rank, audio_penalty, prio, q_key)
 
     from ..media.resolver import generate_source_passes
     exclude_sources = set(exclude_sources or [])
