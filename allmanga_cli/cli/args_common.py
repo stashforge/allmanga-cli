@@ -12,7 +12,7 @@ except Exception:
     try:
         __version__ = importlib.metadata.version("allmanga-cli")
     except Exception:
-        __version__ = "0.7.3"
+        __version__ = "0.8.0"
 
 from allmanga_cli.providers import available_providers, _DEFAULT_PROVIDER_ID
 
