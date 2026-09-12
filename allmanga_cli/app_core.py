@@ -311,6 +311,7 @@ _get_poster = display._get_poster
 enter_alt_screen = display.enter_alt_screen
 exit_alt_screen = display.exit_alt_screen
 restore_terminal = display.restore_terminal
+fatal_terminal_exit = display.fatal_terminal_exit
 with_loading = display.with_loading
 render_anilist_menu_loading = display.render_anilist_menu_loading
 with_anilist_menu_loading = display.with_anilist_menu_loading

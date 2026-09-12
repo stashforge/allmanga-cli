@@ -38,9 +38,11 @@ from ..core.anilist import (
     search_anilist,
     get_show_anilist_id,
 )
+from ..core.api import ProviderDependencyError
 from ..providers import (
     _DEFAULT_PROVIDER_ID,
     available_providers,
+    get_provider,
     get_provider_registry,
     provider_key,
 )
@@ -427,6 +429,13 @@ def main() -> None:
     ui.ui_ttype_ctx = ttype
     active_provider = getattr(args, "provider", None) or cfg.get("provider") or cfg.get("default_provider") or _DEFAULT_PROVIDER_ID
     ui.ui_provider_ctx = provider_key(active_provider)
+    p_inst = get_provider(ui.ui_provider_ctx)
+    if hasattr(p_inst, "validate_environment"):
+        try:
+            p_inst.validate_environment()
+        except ProviderDependencyError as exc:
+            from ..ui.display import fatal_terminal_exit
+            fatal_terminal_exit(str(exc))
     quality = args.quality or cfg.get("quality","1080p")
 
     ms = MachineState(

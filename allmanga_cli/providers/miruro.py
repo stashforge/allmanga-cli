@@ -139,6 +139,9 @@ class MiruroProvider:
         if not hasattr(self, 'metadata'):
             self.metadata = {}
 
+    def validate_environment(self) -> None:
+        _load_curl_requests()
+
     @property
     def base_url(self) -> str:
         return self.domains[0] if getattr(self, 'domains', None) else "https://www.miruro.tv"

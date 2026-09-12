@@ -12,6 +12,8 @@ def run():
     except KeyboardInterrupt:
         app.restore_terminal()
         return 130
+    except app.ProviderDependencyError as exc:
+        app.fatal_terminal_exit(str(exc))
     except Exception as exc:
         app.restore_terminal()
         if runtime_flags.debug_mode:

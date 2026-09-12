@@ -27,6 +27,7 @@ import re
 import sys
 import threading
 import termios
+import time
 import tty
 
 from ..context import FLAGS
@@ -215,6 +216,20 @@ def restore_terminal():
         exit_alt_screen()
     except Exception:
         pass
+    # Force exit alt-screen sequence unconditionally to ensure normal buffer is restored
+    reset_seq = "\033[?1049l\033[?25h\033[0m"
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.write(reset_seq)
+            stream.flush()
+        except Exception:
+            pass
+    try:
+        with open("/dev/tty", "w") as tty:
+            tty.write(reset_seq)
+            tty.flush()
+    except Exception:
+        pass
     try:
         if sys.stdin.isatty() and _INITIAL_TERMIOS_ATTRS is not None:
             fd = sys.stdin.fileno()
@@ -223,16 +238,33 @@ def restore_terminal():
     except Exception:
         pass
     try:
-        sys.stdout.write("\033[?25h\033[0m")
-        sys.stdout.flush()
-    except Exception:
-        pass
-    try:
         chapters_path = "/storage/emulated/0/Mpv/chapters.txt"
         if os.path.exists(chapters_path):
             os.remove(chapters_path)
     except Exception:
         pass
+
+
+def fatal_terminal_exit(message: str, code: int = 1):
+    """Restore terminal completely from alt-screen and print message on the primary terminal."""
+    restore_terminal()
+    clean_msg = f"\n{message.strip()}\n\n"
+    written = False
+    try:
+        sys.stderr.write(clean_msg)
+        sys.stderr.flush()
+        written = True
+    except Exception:
+        pass
+    if not written:
+        try:
+            with open("/dev/tty", "w") as tty:
+                tty.write(clean_msg)
+                tty.flush()
+        except Exception:
+            pass
+    time.sleep(0.05)
+    os._exit(code)
 
 
 atexit.register(restore_terminal)
