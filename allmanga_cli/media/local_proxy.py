@@ -19,6 +19,14 @@ from .proxy_rules import (
 from .urls import validate_http_url
 
 
+try:
+    from curl_cffi import requests as cffi_requests
+    CURL_CFFI_AVAILABLE = True
+except ImportError:
+    cffi_requests = None
+    CURL_CFFI_AVAILABLE = False
+
+
 _active_lock = threading.Lock()
 _active_server = None
 _debug_warn = lambda context, error: None
@@ -172,6 +180,88 @@ def _build_proxy_server(initial_entries, timeout):
                 return
 
             url, ref, hdrs = entry["url"], entry["ref"], entry["hdrs"]
+            range_header = proxy_range_header(self.headers.get("Range", ""))
+
+            # 1. Try upstream fetch via curl_cffi (handles Cloudflare TLS fingerprinting)
+            if CURL_CFFI_AVAILABLE and cffi_requests is not None:
+                try:
+                    cffi_hdrs = dict(hdrs) if hdrs else {}
+                    if "User-Agent" not in cffi_hdrs and "user-agent" not in cffi_hdrs:
+                        cffi_hdrs["User-Agent"] = _DEFAULT_UA
+                    if ref and "Referer" not in cffi_hdrs and "referer" not in cffi_hdrs:
+                        cffi_hdrs["Referer"] = ref
+                    if range_header:
+                        cffi_hdrs["Range"] = range_header
+
+                    imp = "firefox147" if "Firefox" in cffi_hdrs.get("User-Agent", "") else "chrome"
+                    cffi_kwargs = {
+                        "headers": cffi_hdrs,
+                        "timeout": max(1, float(timeout)),
+                        "impersonate": imp,
+                        "verify": False,
+                    }
+                    if method == "GET":
+                        cffi_kwargs["stream"] = True
+
+                    resp = cffi_requests.request(method, url, **cffi_kwargs)
+                    content_type = entry.get("content_type") or resp.headers.get("Content-Type") or resp.headers.get("content-type", "")
+
+                    if method == "GET" and _is_playlist(url, content_type):
+                        raw_chunks = []
+                        for chunk in resp.iter_content(65536):
+                            raw_chunks.append(chunk)
+                        body = b"".join(raw_chunks)
+                        text = body.decode("utf-8", errors="replace")
+                        rewritten = rewrite_playlist(text, url, ref, hdrs)
+                        data = rewritten.encode("utf-8")
+                        try:
+                            self.send_response(200)
+                            self.send_header(
+                                "Content-Type", "application/vnd.apple.mpegurl"
+                            )
+                            self.send_header("Content-Length", str(len(data)))
+                            self.send_header("Access-Control-Allow-Origin", "*")
+                            self.send_header("Access-Control-Allow-Headers", "*")
+                            self.send_header("Cache-Control", "no-store, no-cache")
+                            self.end_headers()
+                            self.wfile.write(data)
+                        except (BrokenPipeError, ConnectionResetError):
+                            pass
+                        return
+
+                    try:
+                        self.send_response(resp.status_code)
+                        content_type_sent = False
+                        for key, value in resp.headers.items():
+                            k_low = key.lower()
+                            if k_low in ("connection", "keep-alive", "transfer-encoding", "trailer", "upgrade"):
+                                continue
+                            if k_low == "content-type":
+                                if entry.get("content_type"):
+                                    value = entry["content_type"]
+                                elif not value.startswith("video/") and not value.startswith("audio/"):
+                                    value = "video/MP2T"
+                                content_type_sent = True
+                            self.send_header(key, value)
+                        if not content_type_sent and entry.get("content_type"):
+                            self.send_header("Content-Type", entry["content_type"])
+                        self.send_header("Access-Control-Allow-Origin", "*")
+                        self.send_header("Access-Control-Allow-Headers", "*")
+                        self.end_headers()
+                        if method == "GET":
+                            for chunk in resp.iter_content(65536):
+                                try:
+                                    self.wfile.write(chunk)
+                                except (BrokenPipeError, ConnectionResetError):
+                                    break
+                    except (BrokenPipeError, ConnectionResetError):
+                        pass
+                    return
+                except (BrokenPipeError, ConnectionResetError):
+                    return
+                except Exception as cffi_exc:
+                    _debug_warn("curl_cffi local proxy fetch failed, falling back to urllib", cffi_exc)
+
             request = urllib.request.Request(url, method=method)
             request.add_header("User-Agent", hdrs.get("User-Agent", _DEFAULT_UA))
             if ref:
@@ -180,7 +270,6 @@ def _build_proxy_server(initial_entries, timeout):
                 if key.casefold() == "user-agent":
                     continue
                 request.add_header(key, value)
-            range_header = proxy_range_header(self.headers.get("Range", ""))
             if range_header:
                 request.add_header("Range", range_header)
 

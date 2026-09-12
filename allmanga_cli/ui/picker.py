@@ -551,6 +551,9 @@ def tui_pick(
     from ..core import reporting
     old_status_sink = reporting._status_sink
     reporting.set_status_sink(lambda msg, color: True)
+    old_stderr = sys.stderr
+    devnull_stderr = open(os.devnull, "w")
+    sys.stderr = devnull_stderr
     try:
         init_clear = "\033[2J" if not _persistent_rendered_lines else ""
         tty_file.write((terminal_images.clear_if_active() + init_clear + "\033[?25l").encode())
@@ -1027,6 +1030,11 @@ def tui_pick(
         except Exception:
             pass
         reporting.set_status_sink(old_status_sink)
+        sys.stderr = old_stderr
+        try:
+            devnull_stderr.close()
+        except Exception:
+            pass
 
     return result
 

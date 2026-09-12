@@ -804,9 +804,27 @@ def handle_mirrors_state(
     resolve_tracking_fn,
 ) -> str:
     target_pid = (ui.ui_show_ctx or {}).get("_provider") or getattr(args, "provider", None)
-    cur_key = (ms.show_id, ms.current_ep, ttype, target_pid)
+    cur_key = streams.make_stream_key(ms.show_id, ms.current_ep, ttype, target_pid)
     cached_streams = app_core._stream_snapshot(ms.show_id, ms.current_ep, ttype, target_pid)
     cached_ep_data = app_core._get_cached_ep_data(cur_key)
+
+    if not cached_ep_data:
+        cached_ep_data = app_core.with_loading(
+            f"Loading {ttype.upper()} sources…",
+            app_core.get_episode_data, ms.show_id, ms.current_ep, ttype, provider_id=target_pid
+        )
+        if cached_ep_data:
+            app_core._set_cached_ep_data(cached_ep_data, cur_key)
+
+    if not cached_ep_data or not cached_ep_data.get("episode", {}).get("sourceUrls"):
+        if ui.ui_show_ctx:
+            p_name = (ui.ui_show_ctx.get("_provider_name") or ui.ui_show_ctx.get("_provider") or "").title() or "Provider"
+            ep_label = playback_mod._display_episode_label(ui.ui_show_ctx, ms.current_ep, ttype)
+            app_core.set_action_feedback(
+                ui.ui_show_ctx,
+                f"No stream mirrors available for {playback_mod._fmt_ep(ep_label)} on {p_name}.",
+            )
+        return "DETAILS"
 
     exclude_names = set()
     for s in cached_streams:
@@ -844,7 +862,18 @@ def handle_mirrors_state(
     def _dedup():
         seen, out = set(), []
         active_list = app_core._stream_snapshot(ms.show_id, ms.current_ep, ttype, target_pid)
-        for s in sorted(active_list, key=lambda x: x.get("source_priority", 4)):
+        from ..media.sources import parse_resolution_height
+
+        def _mirror_sort_key(s):
+            sname = (s.get("source_name") or "").lower()
+            res = s.get("resolution") or ""
+            h = parse_resolution_height(res)
+            prio = s.get("source_priority", 4)
+            is_dub = " eng" in sname or "dub" in sname
+            audio_penalty = 1 if (ttype == "sub" and is_dub) or (ttype == "dub" and not is_dub) else 0
+            return (prio, audio_penalty, -h)
+
+        for s in sorted(active_list, key=_mirror_sort_key):
             key = (s.get("source_name"), s.get("resolution"), s.get("link"))
             if key not in seen:
                 seen.add(key)
@@ -919,14 +948,16 @@ def handle_mirrors_state(
         with streams._bg_lock:
             still_alive = streams._bg_thread and streams._bg_thread.is_alive()
         if not still_alive:
-            if ui.ui_show_ctx:
-                p_name = (ui.ui_show_ctx.get("_provider_name") or ui.ui_show_ctx.get("_provider") or "").title() or "Provider"
-                ep_label = playback_mod._display_episode_label(ui.ui_show_ctx, ms.current_ep, ttype)
-                app_core.set_action_feedback(
-                    ui.ui_show_ctx,
-                    f"No stream mirrors available for {playback_mod._fmt_ep(ep_label)} on {p_name}.",
-                )
-            return "DETAILS"
+            init_opts, init_hdr, _ = _mirror_refresh()
+            if not init_opts:
+                if ui.ui_show_ctx:
+                    p_name = (ui.ui_show_ctx.get("_provider_name") or ui.ui_show_ctx.get("_provider") or "").title() or "Provider"
+                    ep_label = playback_mod._display_episode_label(ui.ui_show_ctx, ms.current_ep, ttype)
+                    app_core.set_action_feedback(
+                        ui.ui_show_ctx,
+                        f"No stream mirrors available for {playback_mod._fmt_ep(ep_label)} on {p_name}.",
+                    )
+                return "DETAILS"
 
     def _tab_pref(opt_idx):
         if 0 <= opt_idx < len(_live_deduped):

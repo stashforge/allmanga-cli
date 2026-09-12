@@ -18,6 +18,8 @@ from .proxy_rules import proxy_filtered_headers
 from .sources import decrypt_url, expand_wixmp, source_priority
 from .urls import validate_optional_referer, validate_stream_url
 from .ytdlp import resolve_ytdlp_embed
+from ..extractors import find_extractor
+
 
 
 _info = lambda message: None
@@ -49,6 +51,11 @@ def _pre_resolved_stream(source, name, priority, warn):
     # must use ``sourceUrl`` so extractor-specific logic can turn them into
     # player-ready streams first.
     stream_url = source.get("link") or source.get("streamUrl") or ""
+    if not stream_url and source.get("sourceUrl"):
+        s_type = str(source.get("type") or "").strip().lower()
+        s_url = str(source.get("sourceUrl") or "")
+        if s_type in {"mp4", "hls", "m3u8", "dash"} or any(ext in s_url for ext in (".m3u8", ".mp4", ".mkv", "/download/", "127.0.0.1")):
+            stream_url = s_url
     if not stream_url:
         return None
     try:
@@ -288,6 +295,25 @@ def _resolve_source_impl(source, silent=False):
                 })
         return result
 
+    extractor = find_extractor(url)
+    if extractor:
+        info(f"[{name}] extracting via {extractor.name} ...")
+        try:
+            native_streams = extractor.extract(
+                url,
+                name=name,
+                priority=priority,
+                subtitles=source.get("subtitles"),
+                headers=source.get("headers"),
+                referer=source.get("referer"),
+            )
+            if native_streams:
+                ok(f"[{name}] {extractor.name} found {len(native_streams)} stream(s)")
+                return native_streams
+            warn(f"[{name}] {extractor.name} found no streams; falling back to yt-dlp ...")
+        except Exception as exc:
+            warn(f"[{name}] {extractor.name} failed: {exc}; falling back to yt-dlp ...")
+
     if "mp4upload.com" in url.casefold():
         info(f"[{name}] extracting direct mp4 ...")
         try:
@@ -314,3 +340,4 @@ def _resolve_source_impl(source, silent=False):
 
     info(f"[{name}] extracting via yt-dlp ...")
     return resolve_ytdlp_embed(url, name=name, priority=priority, ok=ok, warn=warn, subtitles=source.get("subtitles"))
+

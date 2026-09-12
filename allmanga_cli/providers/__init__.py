@@ -8,17 +8,35 @@ import json
 import os
 from typing import Iterable, Dict, Any
 
+_PROVIDER_ALIASES = {
+    "anidbapp": "anidb",
+    "allanime": "mkissa",
+}
+
+class _RegistryDict(dict):
+    def __getitem__(self, key):
+        k = str(key).casefold() if isinstance(key, str) else key
+        if k not in self and k in _PROVIDER_ALIASES:
+            k = _PROVIDER_ALIASES[k]
+        return super().__getitem__(k)
+
+    def get(self, key, default=None):
+        k = str(key).casefold() if isinstance(key, str) else key
+        if k not in self and k in _PROVIDER_ALIASES:
+            k = _PROVIDER_ALIASES[k]
+        return super().get(k, default)
+
 # Load the JSON registry
 _REGISTRY_PATH = os.path.join(os.path.dirname(__file__), "registry.json")
 try:
     with open(_REGISTRY_PATH, "r", encoding="utf-8") as _f:
-        PROVIDER_REGISTRY = json.load(_f).get("providers", {})
+        PROVIDER_REGISTRY = _RegistryDict(json.load(_f).get("providers", {}))
 except Exception:
-    PROVIDER_REGISTRY = {}
+    PROVIDER_REGISTRY = _RegistryDict()
 
 
 _SKIPPED_MODULES = {"shared"}
-_DISABLED_PROVIDERS = {"senshi", "allanime"}
+_DISABLED_PROVIDERS = {"senshi", "allanime", "mkissa"}
 _DEFAULT_PROVIDER_ID = "miruro"
 
 from .shared.models import (
@@ -68,6 +86,10 @@ def discover_provider_factories(
             if provider_id in _DISABLED_PROVIDERS:
                 continue
             factories[provider_id] = provider_class
+            for alias in getattr(provider_class, "aliases", []):
+                alias_id = str(alias).casefold()
+                if alias_id not in _DISABLED_PROVIDERS:
+                    factories[alias_id] = provider_class
     return factories
 
 
@@ -77,27 +99,27 @@ if _DEFAULT_PROVIDER_ID not in PROVIDER_FACTORIES:
 
     PROVIDER_FACTORIES[_DEFAULT_PROVIDER_ID] = MiruroProvider
 
-PROVIDERS = {
-    provider_id: factory()
-    for provider_id, factory in PROVIDER_FACTORIES.items()
-}
+# Order PROVIDERS according to registry.json ordering
+PROVIDERS: dict[str, Any] = {}
+for p_id in PROVIDER_REGISTRY:
+    if p_id in PROVIDER_FACTORIES:
+        PROVIDERS[p_id] = PROVIDER_FACTORIES[p_id]()
+for p_id, factory in PROVIDER_FACTORIES.items():
+    if p_id not in PROVIDERS and p_id not in _DISABLED_PROVIDERS:
+        PROVIDERS[p_id] = factory()
 
 # Attach metadata directly to instances for backward compatibility,
 # and so providers can self-reference their JSON domains.
 for p_id, p_inst in PROVIDERS.items():
-    if p_id in PROVIDER_REGISTRY:
-        p_inst.metadata = PROVIDER_REGISTRY[p_id]
-        if hasattr(p_inst, 'domains') or not hasattr(p_inst, 'domains'):
-            p_inst.domains = PROVIDER_REGISTRY[p_id].get("domains", [])
-    else:
-        p_inst.metadata = {}
-        p_inst.domains = []
+    meta = PROVIDER_REGISTRY.get(p_id, {})
+    p_inst.metadata = meta
+    p_inst.domains = meta.get("domains", [])
 
 ALLANIME = PROVIDERS[_DEFAULT_PROVIDER_ID]
 
 
 def available_providers():
-    return dict(PROVIDERS)
+    return {k: v for k, v in PROVIDERS.items() if k in PROVIDER_REGISTRY}
 
 def get_provider_registry() -> Dict[str, Any]:
     return PROVIDER_REGISTRY
@@ -107,6 +129,8 @@ def is_provider_active(provider_id: str) -> bool:
     if not provider_id:
         return False
     key = str(provider_id).casefold()
+    if key not in PROVIDERS and key in _PROVIDER_ALIASES:
+        key = _PROVIDER_ALIASES[key]
     if key in _DISABLED_PROVIDERS or key not in PROVIDERS:
         return False
     status = PROVIDER_REGISTRY.get(key, {}).get("status", "active")
@@ -119,21 +143,26 @@ def provider_key(provider_id=_DEFAULT_PROVIDER_ID):
     key = str(provider_id or "").casefold()
     if is_provider_active(key):
         return key
+    alias = _PROVIDER_ALIASES.get(key)
+    if alias and is_provider_active(alias):
+        return alias
+    for k, v in _PROVIDER_ALIASES.items():
+        if key == v and is_provider_active(k):
+            return k
     return _DEFAULT_PROVIDER_ID
 
 
 def get_provider(provider_id=_DEFAULT_PROVIDER_ID, request_json_fn=None):
     key = provider_key(provider_id)
+    if key not in PROVIDERS and key in _PROVIDER_ALIASES:
+        key = _PROVIDER_ALIASES[key]
     if request_json_fn is None:
         return PROVIDERS[key]
     
     inst = PROVIDER_FACTORIES[key](request_json_fn)
-    if key in PROVIDER_REGISTRY:
-        inst.metadata = PROVIDER_REGISTRY[key]
-        inst.domains = PROVIDER_REGISTRY[key].get("domains", [])
-    else:
-        inst.metadata = {}
-        inst.domains = []
+    meta = PROVIDER_REGISTRY.get(key, {})
+    inst.metadata = meta
+    inst.domains = meta.get("domains", [])
     return inst
 
 
@@ -162,7 +191,7 @@ def provider_translation_capability(
     audio_mode = getattr(prov, "audio_mode", "separate_catalogs")
     p_name = getattr(prov, "name", str(provider_id).title())
     if audio_mode == "embedded_multi_audio":
-        return False, "Multi-audio embedded in stream. Switch audio inside player (# in mpv)."
+        return False, "Multi-audio / dubs embedded in stream. Switch audio inside player."
     if audio_mode == "sub_only":
         return False, f"Releases are sub-only on {p_name}."
     return True, None

@@ -26,7 +26,14 @@ from typing import Optional
 
 from . import reporting
 from ..media.resolver import resolve_source
-from ..media.sources import source_priority, is_stream_valid, is_stream_valid_fast, calculate_stream_expiry, check_stream_health_and_refresh
+from ..media.sources import (
+    source_priority,
+    is_stream_valid,
+    is_stream_valid_fast,
+    calculate_stream_expiry,
+    check_stream_health_and_refresh,
+    quality_preference_key,
+)
 from .storage import get_preferred_mirror
 
 YELLOW = "\033[1;33m"
@@ -110,16 +117,25 @@ def make_stream_key(show_id=None, ep=None, ttype="sub", provider_id=None) -> tup
     )
 
 
+def _normalize_key(key) -> tuple | None:
+    if key is None:
+        return None
+    if isinstance(key, tuple):
+        return make_stream_key(*key)
+    return make_stream_key(key)
+
+
 def _clear_streams(key=None):
     global _streams_generation, _active_stream_key
     with _streams_lock:
         _streams_generation += 1
         all_streams.clear()
         if key is not None:
-            k = key if isinstance(key, tuple) else make_stream_key(key)
+            k = _normalize_key(key)
             _streams_cache.pop(k, None)
         else:
             _active_stream_key = None
+            _streams_cache.clear()
         return _streams_generation
 
 
@@ -133,7 +149,7 @@ def _extend_streams(streams, key=None):
     with _streams_lock:
         all_streams.extend(streams)
         if key is not None:
-            k = key if isinstance(key, tuple) else make_stream_key(key)
+            k = _normalize_key(key)
             if k not in _streams_cache:
                 _streams_cache[k] = {"streams": [], "resolved_at": now, "ep_data": None}
             _streams_cache[k]["streams"].extend(streams)
@@ -166,7 +182,7 @@ def _prune_dead_stream(key, stream_link: str):
     if not stream_link:
         return
     with _streams_lock:
-        k = key if isinstance(key, tuple) else make_stream_key(key)
+        k = _normalize_key(key)
         entry = _streams_cache.get(k)
         if entry and "streams" in entry:
             entry["streams"] = [s for s in entry["streams"] if (s.get("link") != stream_link and s.get("streamUrl") != stream_link)]
@@ -179,7 +195,7 @@ def _stream_count(show_id=None, ep=None, ttype="sub", provider_id=None) -> int:
 def _get_cached_ep_data(key=None, show_id=None, ep=None, ttype="sub", provider_id=None) -> dict | None:
     with _streams_lock:
         if key is not None:
-            k = key if isinstance(key, tuple) else make_stream_key(key)
+            k = _normalize_key(key)
         elif show_id is not None:
             k = make_stream_key(show_id, ep, ttype, provider_id)
         elif _active_stream_key is not None:
@@ -196,7 +212,7 @@ def _set_cached_ep_data(ep_data: dict, key=None, show_id=None, ep=None, ttype="s
     now = time.time()
     with _streams_lock:
         if key is not None:
-            k = key if isinstance(key, tuple) else make_stream_key(key)
+            k = _normalize_key(key)
         elif show_id is not None:
             k = make_stream_key(show_id, ep, ttype, provider_id)
         else:
@@ -281,11 +297,25 @@ def start_bg_resolve(
     exclude_names: source names already resolved (skip them to avoid duplicates).
     """
     global _streams_generation, _bg_thread, _bg_generation, _bg_stats, _active_stream_key
-    if not isinstance(ep_data, dict) or ep_data.get("is_local"):
+    if ep_data is not None and not isinstance(ep_data, dict):
         return
-    sources = ep_data.get("episode", {}).get("sourceUrls", []) if ep_data else []
+    if isinstance(ep_data, dict) and ep_data.get("is_local"):
+        return
+    if ep_data is None and not (show_id and _episode_data_fn):
+        return
+    sources = ep_data.get("episode", {}).get("sourceUrls", []) if isinstance(ep_data, dict) else []
     sources = expand_direct_sources(sources)
-    sources = sorted(sources, key=source_priority)
+
+    def _bg_sort_key(s):
+        sname = str(s.get("sourceName") or "").lower()
+        res = str(s.get("resolution") or sname)
+        is_dub = " eng" in sname or "dub" in sname
+        audio_penalty = 1 if (ttype == "sub" and is_dub) or (ttype == "dub" and not is_dub) else 0
+        prio = source_priority(s)
+        q_key = quality_preference_key(res, "best")
+        return (audio_penalty, prio, q_key)
+
+    sources = sorted(sources, key=_bg_sort_key)
     now = time.time()
     
     stream_key = make_stream_key(show_id, ep, ttype, provider_id) if show_id is not None else None
@@ -417,8 +447,14 @@ def fetch_episode_stream(show_id, ep_number, ttype="sub", quality="best", provid
     def dynamic_prio(src):
         api_name = src.get("sourceName", "")
         if pref_name.startswith(api_name) and api_name:
-            return 0
-        return source_priority(src)
+            return (-1, 0, (0, 0))
+        sname = str(src.get("sourceName") or "").lower()
+        res = str(src.get("resolution") or sname)
+        is_dub = " eng" in sname or "dub" in sname
+        audio_penalty = 1 if (ttype == "sub" and is_dub) or (ttype == "dub" and not is_dub) else 0
+        prio = source_priority(src)
+        q_key = quality_preference_key(res, quality)
+        return (audio_penalty, prio, q_key)
 
     from ..media.resolver import generate_source_passes
     exclude_sources = set(exclude_sources or [])
@@ -468,10 +504,12 @@ def fetch_episode_stream(show_id, ep_number, ttype="sub", quality="best", provid
                         found_pref = True
                         break
             if not found_pref:
-                for s in streams:
-                    if quality in s.get("resolution", "") or quality == "best":
-                        selected_stream = s
-                        break
+                sorted_by_pref = sorted(
+                    streams,
+                    key=lambda s: quality_preference_key(s.get("resolution") or s.get("source_name", ""), quality)
+                )
+                if sorted_by_pref:
+                    selected_stream = sorted_by_pref[0]
             reporting.ok(f"Connected: {selected_stream.get('source_name', src_name)} ({selected_stream.get('resolution', '?')})")
             return selected_stream, src.get("sourceName", ""), ep_data, streams
         elif streams is not None:

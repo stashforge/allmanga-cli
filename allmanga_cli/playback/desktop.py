@@ -81,6 +81,22 @@ def play_desktop(
         except Exception:
             skip_intervals = []
 
+    proxy_server = None
+    if stream.get("requires_proxy") or "uwucdn.top" in url or "kwik." in referer:
+        try:
+            from ..media.local_proxy import start_local_proxy, replace_active_local_proxy
+            url, proxy_server = start_local_proxy(
+                url,
+                referer,
+                headers,
+                stream_type=stream.get("type", "mp4"),
+                title=media_title,
+                subtitles=subtitles,
+            )
+            replace_active_local_proxy(proxy_server)
+        except Exception:
+            proxy_server = None
+
     ipc_player.load(
         url,
         media_title,
@@ -111,13 +127,18 @@ def play_desktop(
         "next_episode": next_episode,
     }
     update_stream_info(stream_info)
-    result, played_seconds = ipc_player.wait_for_playback(
-        stream_info,
-        episode,
-        total_eps,
-        fetch_callback,
-        is_binge,
-    )
+    try:
+        result, played_seconds = ipc_player.wait_for_playback(
+            stream_info,
+            episode,
+            total_eps,
+            fetch_callback,
+            is_binge,
+        )
+    finally:
+        if proxy_server is not None:
+            from ..media.local_proxy import cleanup_active_local_proxy
+            cleanup_active_local_proxy()
     return (
         result,
         ipc_player.props.get("percent-pos", 0) or 0,

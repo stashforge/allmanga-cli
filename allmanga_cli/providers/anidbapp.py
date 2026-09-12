@@ -45,7 +45,8 @@ XHR_HEADERS = {
 }
 
 class AniDBApp(Provider):
-    id = "anidbapp"
+    id = "anidb"
+    aliases = ["anidbapp"]
     audio_mode = "separate_catalogs"
 
     def __init__(self, request_json_fn=None):

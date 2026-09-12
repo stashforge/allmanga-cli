@@ -163,7 +163,7 @@ def select_provider_for_match(flags: Any, ui: Any, current_pid: str, anilist_sho
 
     current_key = provider_key(current_pid)
     ordered_keys = [current_key] if current_key in provs else []
-    for k in sorted(provs.keys()):
+    for k in provs.keys():
         if k not in ordered_keys:
             ordered_keys.append(k)
 

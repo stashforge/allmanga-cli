@@ -210,7 +210,7 @@ def handle_play_state(
                         pref_name = pref.get("source_name", "")
                         pref_res = pref.get("resolution", "")
                         cur_key = (ms.show_id, ms.current_ep, ttype, provider_id)
-                        target_quality = cfg.get("quality", "best")
+                        target_quality = getattr(args, "quality", None) or cfg.get("quality", "best")
                         
                         candidates = []
                         if pref_name:
@@ -218,11 +218,17 @@ def handle_play_state(
                                 if s.get("source_name") == pref_name and s.get("resolution", "?") == pref_res:
                                     candidates.append(s)
                                     break
-                        sorted_cached = sorted(cached_streams, key=lambda x: x.get("source_priority", 4))
-                        if target_quality != "best":
-                            for s in sorted_cached:
-                                if target_quality in s.get("resolution", "") and s not in candidates:
-                                    candidates.append(s)
+                        from ..media.sources import quality_preference_key
+                        def _cached_sort_key(s):
+                            sname = (s.get("source_name") or "").lower()
+                            res = s.get("resolution") or ""
+                            prio = s.get("source_priority", 4)
+                            is_dub = " eng" in sname or "dub" in sname
+                            audio_penalty = 1 if (ttype == "sub" and is_dub) or (ttype == "dub" and not is_dub) else 0
+                            q_key = quality_preference_key(res, target_quality)
+                            return (audio_penalty, prio, q_key)
+
+                        sorted_cached = sorted(cached_streams, key=_cached_sort_key)
                         for s in sorted_cached:
                             if s not in candidates:
                                 candidates.append(s)

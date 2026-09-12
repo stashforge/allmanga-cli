@@ -18,9 +18,62 @@ CIPHER = {
 }
 
 
-def _resolution_height(value):
-    match = re.search(r"\d+", str(value or ""))
-    return int(match.group()) if match else 0
+def parse_resolution_height(value) -> int:
+    """Extract numeric height from resolution string like '1080p', '720', '1920x1080', 'Adaptive'."""
+    if not value:
+        return 0
+    s = str(value).lower().strip()
+    if s in ("auto", "adaptive", "default", "source", "original"):
+        return 850
+    match = re.search(r"(\d+)p?\b", s)
+    if match:
+        if "x" in s:
+            match2 = re.search(r"x(\d+)", s)
+            if match2:
+                return int(match2.group(1))
+        return int(match.group(1))
+    return 0
+
+
+_resolution_height = parse_resolution_height
+
+
+def quality_preference_key(res: str, target: str = "best") -> tuple:
+    """
+    Sort key for quality preference:
+    Matches requested quality first, else fallback to auto/adaptive, else next lower quality, else higher.
+    """
+    target_clean = str(target or "best").lower().strip()
+    h = parse_resolution_height(res)
+    is_auto = str(res or "").lower().strip() in ("auto", "adaptive", "default")
+
+    if target_clean in ("best", "max"):
+        return (1, -h)
+    if target_clean in ("worst", "min", "lowest"):
+        return (1, h)
+    if target_clean in ("auto", "adaptive"):
+        if is_auto:
+            return (0, 0)
+        return (1, -h)
+
+    target_h = parse_resolution_height(target_clean)
+    if target_h <= 0:
+        return (1, -h)
+
+    # 1. Exact match for requested quality
+    if h == target_h and not is_auto:
+        return (0, 0)
+    # 2. Fallback to auto/adaptive
+    if is_auto:
+        return (1, 0)
+    # 3. Fallback to lower qualities (closest lower first)
+    if 0 < h < target_h:
+        return (2, -h)
+    # 4. Fallback to higher qualities (closest higher first)
+    if h > target_h:
+        return (3, h)
+    return (4, 0)
+
 
 
 def decrypt_url(hex_string):
@@ -62,9 +115,11 @@ def source_priority(source):
 HOST_SOFT_TTL_TABLE = {
     "megaplay": 1800,      # 30m
     "faststream": 1800,    # 30m
+    "anidb": 1800,         # 30m
     "anidbapp": 1800,      # 30m
     "animedao": 1200,      # 20m
     "gogo": 1800,          # 30m
+    "mkissa": 1200,        # 20m
     "allanime": 1200,      # 20m
     "mp4upload": 600,      # 10m
     "doodstream": 600,     # 10m
@@ -149,6 +204,18 @@ def ping_stream_liveness(stream: dict, timeout: float = 1.5) -> bool:
     referer = stream.get("referer") or headers.get("Referer") or headers.get("referer")
     if referer and "Referer" not in headers:
         headers["Referer"] = referer
+
+    try:
+        from curl_cffi import requests as cffi_requests
+        imp = "firefox147" if "Firefox" in headers.get("User-Agent", "") else "chrome"
+        r = cffi_requests.get(url, headers=headers, timeout=timeout, impersonate=imp, verify=False, stream=True)
+        if r.status_code in (200, 206, 301, 302, 307, 308):
+            return True
+        if 400 <= r.status_code < 500:
+            return False
+        return True
+    except Exception:
+        pass
 
     try:
         import requests

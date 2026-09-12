@@ -166,7 +166,8 @@ def get_clock_links(request_json, path):
 
 
 class AllAnimeProvider:
-    id = "allanime"
+    id = "mkissa"
+    aliases = ["allanime"]
     audio_mode = "separate_catalogs"
 
     def __init__(self, request_json_fn=request_json):
@@ -178,7 +179,7 @@ class AllAnimeProvider:
 
     @property
     def name(self) -> str:
-        return self.metadata.get("name", "AllAnime")
+        return self.metadata.get("name", "Mkissa")
 
     def search(self, query: str, ttype: str = "sub") -> list[dict[str, Any]]:
         results = search_anime(self._request_json, query, ttype)

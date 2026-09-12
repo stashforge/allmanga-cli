@@ -70,7 +70,7 @@ def make_provider_oneshot_search(query: str, ttype: str, provider_id: str | None
                         raise_errors=True,
                         provider_id=provider_id,
                     )
-                except SearchFailure as exc:
+                except Exception as exc:
                     error = str(exc)
                     shows = []
             def _fetch_al():

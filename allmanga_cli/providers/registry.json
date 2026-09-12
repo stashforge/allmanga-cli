@@ -1,6 +1,33 @@
 {
   "version": "1.0",
   "providers": {
+    "anikoto": {
+      "name": "Anikoto",
+      "domains": ["https://megaplay.buzz", "https://anikoto.com"],
+      "type": "anime",
+      "languages": ["sub", "dub"],
+      "status": "active",
+      "engine": "hybrid",
+      "features": ["search"]
+    },
+    "animepahe": {
+      "name": "AnimePahe",
+      "domains": ["https://animepahe.pw", "https://animepahe.org", "https://animepahe.com", "https://animepahe.ru"],
+      "type": "anime",
+      "languages": ["sub"],
+      "status": "active",
+      "engine": "hybrid",
+      "features": ["search"]
+    },
+    "reanime": {
+      "name": "Re:ANIME",
+      "domains": ["https://reanime.to", "https://reanime.cz", "https://reanime.wtf"],
+      "type": "anime",
+      "languages": ["sub", "dub"],
+      "status": "active",
+      "engine": "api",
+      "features": ["anilist_sync", "search", "fallback_servers"]
+    },
     "miruro": {
       "name": "Miruro",
       "domains": ["https://www.miruro.tv", "https://www.miruro.to", "https://www.miruro.ru", "https://www.miruro.bz"],
@@ -10,7 +37,34 @@
       "engine": "hybrid",
       "features": ["anilist_sync", "search", "fallback_servers"]
     },
-    "anidbapp": {
+    "mkissa": {
+      "name": "Mkissa",
+      "domains": ["https://mkissa.to", "https://allanime.to"],
+      "type": "anime",
+      "languages": ["sub", "dub"],
+      "status": "disabled",
+      "engine": "hybrid",
+      "features": ["anilist_sync", "search", "fallback_servers"]
+    },
+    "anizone": {
+      "name": "AniZone",
+      "domains": ["https://anizone.to"],
+      "type": "anime",
+      "languages": ["sub", "dub"],
+      "status": "active",
+      "engine": "scraper",
+      "features": ["search"]
+    },
+    "animegg": {
+      "name": "AnimeGG",
+      "domains": ["https://animegg.org"],
+      "type": "anime",
+      "languages": ["sub", "dub"],
+      "status": "active",
+      "engine": "scraper",
+      "features": ["search"]
+    },
+    "anidb": {
       "name": "AniDB.app",
       "domains": ["https://anidb.app"],
       "type": "anime",
@@ -18,6 +72,24 @@
       "status": "active",
       "engine": "hybrid",
       "features": ["anilist_sync", "search"]
+    },
+    "senshi": {
+      "name": "Senshi",
+      "domains": ["https://senshi.live", "https://senshi.tv"],
+      "type": "anime",
+      "languages": ["sub", "dub"],
+      "status": "disabled",
+      "engine": "api",
+      "features": ["search"]
+    },
+    "uniquestream": {
+      "name": "UniqueStream",
+      "domains": ["https://anime.uniquestream.net"],
+      "type": "anime",
+      "languages": ["sub", "dub"],
+      "status": "active",
+      "engine": "api",
+      "features": ["search", "fallback_servers"]
     },
     "animekhor": {
       "name": "AnimeKhor",
@@ -37,15 +109,6 @@
       "engine": "scraper",
       "features": ["search"]
     },
-    "anizone": {
-      "name": "AniZone",
-      "domains": ["https://anizone.to"],
-      "type": "anime",
-      "languages": ["sub", "dub"],
-      "status": "active",
-      "engine": "scraper",
-      "features": ["search"]
-    },
     "lucifer": {
       "name": "Lucifer",
       "domains": ["https://luciferdonghua.in"],
@@ -53,33 +116,6 @@
       "languages": ["sub"],
       "status": "active",
       "engine": "scraper",
-      "features": ["search"]
-    },
-    "animegg": {
-      "name": "AnimeGG",
-      "domains": ["https://animegg.org"],
-      "type": "anime",
-      "languages": ["sub", "dub"],
-      "status": "active",
-      "engine": "scraper",
-      "features": ["search"]
-    },
-    "anikoto": {
-      "name": "Anikoto",
-      "domains": ["https://megaplay.buzz", "https://anikoto.com"],
-      "type": "anime",
-      "languages": ["sub", "dub"],
-      "status": "active",
-      "engine": "hybrid",
-      "features": ["search"]
-    },
-    "senshi": {
-      "name": "Senshi",
-      "domains": ["https://senshi.live", "https://senshi.tv"],
-      "type": "anime",
-      "languages": ["sub", "dub"],
-      "status": "disabled",
-      "engine": "api",
       "features": ["search"]
     },
     "movies": {
@@ -90,15 +126,7 @@
       "status": "active",
       "engine": "api",
       "features": ["search"]
-    },
-    "allanime": {
-      "name": "AllAnime",
-      "domains": ["https://allanime.to", "https://mkissa.to"],
-      "type": "anime",
-      "languages": ["sub", "dub"],
-      "status": "disabled",
-      "engine": "hybrid",
-      "features": ["anilist_sync", "search", "fallback_servers"]
     }
   }
 }
+

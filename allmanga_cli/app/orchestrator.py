@@ -200,8 +200,7 @@ def main() -> None:
         term_width = shutil.get_terminal_size((80, 20)).columns
 
         rows = []
-        for pid in sorted(available_providers().keys()):
-            meta = registry.get(pid, {})
+        for pid, meta in registry.items():
             name = meta.get("name", pid.title())
             engine = meta.get("engine", "unknown")
             status = meta.get("status", "unknown")

@@ -210,7 +210,7 @@ def enrich_show_if_missing(show: dict) -> None:
         return
 
     provider = get_provider(title_provider_key(show), _req)
-    if provider.id not in ("anidbapp", "animexin", "lucifer", "animekhor", "animegg", "anizone"):
+    if provider.id not in ("anidb", "anidbapp", "animexin", "lucifer", "animekhor", "animegg", "anizone"):
         show["_title_enriched"] = True
         return
 
