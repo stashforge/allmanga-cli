@@ -276,12 +276,22 @@ def extract_embed_url(base_url: str, page_html: str) -> str:
     return ""
 
 
+def _mirror_sub_type_rank(mirror: Mirror) -> int:
+    text = f"{mirror.label} {mirror.url} {mirror.embed_html}".casefold()
+    if "hardsub" in text or re.search(r"\bhard[\s\-_]?subs?\b", text):
+        return 0
+    if "softsub" in text or re.search(r"\b(?:soft[\s\-_]?subs?|all[\s\-_]?subs?|multi[\s\-_]?subs?)\b", text):
+        return 2
+    return 1
+
+
 def sort_mirrors(mirrors: list[Mirror]) -> list[Mirror]:
     return [
         mirror
         for _, mirror in sorted(
             enumerate(mirrors),
             key=lambda item: (
+                _mirror_sub_type_rank(item[1]),
                 _mirror_language_rank(item[1]),
                 _mirror_host_rank(item[1]),
                 item[0],
@@ -577,6 +587,8 @@ class WordPressAnimeProvider:
             if not stream_url:
                 continue
             stream_type = "hls" if ".m3u8" in stream_url else "external"
+            sub_rank = _mirror_sub_type_rank(mirror)
+            prio = 1 if sub_rank == 0 else (6 if sub_rank == 2 else 3)
             if stream_type == "hls":
                 source = build_direct_source(
                     name=mirror.label or self.name,
@@ -593,6 +605,7 @@ class WordPressAnimeProvider:
                     resolution="Adaptive",
                     referer=referer,
                 )
+            source["priority"] = prio
             sources.append(source)
         return {"episode": {"sourceUrls": sources}}
 

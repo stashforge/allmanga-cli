@@ -871,7 +871,10 @@ def handle_mirrors_state(
             prio = s.get("source_priority", 4)
             is_dub = " eng" in sname or "dub" in sname
             audio_penalty = 1 if (ttype == "sub" and is_dub) or (ttype == "dub" and not is_dub) else 0
-            return (prio, audio_penalty, -h)
+            is_hard = "hardsub" in sname or "hard-sub" in sname or "hard sub" in sname
+            is_soft = "softsub" in sname or "all sub" in sname or "multi sub" in sname
+            sub_rank = 0 if is_hard else (2 if is_soft else 1)
+            return (sub_rank, prio, audio_penalty, -h)
 
         for s in sorted(active_list, key=_mirror_sort_key):
             key = (s.get("source_name"), s.get("resolution"), s.get("link"))

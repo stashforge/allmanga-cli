@@ -225,8 +225,11 @@ def handle_play_state(
                             prio = s.get("source_priority", 4)
                             is_dub = " eng" in sname or "dub" in sname
                             audio_penalty = 1 if (ttype == "sub" and is_dub) or (ttype == "dub" and not is_dub) else 0
+                            is_hard = "hardsub" in sname or "hard-sub" in sname or "hard sub" in sname
+                            is_soft = "softsub" in sname or "all sub" in sname or "multi sub" in sname
+                            sub_rank = 0 if is_hard else (2 if is_soft else 1)
                             q_key = quality_preference_key(res, target_quality)
-                            return (audio_penalty, prio, q_key)
+                            return (audio_penalty, sub_rank, prio, q_key)
 
                         sorted_cached = sorted(cached_streams, key=_cached_sort_key)
                         for s in sorted_cached:
@@ -702,7 +705,14 @@ def handle_play_state(
 
             next_stream = None
             if remaining:
-                sorted_remaining = sorted(remaining, key=lambda x: x.get("source_priority", 4))
+                def _failover_sort_key(s):
+                    sname = (s.get("source_name") or "").lower()
+                    is_hard = "hardsub" in sname or "hard-sub" in sname or "hard sub" in sname
+                    is_soft = "softsub" in sname or "all sub" in sname or "multi sub" in sname
+                    sub_rank = 0 if is_hard else (2 if is_soft else 1)
+                    return (sub_rank, s.get("source_priority", 4))
+
+                sorted_remaining = sorted(remaining, key=_failover_sort_key)
                 for cand in sorted_remaining:
                     if app_core.ping_stream_liveness(cand, timeout=0.8):
                         next_stream = cand
