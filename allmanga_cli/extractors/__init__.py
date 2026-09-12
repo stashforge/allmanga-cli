@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from .base import BaseExtractor
+from .dailymotion import DailymotionExtractor
 from .doodstream import DoodExtractor
 from .filemoon import FilemoonExtractor
 from .kwik import KwikExtractor
+from .mixdrop import MixDropExtractor
 from .mp4upload import Mp4UploadExtractor
+from .okru import OkruExtractor
 from .streamtape import StreamTapeExtractor
 from .streamwish import StreamWishExtractor
 from .unpack import JsUnpacker
@@ -20,6 +23,9 @@ EXTRACTORS: list[BaseExtractor] = [
     Mp4UploadExtractor(),
     VoeExtractor(),
     KwikExtractor(),
+    DailymotionExtractor(),
+    OkruExtractor(),
+    MixDropExtractor(),
 ]
 
 
@@ -35,12 +41,15 @@ def find_extractor(url: str) -> BaseExtractor | None:
 
 __all__ = [
     "BaseExtractor",
+    "DailymotionExtractor",
     "DoodExtractor",
     "EXTRACTORS",
     "FilemoonExtractor",
     "JsUnpacker",
     "KwikExtractor",
+    "MixDropExtractor",
     "Mp4UploadExtractor",
+    "OkruExtractor",
     "StreamTapeExtractor",
     "StreamWishExtractor",
     "VoeExtractor",
