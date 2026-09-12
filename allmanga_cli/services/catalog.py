@@ -26,7 +26,7 @@ from ..providers.shared.models import (
 from ..providers import allanime as allanime_service
 from ..services.http import request_json as _req
 from ..core.reporting import err, debug_warn
-from ..ui.display import with_loading, exit_alt_screen
+from ..ui.display import with_loading, exit_alt_screen, restore_terminal
 from ..core.enrichment import enrich_show_if_missing
 
 
@@ -167,6 +167,12 @@ def _perform_catalog_fetch(show: dict, ttype: str, status_cb: Callable[[str], No
         show.pop("_episode_ids", None)
         show["_episode_catalog_state"] = "unavailable"
         return []
+    except ProviderDependencyError as exc:
+        restore_terminal()
+        sys.stderr.write(f"{exc}\n")
+        sys.stderr.flush()
+        import os
+        os._exit(1)
     finally:
         with _catalog_task_lock:
             _in_flight_catalog_tasks.pop(task_key, None)
@@ -206,6 +212,12 @@ def ensure_episode_ids(show: dict, ttype: str, status_cb: Callable[[str], None] 
         show["_episode_catalog_state"] = "unavailable"
         show["_episode_catalog_error"] = "Episode catalog lookup timed out."
         return []
+    except ProviderDependencyError as exc:
+        restore_terminal()
+        sys.stderr.write(f"{exc}\n")
+        sys.stderr.flush()
+        import os
+        os._exit(1)
     except Exception as e:
         debug_warn(f"Catalog fetch failed for {task_key}", e)
         show["_episode_catalog_state"] = "unavailable"
@@ -245,10 +257,12 @@ def load_episode_ids_for_selection(show: dict, ttype: str) -> list[str]:
 
 def episode_catalog_error(show: dict) -> str:
     p_name = (show.get("_provider_name") or show.get("_provider") or "").title() if show else "this provider"
-    return str(
-        (show or {}).get("_episode_catalog_error")
-        or f"No episodes available on {p_name}. Try another provider."
-    )
+    raw = str((show or {}).get("_episode_catalog_error") or "")
+    if "\n" in raw or len(raw) > 80:
+        raw = raw.strip().splitlines()[0]
+        if len(raw) > 60:
+            raw = raw[:60] + "…"
+    return raw or f"No episodes available on {p_name}. Try another provider."
 
 
 def get_episode_data(show_id: str, ep: str, ttype: str = "sub", provider_id: str | None = None) -> dict | None:
@@ -256,10 +270,11 @@ def get_episode_data(show_id: str, ep: str, ttype: str = "sub", provider_id: str
     try:
         return get_provider(provider_id, _req).episode_sources(show_id, ep, ttype)
     except ProviderDependencyError as exc:
-        exit_alt_screen()
+        restore_terminal()
         sys.stderr.write(f"{exc}\n")
         sys.stderr.flush()
-        sys.exit(1)
+        import os
+        os._exit(1)
     except Exception as e:
         err(f"Episode fetch failed: {e}")
         return None

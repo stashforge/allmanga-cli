@@ -54,11 +54,14 @@ def _load_curl_requests():
     except Exception as exc:
         from ..core.api import ProviderDependencyError
         raise ProviderDependencyError(
-            f"\n\033[91m[ERROR] Miruro playback requires the 'curl_cffi' library.\n"
-            f"        Failed to import 'curl_cffi':\n"
-            f"        {exc}\n\n"
-            f"        Please install it with your package manager or run:\n"
-            f"        pipx inject allmanga-cli curl_cffi\033[0m\n"
+            f"\n\033[91m[ERROR] Miruro requires the 'curl_cffi' library.\n"
+            f"        Failed to import 'curl_cffi': {exc}\n\n"
+            f"        How to install 'curl_cffi':\n"
+            f"          pipx:    pipx inject allmanga-cli curl_cffi\n"
+            f"          pip:     pip install curl_cffi\n"
+            f"          termux:  pkg install python-curl-cffi\n\n"
+            f"        Alternatively, switch to another provider:\n"
+            f"          allmanga-cli --provider anikoto\033[0m\n"
         )
 
 
