@@ -55,6 +55,77 @@ def _is_playlist(url, content_type):
     return ".m3u8" in url.lower() or "mpegurl" in str(content_type or "").lower()
 
 
+def _ass_to_vtt(text: str, mpegts_pts: int = 133508) -> str:
+    lines = text.splitlines()
+    vtt_cues = ["WEBVTT"]
+    if mpegts_pts is not None:
+        vtt_cues.append(f"X-TIMESTAMP-MAP=MPEGTS:{mpegts_pts},LOCAL:00:00:00.000")
+    vtt_cues.append("")
+
+    def parse_time(t_str: str) -> str:
+        parts = t_str.strip().split(":")
+        if len(parts) == 3:
+            h = int(parts[0])
+            m = int(parts[1])
+            s_parts = parts[2].split(".")
+            s = int(s_parts[0])
+            cs = s_parts[1] if len(s_parts) > 1 else "00"
+            if len(cs) == 1:
+                ms = int(cs) * 100
+            elif len(cs) == 2:
+                ms = int(cs) * 10
+            else:
+                ms = int(cs[:3])
+            return f"{h:02d}:{m:02d}:{s:02d}.{ms:03d}"
+        return t_str
+
+    in_events = False
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith(";"):
+            continue
+        if stripped.startswith("[Events]"):
+            in_events = True
+            continue
+        if stripped.startswith("[") and in_events:
+            in_events = False
+            continue
+        if in_events and stripped.startswith("Dialogue:"):
+            parts = stripped[len("Dialogue:"):].split(",", 9)
+            if len(parts) >= 10:
+                start_raw = parts[1]
+                end_raw = parts[2]
+                raw_cue = parts[9]
+                is_top = any(tag in raw_cue for tag in (r"{\an8}", r"{\an7}", r"{\an9}"))
+                cue_text = re.sub(r"\{[^\}]*\}", "", raw_cue)
+                cue_text = cue_text.replace(r"\N", "\n").replace(r"\n", "\n").strip()
+                if not cue_text:
+                    continue
+                start_vtt = parse_time(start_raw)
+                end_vtt = parse_time(end_raw)
+                line_setting = "line:10%,start" if is_top else "line:92%,end"
+                vtt_cues.append(f"{start_vtt} --> {end_vtt} {line_setting}")
+                vtt_cues.append(cue_text)
+                vtt_cues.append("")
+
+    return "\n".join(vtt_cues)
+
+
+def _add_vtt_padding(vtt_text: str) -> str:
+    """Ensure timing cues without positioning get line:92%,end for clean Android margins."""
+    def _repl(match):
+        timing = match.group(0).strip()
+        if "line:" not in timing:
+            return f"{timing} line:92%,end"
+        return timing
+
+    return re.sub(
+        r"(\d{1,2}:\d{2}:\d{2}[\.,]\d{3}\s*-->\s*\d{1,2}:\d{2}:\d{2}[\.,]\d{3}[^\r\n]*)",
+        _repl,
+        vtt_text,
+    )
+
+
 def _ensure_vtt(data_bytes: bytes) -> bytes:
     if not data_bytes:
         return b"WEBVTT\n\n"
@@ -65,10 +136,13 @@ def _ensure_vtt(data_bytes: bytes) -> bytes:
         except Exception:
             pass
     text = data_bytes.decode("utf-8", errors="replace").strip()
+    if "[Events]" in text or "[Script Info]" in text:
+        return _ass_to_vtt(text).encode("utf-8")
     if text.startswith("WEBVTT"):
-        return data_bytes
+        return _add_vtt_padding(text).encode("utf-8")
     # If it's an SRT subtitle or text cues, convert commas to dots and prepend WEBWTT
     text = re.sub(r"(\d{2}:\d{2}:\d{2}),(\d{3})", r"\1.\2", text)
+    text = _add_vtt_padding(text)
     return f"WEBVTT\n\n{text}\n".encode("utf-8")
 
 
@@ -166,6 +240,10 @@ def _build_proxy_server(initial_entries, timeout):
                 entry_content_type = "text/vtt; charset=utf-8"
             elif ext == "ts":
                 entry_content_type = "video/MP2T"
+            elif ext in ("m4s", "mp4"):
+                entry_content_type = "video/mp4"
+            elif ext in ("aac", "m4a", "mp3"):
+                entry_content_type = "audio/mp4"
         with registry_lock:
             registry[path] = {
                 "kind": "fetch",
@@ -297,8 +375,8 @@ def _build_proxy_server(initial_entries, timeout):
                         return
 
                     is_vtt = (
-                        "vtt" in entry.get("content_type", "").lower()
-                        or "vtt" in content_type.lower()
+                        "vtt" in str(entry.get("content_type") or "").lower()
+                        or "vtt" in str(content_type or "").lower()
                         or url.lower().endswith(".vtt")
                         or url.lower().endswith(".srt")
                     )
@@ -397,8 +475,8 @@ def _build_proxy_server(initial_entries, timeout):
                             return
 
                         is_vtt = (
-                            "vtt" in entry.get("content_type", "").lower()
-                            or "vtt" in content_type.lower()
+                            "vtt" in str(entry.get("content_type") or "").lower()
+                            or "vtt" in str(content_type or "").lower()
                             or url.lower().endswith(".vtt")
                             or url.lower().endswith(".srt")
                         )
@@ -640,7 +718,7 @@ def start_local_proxy(
 def start_local_dual_proxy(
         video_url, audio_url, referer, headers=None, timeout=15,
         width=1280, height=720, bandwidth=2_400_000, title="stream",
-        subtitles=None):
+        subtitles=None, audio_tracks=None):
     """Like start_local_proxy, but for sources that split video and audio
     into two separate HLS manifests (Dailymotion does this) with no
     combined master. Builds the master ourselves; both sub-manifests go
@@ -649,12 +727,20 @@ def start_local_dual_proxy(
     track does, instead of being served as a static unproxied file.
     """
     validate_http_url(video_url)
-    validate_http_url(audio_url)
+    if audio_url:
+        validate_http_url(audio_url)
     forwarded_headers = proxy_filtered_headers(headers)
 
     master_secret = new_proxy_secret_path("m3u8", title=title)
     video_secret = new_proxy_secret_path("m3u8")
-    audio_secret = new_proxy_secret_path("m3u8")
+
+    tracks_to_use = list(audio_tracks) if audio_tracks else []
+    if not tracks_to_use and audio_url:
+        tracks_to_use = [{"url": audio_url, "label": "Audio", "default": True}]
+
+    has_default = any(t.get("default") for t in tracks_to_use)
+    if not has_default and tracks_to_use:
+        tracks_to_use[0]["default"] = True
 
     initial = {
         master_secret: {"kind": "synthetic", "text": ""},  # filled in below
@@ -662,11 +748,32 @@ def start_local_dual_proxy(
             "kind": "fetch", "url": video_url, "ref": referer,
             "hdrs": dict(forwarded_headers),
         },
-        audio_secret: {
-            "kind": "fetch", "url": audio_url, "ref": referer,
-            "hdrs": dict(forwarded_headers),
-        },
     }
+
+    audio_secrets = []
+    audio_lines = []
+    for idx, track in enumerate(tracks_to_use):
+        t_url = track.get("url")
+        if not t_url:
+            continue
+        try:
+            validate_http_url(t_url)
+        except ValueError:
+            continue
+        a_secret = new_proxy_secret_path("m3u8")
+        audio_secrets.append((a_secret, idx))
+        initial[a_secret] = {
+            "kind": "fetch", "url": t_url, "ref": referer,
+            "hdrs": dict(forwarded_headers),
+        }
+        t_name = track.get("label") or track.get("name") or f"Audio {idx+1}"
+        t_lang = track.get("language") or ""
+        lang_attr = f',LANGUAGE="{t_lang}"' if t_lang else ""
+        is_def = "YES" if track.get("default") else "NO"
+        audio_lines.append(
+            f'#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="{t_name}",'
+            f'DEFAULT={is_def},AUTOSELECT={is_def}{lang_attr},URI="__AUDIO_URL_{idx}__"'
+        )
 
     sub_list = _prepare_subtitle_entries(subtitles)
     sub_entries = []
@@ -706,9 +813,9 @@ def start_local_dual_proxy(
 
     master_lines = [
         "#EXTM3U",
-        "#EXT-X-VERSION:3",
-        '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="Audio",DEFAULT=YES,AUTOSELECT=YES,URI="{audio_url}"',
+        "#EXT-X-VERSION:6",
     ]
+    master_lines.extend(audio_lines)
 
     for sub in sub_entries:
         if sub["is_m3u8"]:
@@ -728,20 +835,22 @@ def start_local_dual_proxy(
             f'LANGUAGE="{sub["lang"]}",DEFAULT={sub["default"]},AUTOSELECT={sub["default"]},FORCED=NO,URI="{sub_m3u8_url}"'
         )
 
+    audio_attr = ',AUDIO="audio"' if audio_lines else ""
     subs_attr = ',SUBTITLES="subs"' if sub_entries else ""
+    codecs_attr = ',CODECS="mp4a.40.2,avc1.640028"'
     master_lines.append(
         f'#EXT-X-STREAM-INF:BANDWIDTH={int(bandwidth)},'
-        f'RESOLUTION={int(width)}x{int(height)},AUDIO="audio"{subs_attr}'
+        f'RESOLUTION={int(width)}x{int(height)}{codecs_attr}{audio_attr}{subs_attr}'
     )
-    master_lines.append("{video_url}\n")
+    master_lines.append("__VIDEO_URL__\n")
     master_text = "\n".join(master_lines)
 
     # Now that we know our own port, fill in the synthetic master with
     # local URLs pointing back at this same server.
-    registry[master_secret]["text"] = master_text.format(
-        audio_url=f"http://127.0.0.1:{port}{audio_secret}",
-        video_url=f"http://127.0.0.1:{port}{video_secret}",
-    )
+    text = master_text.replace("__VIDEO_URL__", f"http://127.0.0.1:{port}{video_secret}")
+    for a_secret, idx in audio_secrets:
+        text = text.replace(f"__AUDIO_URL_{idx}__", f"http://127.0.0.1:{port}{a_secret}")
+    registry[master_secret]["text"] = text
 
     return f"http://127.0.0.1:{port}{master_secret}", server
 

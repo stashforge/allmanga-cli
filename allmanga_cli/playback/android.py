@@ -1,5 +1,6 @@
-"""Android player discovery and intent launching."""
-
+import os
+import shlex
+import shutil
 import subprocess
 
 from ..media.dash import generate_dash_mpd
@@ -17,10 +18,7 @@ from ..media.urls import validate_optional_referer, validate_stream_url
 PLAYERS = {
     "mpv": ("is.xyz.mpv", "is.xyz.mpv.MPVActivity"),
     "mpvrex": ("xyz.mpv.rex", None),
-    "vlc": (
-        "org.videolan.vlc",
-        "org.videolan.vlc.gui.video.VideoPlayerActivity",
-    ),
+    "vlc": ("org.videolan.vlc", None),
     "next": (
         "dev.anilbeesetti.nextplayer",
         ".feature.player.PlayerActivity",
@@ -163,6 +161,7 @@ def play_android(
                 bandwidth=int(bw),
                 title=media_title,
                 subtitles=subtitles,
+                audio_tracks=stream.get("audio_tracks"),
             )
             replace_active_local_proxy(proxy_server)
             intent_type = "video/*"
@@ -185,6 +184,7 @@ def play_android(
                 bandwidth=int(bw),
                 title=media_title,
                 subtitles=subtitles,
+                audio_tracks=stream.get("audio_tracks"),
             )
             replace_active_local_proxy(proxy_server)
             intent_type = "video/*"
@@ -244,13 +244,17 @@ def play_android(
     try:
         result = subprocess.run(
             command,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
         )
-        if result.returncode == 0:
+        # On Android 14+, termux-am outputs "Starting: Intent" to stdout upon
+        # successfully dispatching the intent, but can return exit code 1
+        # due to an AppOps null-pointer reflection exception in reading the return.
+        stdout_str = result.stdout or ""
+        if result.returncode == 0 or "Starting: Intent" in stdout_str:
             _ok(f"{player} opened.")
             launched = True
-        else:
+        elif activity:
             fallback_cmd = [
                 "am",
                 "start",
@@ -259,7 +263,7 @@ def play_android(
                 "-d",
                 url,
                 "-t",
-                "video/*",
+                intent_type,
                 "-p",
                 package,
                 "--es",
@@ -270,14 +274,15 @@ def play_android(
                 fallback_cmd.extend(["--esa", "headers", ",".join(hdr_list)])
             r2 = subprocess.run(
                 fallback_cmd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
             )
-            if r2.returncode == 0:
+            if r2.returncode == 0 or "Starting: Intent" in (r2.stdout or ""):
                 _ok(f"{player} opened.")
                 launched = True
-            else:
-                _error(f"Could not open {player}.")
+
+        if not launched:
+            _error(f"Could not open {player}.")
     except Exception as exc:
         _error(f"Could not open {player}: {exc}")
     if not launched and proxy_server is not None:
