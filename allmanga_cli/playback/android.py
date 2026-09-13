@@ -110,6 +110,10 @@ def play_android(
     proxy_server = None
     intent_type = "video/*"
 
+    subtitles = stream.get("subtitles") or stream.get("vtt") or []
+    if not subtitles and stream.get("subtitle_url"):
+        subtitles = [{"label": "English", "url": stream["subtitle_url"], "default": True}]
+
     cleanup_active_local_proxy()
     if stream.get("dash_video") and stream.get("dash_audio"):
         _info(f"{player}: preparing DASH video and audio...")
@@ -144,6 +148,7 @@ def play_android(
                 height=stream.get("split_height") or 720,
                 bandwidth=int(float(stream.get("split_bandwidth") or 2400) * 1000),
                 title=media_title,
+                subtitles=subtitles,
             )
             replace_active_local_proxy(proxy_server)
             intent_type = "video/*"
@@ -162,6 +167,7 @@ def play_android(
                 height=stream.get("dailymotion_height") or 720,
                 bandwidth=int(float(stream.get("dailymotion_bandwidth") or 2400) * 1000),
                 title=media_title,
+                subtitles=subtitles,
             )
             replace_active_local_proxy(proxy_server)
             intent_type = "video/*"
@@ -174,9 +180,6 @@ def play_android(
             or (stream.get("dailymotion_video") and stream.get("dailymotion_audio"))):
         _info(f"{player}: starting local HTTP proxy...")
         try:
-            subtitles = stream.get("subtitles") or stream.get("vtt") or []
-            if not subtitles and stream.get("subtitle_url"):
-                subtitles = [{"label": "English", "url": stream["subtitle_url"], "default": True}]
             url, proxy_server = start_local_proxy(
                 url,
                 referer,

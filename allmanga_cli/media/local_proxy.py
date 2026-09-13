@@ -492,7 +492,8 @@ def start_local_proxy(
 
 def start_local_dual_proxy(
         video_url, audio_url, referer, headers=None, timeout=15,
-        width=1280, height=720, bandwidth=2_400_000, title="stream"):
+        width=1280, height=720, bandwidth=2_400_000, title="stream",
+        subtitles=None):
     """Like start_local_proxy, but for sources that split video and audio
     into two separate HLS manifests (Dailymotion does this) with no
     combined master. Builds the master ourselves; both sub-manifests go
@@ -508,16 +509,6 @@ def start_local_dual_proxy(
     video_secret = new_proxy_secret_path("m3u8")
     audio_secret = new_proxy_secret_path("m3u8")
 
-    master_text = (
-        "#EXTM3U\n"
-        "#EXT-X-VERSION:3\n"
-        '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="Audio",'
-        f'DEFAULT=YES,AUTOSELECT=YES,URI="{{audio_url}}"\n'
-        f'#EXT-X-STREAM-INF:BANDWIDTH={int(bandwidth)},'
-        f'RESOLUTION={int(width)}x{int(height)},AUDIO="audio"\n'
-        "{video_url}\n"
-    )
-
     initial = {
         master_secret: {"kind": "synthetic", "text": ""},  # filled in below
         video_secret: {
@@ -529,7 +520,62 @@ def start_local_dual_proxy(
             "hdrs": dict(forwarded_headers),
         },
     }
+
+    sub_entries = []
+    if subtitles:
+        for sub in subtitles:
+            sub_url = sub.get("url")
+            if not sub_url:
+                continue
+            sub_label = sub.get("label") or sub.get("lang") or "English"
+            clean_label = re.sub(r'["\r\n]', '', sub_label).strip() or "English"
+            lang_code = clean_label.lower()[:3]
+            sub_def = sub.get("default", False)
+            vtt_secret = new_proxy_secret_path("vtt", title=clean_label)
+            m3u8_secret = new_proxy_secret_path("m3u8", title=clean_label)
+            initial[vtt_secret] = {
+                "kind": "fetch",
+                "url": sub_url,
+                "ref": referer,
+                "hdrs": dict(forwarded_headers),
+                "content_type": "text/vtt",
+            }
+            initial[m3u8_secret] = {
+                "kind": "synthetic",
+                "text": f"#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:1500\n#EXT-X-MEDIA-SEQUENCE:1\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXTINF:1500.0,\n{{{{vtt_url_{len(sub_entries)}}}}}\n#EXT-X-ENDLIST\n",
+            }
+            sub_entries.append({
+                "name": clean_label,
+                "lang": lang_code,
+                "default": "YES" if sub_def else "NO",
+                "m3u8_secret": m3u8_secret,
+                "vtt_secret": vtt_secret,
+            })
+
     port, registry, _register, server = _build_proxy_server(initial, timeout)
+
+    master_lines = [
+        "#EXTM3U",
+        "#EXT-X-VERSION:3",
+        '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="Audio",DEFAULT=YES,AUTOSELECT=YES,URI="{audio_url}"',
+    ]
+
+    for idx, sub in enumerate(sub_entries):
+        sub_m3u8_url = f"http://127.0.0.1:{port}{sub['m3u8_secret']}"
+        sub_vtt_url = f"http://127.0.0.1:{port}{sub['vtt_secret']}"
+        registry[sub["m3u8_secret"]]["text"] = registry[sub["m3u8_secret"]]["text"].replace(f"{{{{vtt_url_{idx}}}}}", sub_vtt_url)
+        master_lines.append(
+            f'#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="{sub["name"]}",'
+            f'LANGUAGE="{sub["lang"]}",DEFAULT={sub["default"]},AUTOSELECT={sub["default"]},FORCED=NO,URI="{sub_m3u8_url}"'
+        )
+
+    subs_attr = ',SUBTITLES="subs"' if sub_entries else ""
+    master_lines.append(
+        f'#EXT-X-STREAM-INF:BANDWIDTH={int(bandwidth)},'
+        f'RESOLUTION={int(width)}x{int(height)},AUDIO="audio"{subs_attr}'
+    )
+    master_lines.append("{video_url}\n")
+    master_text = "\n".join(master_lines)
 
     # Now that we know our own port, fill in the synthetic master with
     # local URLs pointing back at this same server.
