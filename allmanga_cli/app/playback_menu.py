@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
 import time
 from typing import Any
@@ -833,7 +834,11 @@ def handle_mirrors_state(
         if s.get("raw_source_name"):
             exclude_names.add(s["raw_source_name"])
         if s.get("source_name"):
-            exclude_names.add(s["source_name"].split(" (")[0].strip())
+            raw_sname = s["source_name"]
+            base_name = re.sub(r"\s*(?:\(\s*)?\b(?:\d+p|\d+k|adaptive|source)\b.*$", "", raw_sname, flags=re.I).strip()
+            if base_name:
+                exclude_names.add(base_name)
+            exclude_names.add(raw_sname.split(" (")[0].strip())
 
     with streams._bg_lock:
         bg_alive = bool(streams._bg_thread and streams._bg_thread.is_alive())

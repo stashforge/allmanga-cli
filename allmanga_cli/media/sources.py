@@ -18,20 +18,95 @@ CIPHER = {
 }
 
 
+def quality_from_dimensions(width: int = 0, height: int = 0) -> tuple[str, int]:
+    """
+    Determine standard quality tier and numeric rank from width and/or height.
+    Correctly classifies ultrawide (21:9) and standard aspect ratios:
+      - 3840x1632 or 3840x2160 -> 2160p (3840×1632), 2160
+      - 2560x1088 or 2560x1440 -> 1440p (2560×1088), 1440
+      - 1920x816 or 1920x1080 -> 1080p (1920×816), 1080
+      - 1280x544 or 1280x720 -> 720p (1280×544), 720
+      - 848x360 or 854x480 -> 480p (848×360), 480
+    """
+    w = int(width or 0)
+    h = int(height or 0)
+    if not w and not h:
+        return "Adaptive", 800
+
+    if w >= 3800 or h >= 2100:
+        tier, rank = "2160p", 2160
+    elif w >= 2500 or h >= 1400:
+        tier, rank = "1440p", 1440
+    elif w >= 1900 or h >= 1000:
+        tier, rank = "1080p", 1080
+    elif w >= 1200 or h >= 700:
+        tier, rank = "720p", 720
+    elif w >= 800 or h >= 450:
+        tier, rank = "480p", 480
+    elif w >= 600 or h >= 340:
+        tier, rank = "360p", 360
+    elif w >= 400 or h >= 200:
+        tier, rank = "240p", 240
+    else:
+        dim = h or w
+        tier, rank = f"{dim}p", dim
+
+    if w and h:
+        return f"{tier} ({w}×{h})", rank
+    return tier, rank
+
+
+def format_source_label(prefix: str, quality_str: str) -> str:
+    """
+    Format source name with quality without producing double parentheses.
+    E.g. prefix 'Mirror', quality '1080p (1920×816)' -> 'Mirror 1080p (1920×816)'
+    prefix 'Mirror', quality 'Adaptive' -> 'Mirror (Adaptive)'
+    """
+    p = str(prefix or "").strip()
+    q = str(quality_str or "").strip()
+    if not q:
+        return p
+    if not p:
+        return q if "(" in q else f"({q})"
+    if "(" in q:
+        return f"{p} {q}"
+    return f"{p} ({q})"
+
+
 def parse_resolution_height(value) -> int:
-    """Extract numeric height from resolution string like '1080p', '720', '1920x1080', 'Adaptive'."""
+    """Extract numeric tier rank from resolution string like '1080p (1920×816)', '1080p', '1920x816', 'Adaptive'."""
     if not value:
         return 0
     s = str(value).lower().strip()
     if s in ("auto", "adaptive", "default", "source", "original"):
         return 850
-    match = re.search(r"(\d+)p?\b", s)
-    if match:
-        if "x" in s:
-            match2 = re.search(r"x(\d+)", s)
-            if match2:
-                return int(match2.group(1))
-        return int(match.group(1))
+    if "4k" in s or "2160p" in s:
+        return 2160
+    if "2k" in s or "1440p" in s:
+        return 1440
+
+    tier_match = re.search(r"(\d+)p\b", s)
+    if tier_match:
+        return int(tier_match.group(1))
+
+    dim_match = re.search(r"(\d+)\s*[x×]\s*(\d+)", s)
+    if dim_match:
+        w, h = int(dim_match.group(1)), int(dim_match.group(2))
+        _, rank = quality_from_dimensions(w, h)
+        return rank
+
+    num_match = re.search(r"\b(\d+)\b", s)
+    if num_match:
+        val = int(num_match.group(1))
+        if val >= 3800:
+            return 2160
+        if val >= 2500:
+            return 1440
+        if val >= 1900:
+            return 1080
+        if val >= 1200:
+            return 720
+        return val
     return 0
 
 

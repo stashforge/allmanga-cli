@@ -7,6 +7,7 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
+from ..media.sources import format_source_label, quality_from_dimensions
 from ..media.urls import validate_optional_referer, validate_stream_url
 from ..services.http import SSL_CTX, UA
 
@@ -19,15 +20,7 @@ except ImportError:
 
 
 def _quality_from_height(height: int) -> tuple[str, int]:
-    if height >= 1080:
-        return "1080p", 1080
-    if height >= 720:
-        return "720p", 720
-    if height >= 480:
-        return "480p", 480
-    if height >= 360:
-        return "360p", 360
-    return f"{height}p", height
+    return quality_from_dimensions(0, height)
 
 
 class BaseExtractor:
@@ -143,11 +136,12 @@ class BaseExtractor:
             while i < len(lines):
                 line = lines[i]
                 if line.startswith("#EXT-X-STREAM-INF"):
-                    res_match = re.search(r"RESOLUTION=\d+x(\d+)", line)
-                    bandwidth_match = re.search(r"BANDWIDTH=(\d+)", line)
-                    height = int(res_match.group(1)) if res_match else 0
+                    res_match = re.search(r"RESOLUTION=(\d+)x(\d+)", line, re.IGNORECASE)
+                    bandwidth_match = re.search(r"BANDWIDTH=(\d+)", line, re.IGNORECASE)
+                    width = int(res_match.group(1)) if res_match else 0
+                    height = int(res_match.group(2)) if res_match else 0
                     bitrate = int(bandwidth_match.group(1)) if bandwidth_match else 0
-                    quality_str, rank = _quality_from_height(height) if height else ("Adaptive", 800)
+                    quality_str, rank = quality_from_dimensions(width, height)
 
                     # Next non-comment line is stream URL
                     stream_link = None
@@ -159,7 +153,8 @@ class BaseExtractor:
                     if stream_link:
                         abs_link = urllib.parse.urljoin(master_url, stream_link)
                         stream_dict = {
-                            "source_name": f"{prefix} ({quality_str})",
+                            "source_name": format_source_label(prefix, quality_str),
+                            "source_parent_name": prefix,
                             "link": abs_link,
                             "type": "hls",
                             "resolution": quality_str,
@@ -178,12 +173,20 @@ class BaseExtractor:
                 i += 1
 
             if streams:
+                # Deduplicate same resolution variants keeping highest bitrate
+                seen_qualities: dict[str, dict] = {}
+                for s in streams:
+                    q = s["resolution"]
+                    if q not in seen_qualities or s.get("_bitrate", 0) > seen_qualities[q].get("_bitrate", 0):
+                        seen_qualities[q] = s
+                streams = list(seen_qualities.values())
                 streams.sort(key=lambda s: (s.get("_quality_rank", 0), s.get("_bitrate", 0)), reverse=True)
                 return streams
 
         # Single stream fallback
         stream_dict = {
-            "source_name": f"{prefix} (Adaptive)",
+            "source_name": format_source_label(prefix, "Adaptive"),
+            "source_parent_name": prefix,
             "link": master_url,
             "type": "hls",
             "resolution": "Adaptive",

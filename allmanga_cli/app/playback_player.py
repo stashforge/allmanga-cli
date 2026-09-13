@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
 import time
 from typing import Any
@@ -268,7 +269,11 @@ def handle_play_state(
                                     if s.get("source_parent_name"):
                                         exclude_names.add(s["source_parent_name"])
                                     if s.get("source_name"):
-                                        exclude_names.add(s["source_name"].split(" (")[0].strip())
+                                        raw_sname = s["source_name"]
+                                        base_name = re.sub(r"\s*(?:\(\s*)?\b(?:\d+p|\d+k|adaptive|source)\b.*$", "", raw_sname, flags=re.I).strip()
+                                        if base_name:
+                                            exclude_names.add(base_name)
+                                        exclude_names.add(raw_sname.split(" (")[0].strip())
                                 sources_total = len(ep_data.get("episode", {}).get("sourceUrls", []))
                                 if len(exclude_names) < sources_total:
                                     app_core.start_bg_resolve(ep_data, exclude_names, show_id=ms.show_id, ep=ms.current_ep, ttype=ttype, provider_id=provider_id)
@@ -701,6 +706,7 @@ def handle_play_state(
                 s for s in cached_streams
                 if (s.get("link") or s.get("streamUrl")) not in failed_mirrors
                 and (s.get("source_name") or "") not in failed_mirrors
+                and (s.get("source_parent_name") or "") not in failed_mirrors
                 and ((s.get("source_name") or "").split(" (")[0].strip()) not in failed_mirrors
             ]
 

@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import json
+import random
+import re
 import shutil
 import subprocess
 import time
-import random
 import urllib.parse
 
 from ..core.processes import read_bounded_process_stdout
 from .dailymotion import is_dailymotion_url, stream_type_from_url
+from .sources import format_source_label, quality_from_dimensions
 from .urls import validate_stream_url
 
 
@@ -91,15 +93,19 @@ def _stream_type(item: dict, stream_url: str) -> str:
 
 
 def _resolution_label(item: dict) -> str:
-    resolution = str(item.get("resolution") or "")
-    if resolution and resolution != "audio only":
-        return resolution
     width = int(item.get("width") or 0)
     height = int(item.get("height") or 0)
-    if width and height and width >= 1000 and height < 720:
-        return f"{width}x{height}"
-    if height:
-        return f"{height}p"
+    if width or height:
+        label, _ = quality_from_dimensions(width, height)
+        return label
+    resolution = str(item.get("resolution") or "")
+    if resolution and resolution != "audio only":
+        dim_m = re.search(r"(\d+)\s*[x×]\s*(\d+)", resolution)
+        if dim_m:
+            w, h = int(dim_m.group(1)), int(dim_m.group(2))
+            lbl, _ = quality_from_dimensions(w, h)
+            return lbl
+        return resolution
     return "Adaptive"
 
 
@@ -114,9 +120,10 @@ def _is_useful_quality(item: dict) -> bool:
 def _quality_rank(item: dict) -> int:
     width = int(item.get("width") or 0)
     height = int(item.get("height") or 0)
-    if width and height:
-        return width * height
-    return height
+    if width or height:
+        _, rank = quality_from_dimensions(width, height)
+        return rank
+    return 0
 
 
 def _bitrate(item: dict) -> int:
@@ -190,11 +197,12 @@ def _stream_from_format(
 
     stream_type = _stream_type(item, stream_url)
     resolution = _resolution_label(item)
-    label = f"{name} ({resolution})"
+    label = format_source_label(name, resolution)
 
     needs_audio = item.get("acodec") == "none"
     stream: dict = {
         "source_name": label,
+        "source_parent_name": name,
         "link": stream_url,
         "type": stream_type,
         "resolution": resolution,
