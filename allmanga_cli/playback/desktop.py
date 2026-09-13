@@ -29,15 +29,26 @@ def play_desktop(
         if stream.get("audio_url")
         else ""
     )
-    subtitle_url = (
-        validate_stream_url(stream["subtitle_url"])
-        if stream.get("subtitle_url")
-        else ""
-    )
-    subtitles = stream.get("subtitles") or stream.get("vtt") or []
-    audio_tracks = stream.get("audio_tracks") or []
     referer = validate_optional_referer(stream.get("referer", ""))
     headers = proxy_filtered_headers(stream.get("headers", {}))
+    audio_tracks = stream.get("audio_tracks") or []
+    subtitles = stream.get("subtitles") or stream.get("vtt") or []
+    if subtitles:
+        try:
+            from ..media.subtitle_scorer import filter_subtitles
+            subtitles = filter_subtitles(
+                subtitles,
+                headers=headers,
+                referer=referer,
+                video_duration_s=float(stream.get("duration") or 0),
+            )
+        except Exception:
+            pass
+
+    subtitle_url = ""
+    if subtitles:
+        default_sub = next((s.get("url") or s.get("file") for s in subtitles if s.get("default")), None)
+        subtitle_url = default_sub or (subtitles[0].get("url") or subtitles[0].get("file") or "")
     resolution = stream.get("resolution", "Adaptive")
     from allmanga_cli.domain.episodes import episode_label, clean_episode_identifier, episode_progress_number
     raw_ep = str(episode_label(episode)).strip()

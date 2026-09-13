@@ -113,6 +113,17 @@ def play_android(
     subtitles = stream.get("subtitles") or stream.get("vtt") or []
     if not subtitles and stream.get("subtitle_url"):
         subtitles = [{"label": "English", "url": stream["subtitle_url"], "default": True}]
+    if subtitles:
+        try:
+            from ..media.subtitle_scorer import filter_subtitles
+            subtitles = filter_subtitles(
+                subtitles,
+                headers=headers,
+                referer=referer,
+                video_duration_s=float(stream.get("duration") or 0),
+            )
+        except Exception:
+            pass
 
     cleanup_active_local_proxy()
     if stream.get("dash_video") and stream.get("dash_audio"):
