@@ -202,9 +202,9 @@ def ensure_episode_ids(show: dict, ttype: str, status_cb: Callable[[str], None] 
             _in_flight_catalog_tasks[task_key] = fut
 
     try:
-        return fut.result(timeout=15)
-    except concurrent.futures.TimeoutError:
-        debug_warn(f"Catalog fetch timed out for {task_key}")
+        return fut.result(timeout=30)
+    except concurrent.futures.TimeoutError as exc:
+        debug_warn(f"Catalog fetch timed out for {task_key}", exc)
         show["_episode_catalog_state"] = "unavailable"
         show["_episode_catalog_error"] = "Episode catalog lookup timed out."
         return []
