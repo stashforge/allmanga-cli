@@ -139,6 +139,9 @@ def play_android(
             and stream.get("type") == "hls"):
         _info(f"{player}: preparing video and audio...")
         try:
+            bw = float(stream.get("split_bandwidth") or 2400)
+            if bw < 100_000:
+                bw *= 1000
             url, proxy_server = start_local_dual_proxy(
                 stream["split_video_url"],
                 stream["split_audio_url"],
@@ -146,18 +149,21 @@ def play_android(
                 headers,
                 width=stream.get("split_width") or 1280,
                 height=stream.get("split_height") or 720,
-                bandwidth=int(float(stream.get("split_bandwidth") or 2400) * 1000),
+                bandwidth=int(bw),
                 title=media_title,
                 subtitles=subtitles,
             )
             replace_active_local_proxy(proxy_server)
-            intent_type = "video/*"
+            intent_type = "application/x-mpegURL"
         except Exception as exc:
             _error(f"Could not prepare split audio stream: {exc}")
             return False
     elif stream.get("dailymotion_video") and stream.get("dailymotion_audio"):
         _info(f"{player}: preparing Dailymotion video and audio...")
         try:
+            bw = float(stream.get("dailymotion_bandwidth") or 2400)
+            if bw < 100_000:
+                bw *= 1000
             url, proxy_server = start_local_dual_proxy(
                 stream["dailymotion_video"],
                 stream["dailymotion_audio"],
@@ -165,12 +171,12 @@ def play_android(
                 headers,
                 width=stream.get("dailymotion_width") or 1280,
                 height=stream.get("dailymotion_height") or 720,
-                bandwidth=int(float(stream.get("dailymotion_bandwidth") or 2400) * 1000),
+                bandwidth=int(bw),
                 title=media_title,
                 subtitles=subtitles,
             )
             replace_active_local_proxy(proxy_server)
-            intent_type = "video/*"
+            intent_type = "application/x-mpegURL"
         except Exception as exc:
             _error(f"Could not prepare Dailymotion stream: {exc}")
             return False
@@ -189,7 +195,10 @@ def play_android(
                 subtitles=subtitles,
             )
             replace_active_local_proxy(proxy_server)
-            intent_type = "video/*"
+            if url.lower().endswith(".m3u8") or stream.get("type") == "hls":
+                intent_type = "application/x-mpegURL"
+            else:
+                intent_type = "video/*"
         except Exception as exc:
             _error(f"Could not start local stream proxy: {exc}")
             return False
@@ -242,7 +251,7 @@ def play_android(
                 "-d",
                 url,
                 "-t",
-                intent_type,
+                "video/*",
                 "-p",
                 package,
                 "--es",
