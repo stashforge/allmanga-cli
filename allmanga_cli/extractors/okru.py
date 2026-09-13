@@ -108,8 +108,9 @@ class OkruExtractor(BaseExtractor):
                 continue
 
             quality_str, rank = QUALITY_MAP.get(v_name, (f"{v_name}p" if v_name.isdigit() else "Adaptive", 500))
-            streams.append({
+            stream_dict = {
                 "source_name": f"{prefix} ({quality_str})",
+                "source_parent_name": prefix,
                 "link": v_url,
                 "type": "mp4",
                 "resolution": quality_str,
@@ -118,7 +119,12 @@ class OkruExtractor(BaseExtractor):
                 "source_priority": priority,
                 "android_safe": True,
                 "_quality_rank": rank,
-            })
+            }
+            if subtitles:
+                stream_dict["subtitles"] = subtitles
+                def_sub = next((s["url"] for s in subtitles if s.get("default")), subtitles[0]["url"])
+                stream_dict["subtitle_url"] = def_sub
+            streams.append(stream_dict)
 
         streams.sort(key=lambda s: s.get("_quality_rank", 0), reverse=True)
         return streams

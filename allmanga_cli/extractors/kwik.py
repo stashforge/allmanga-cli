@@ -132,6 +132,7 @@ class KwikExtractor(BaseExtractor):
                         "android_safe": True,
                         "requires_proxy": True,
                         "subtitles": subtitles or [],
+                        "subtitle_url": next((s["url"] for s in subtitles if s.get("default")), subtitles[0]["url"]) if subtitles else "",
                         "_quality_rank": 1080 if resolution == "1080p" else (720 if resolution == "720p" else 360),
                         "_bitrate": 0,
                     }]
