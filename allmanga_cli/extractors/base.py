@@ -128,6 +128,28 @@ class BaseExtractor:
                     "default": "eng" in sub_label.casefold() or "en" in sub_label.casefold(),
                 })
 
+        # Parse external audio tracks in playlist
+        parsed_audios: dict[str, list[dict]] = {}
+        all_audio_tracks: list[dict] = []
+        if content:
+            for match in re.finditer(r'#EXT-X-MEDIA:TYPE=AUDIO(?:,([^\r\n]+))?', content, re.IGNORECASE):
+                attrs_str = match.group(1) or ""
+                attrs = {k: v1 or v2 for k, v1, v2 in re.findall(r'([A-Z0-9\-]+)=(?:"([^"]*)"|([^,\r\n]+))', attrs_str)}
+                group_id = attrs.get("GROUP-ID", "default")
+                uri = attrs.get("URI", "")
+                if not uri:
+                    continue
+                abs_uri = urllib.parse.urljoin(master_url, uri)
+                track = {
+                    "group_id": group_id,
+                    "url": abs_uri,
+                    "label": attrs.get("NAME", "Audio"),
+                    "language": attrs.get("LANGUAGE", ""),
+                    "default": attrs.get("DEFAULT", "").upper() == "YES" or attrs.get("AUTOSELECT", "").upper() == "YES",
+                }
+                parsed_audios.setdefault(group_id, []).append(track)
+                all_audio_tracks.append(track)
+
         # Check if master playlist has stream variants
         if content and "#EXT-X-STREAM-INF" in content:
             streams: list[dict] = []
@@ -138,10 +160,17 @@ class BaseExtractor:
                 if line.startswith("#EXT-X-STREAM-INF"):
                     res_match = re.search(r"RESOLUTION=(\d+)x(\d+)", line, re.IGNORECASE)
                     bandwidth_match = re.search(r"BANDWIDTH=(\d+)", line, re.IGNORECASE)
+                    audio_match = re.search(r'AUDIO="([^"]+)"', line, re.IGNORECASE)
                     width = int(res_match.group(1)) if res_match else 0
                     height = int(res_match.group(2)) if res_match else 0
                     bitrate = int(bandwidth_match.group(1)) if bandwidth_match else 0
+                    audio_gid = audio_match.group(1) if audio_match else ""
                     quality_str, rank = quality_from_dimensions(width, height)
+
+                    matching_audios = parsed_audios.get(audio_gid) or all_audio_tracks
+                    def_audio = None
+                    if matching_audios:
+                        def_audio = next((t["url"] for t in matching_audios if t.get("default")), matching_audios[0]["url"])
 
                     # Next non-comment line is stream URL
                     stream_link = None
@@ -165,6 +194,19 @@ class BaseExtractor:
                             "_quality_rank": rank,
                             "_bitrate": bitrate,
                         }
+                        if def_audio:
+                            stream_dict["audio_url"] = def_audio
+                            stream_dict["audio_tracks"] = matching_audios
+                            stream_dict["split_audio_url"] = def_audio
+                            stream_dict["split_video_url"] = abs_link
+                            stream_dict["split_width"] = width or 1280
+                            stream_dict["split_height"] = height or 720
+                            stream_dict["split_bandwidth"] = bitrate or 2400
+                            stream_dict["dailymotion_video"] = abs_link
+                            stream_dict["dailymotion_audio"] = def_audio
+                            stream_dict["dailymotion_width"] = width or 1280
+                            stream_dict["dailymotion_height"] = height or 720
+                            stream_dict["dailymotion_bandwidth"] = bitrate or 2400
                         if parsed_subs:
                             stream_dict["subtitles"] = parsed_subs
                             def_sub = next((s["url"] for s in parsed_subs if s.get("default")), parsed_subs[0]["url"])
@@ -197,6 +239,14 @@ class BaseExtractor:
             "_quality_rank": 800,
             "_bitrate": 0,
         }
+        if all_audio_tracks:
+            def_audio = next((t["url"] for t in all_audio_tracks if t.get("default")), all_audio_tracks[0]["url"])
+            stream_dict["audio_url"] = def_audio
+            stream_dict["audio_tracks"] = all_audio_tracks
+            stream_dict["split_audio_url"] = def_audio
+            stream_dict["split_video_url"] = master_url
+            stream_dict["dailymotion_video"] = master_url
+            stream_dict["dailymotion_audio"] = def_audio
         if parsed_subs:
             stream_dict["subtitles"] = parsed_subs
             def_sub = next((s["url"] for s in parsed_subs if s.get("default")), parsed_subs[0]["url"])

@@ -162,12 +162,16 @@ class MpvIpc:
 
     def _attach_pending_external_tracks(self):
         if getattr(self, "_pending_audio_tracks", None):
+            has_selected = False
             for track in self._pending_audio_tracks:
                 a_url = track.get("url")
                 a_label = track.get("label") or "Audio"
                 a_lang = track.get("language") or ""
                 if a_url:
-                    mode = "select" if track.get("default") else "auto"
+                    is_def = bool(track.get("default")) or not has_selected
+                    mode = "select" if (is_def and not has_selected) else "auto"
+                    if mode == "select":
+                        has_selected = True
                     if a_lang:
                         self.send_cmd("audio-add", a_url, mode, a_label, a_lang)
                     else:
