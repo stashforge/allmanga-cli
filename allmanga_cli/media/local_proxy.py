@@ -58,10 +58,16 @@ def _is_playlist(url, content_type):
 def _ensure_vtt(data_bytes: bytes) -> bytes:
     if not data_bytes:
         return b"WEBVTT\n\n"
+    if data_bytes.startswith(b"\x1f\x8b"):
+        try:
+            import gzip
+            data_bytes = gzip.decompress(data_bytes)
+        except Exception:
+            pass
     text = data_bytes.decode("utf-8", errors="replace").strip()
     if text.startswith("WEBVTT"):
         return data_bytes
-    # If it's an SRT subtitle or text cues, convert commas to dots and prepend WEBVTT
+    # If it's an SRT subtitle or text cues, convert commas to dots and prepend WEBWTT
     text = re.sub(r"(\d{2}:\d{2}:\d{2}),(\d{3})", r"\1.\2", text)
     return f"WEBVTT\n\n{text}\n".encode("utf-8")
 
@@ -71,11 +77,22 @@ def _prepare_subtitle_entries(subtitles):
     If a language has both .m3u8 and .srt/.vtt, prefer .m3u8.
     """
     lang_codes = {
-        "english": "en", "spanish": "es", "french": "fr",
-        "german": "de", "italian": "it", "portuguese": "pt",
-        "russian": "ru", "arabic": "ar", "indonesia": "id",
-        "indonesian": "id", "bahasa": "id", "vietnamese": "vi",
-        "thai": "th", "chinese": "zh", "japanese": "ja", "korean": "ko",
+        "en": "en", "eng": "en", "english": "en",
+        "es": "es", "spa": "es", "spanish": "es", "español": "es", "espanol": "es",
+        "pt": "pt", "por": "pt", "portuguese": "pt", "português": "pt", "portugues": "pt",
+        "fr": "fr", "fre": "fr", "fra": "fr", "french": "fr", "français": "fr", "francais": "fr",
+        "de": "de", "ger": "de", "deu": "de", "german": "de", "deutsch": "de",
+        "it": "it", "ita": "it", "italian": "it", "italiano": "it",
+        "ru": "ru", "rus": "ru", "russian": "ru",
+        "ar": "ar", "ara": "ar", "arabic": "ar",
+        "tr": "tr", "tur": "tr", "turkish": "tr", "türkçe": "tr", "turkce": "tr",
+        "pl": "pl", "pol": "pl", "polish": "pl", "polski": "pl",
+        "id": "id", "ind": "id", "indonesian": "id", "indonesia": "id", "bahasa": "id",
+        "vi": "vi", "vie": "vi", "vietnamese": "vi",
+        "th": "th", "tha": "th", "thai": "th",
+        "zh": "zh", "chi": "zh", "zho": "zh", "chinese": "zh",
+        "ja": "ja", "jpn": "ja", "japanese": "ja",
+        "ko": "ko", "kor": "ko", "korean": "ko",
     }
     deduped = {}
     for s in (subtitles or []):
@@ -88,9 +105,10 @@ def _prepare_subtitle_entries(subtitles):
         norm_key = re.sub(r"[^a-zA-Z0-9]", "", clean_label.lower())
         is_m3u8 = ".m3u8" in url.lower()
         if norm_key not in deduped or (is_m3u8 and not deduped[norm_key]["is_m3u8"]):
-            lang_code = "und"
+            clean_lower = clean_label.lower()
+            lang_code = "en" if ("eng" in clean_lower or "en" in clean_lower) else "und"
             for k, code in lang_codes.items():
-                if k in clean_label.lower():
+                if k in clean_lower:
                     lang_code = code
                     break
             deduped[norm_key] = {
@@ -100,6 +118,15 @@ def _prepare_subtitle_entries(subtitles):
                 "default": def_flag,
                 "is_m3u8": is_m3u8,
             }
+
+    if deduped and not any(d["default"] for d in deduped.values()):
+        eng_key = next((k for k, v in deduped.items() if v["lang"] == "en"), None)
+        if eng_key:
+            deduped[eng_key]["default"] = True
+        else:
+            first_key = next(iter(deduped))
+            deduped[first_key]["default"] = True
+
     return list(deduped.values())
 
 
@@ -508,7 +535,7 @@ def start_local_proxy(
                 }
                 initial[m3u8_secret] = {
                     "kind": "synthetic",
-                    "text": f"#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:1500\n#EXT-X-MEDIA-SEQUENCE:1\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXTINF:1500.0,\n{{{{vtt_url_{len(sub_entries)}}}}}\n#EXT-X-ENDLIST\n",
+                    "text": "",
                 }
                 sub_entries.append({
                     "name": s["label"],
@@ -522,15 +549,19 @@ def start_local_proxy(
         port, registry, _register, server = _build_proxy_server(initial, timeout)
 
         # Build Master M3U8 content
-        master_lines = ["#EXTM3U", "#EXT-X-VERSION:6", ""]
-        for idx, sub in enumerate(sub_entries):
+        master_lines = ["#EXTM3U", "#EXT-X-VERSION:3", ""]
+        for sub in sub_entries:
             if sub["is_m3u8"]:
                 sub_path = _register(sub["url"], referer, forwarded_headers)
                 sub_m3u8_url = f"http://127.0.0.1:{port}{sub_path}"
             else:
                 sub_m3u8_url = f"http://127.0.0.1:{port}{sub['m3u8_secret']}"
                 sub_vtt_url = f"http://127.0.0.1:{port}{sub['vtt_secret']}"
-                registry[sub["m3u8_secret"]]["text"] = registry[sub["m3u8_secret"]]["text"].replace(f"{{{{vtt_url_{idx}}}}}", sub_vtt_url)
+                registry[sub["m3u8_secret"]]["text"] = (
+                    f"#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:1500\n"
+                    f"#EXT-X-MEDIA-SEQUENCE:1\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXTINF:1500.0,\n"
+                    f"{sub_vtt_url}\n#EXT-X-ENDLIST\n"
+                )
 
             master_lines.append(
                 f'#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="{sub["name"]}",'
@@ -567,10 +598,10 @@ def start_local_proxy(
                         master_lines.append(stripped)
                         continue
                     if stripped.startswith("#EXT-X-STREAM-INF:"):
-                        if 'SUBTITLES="' not in stripped:
-                            pending_inf = f'{stripped},SUBTITLES="subs"'
+                        if 'SUBTITLES="' in stripped:
+                            pending_inf = re.sub(r'SUBTITLES="[^"]*"', 'SUBTITLES="subs"', stripped)
                         else:
-                            pending_inf = stripped
+                            pending_inf = f'{stripped},SUBTITLES="subs"'
                         master_lines.append(pending_inf)
                         continue
                     if stripped.startswith("#"):
@@ -660,7 +691,7 @@ def start_local_dual_proxy(
             }
             initial[m3u8_secret] = {
                 "kind": "synthetic",
-                "text": f"#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:1500\n#EXT-X-MEDIA-SEQUENCE:1\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXTINF:1500.0,\n{{{{vtt_url_{len(sub_entries)}}}}}\n#EXT-X-ENDLIST\n",
+                "text": "",
             }
             sub_entries.append({
                 "name": s["label"],
@@ -675,19 +706,22 @@ def start_local_dual_proxy(
 
     master_lines = [
         "#EXTM3U",
-        "#EXT-X-VERSION:6",
-        "#EXT-X-INDEPENDENT-SEGMENTS",
+        "#EXT-X-VERSION:3",
         '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="Audio",DEFAULT=YES,AUTOSELECT=YES,URI="{audio_url}"',
     ]
 
-    for idx, sub in enumerate(sub_entries):
+    for sub in sub_entries:
         if sub["is_m3u8"]:
             sub_path = _register(sub["url"], referer, forwarded_headers)
             sub_m3u8_url = f"http://127.0.0.1:{port}{sub_path}"
         else:
             sub_m3u8_url = f"http://127.0.0.1:{port}{sub['m3u8_secret']}"
             sub_vtt_url = f"http://127.0.0.1:{port}{sub['vtt_secret']}"
-            registry[sub["m3u8_secret"]]["text"] = registry[sub["m3u8_secret"]]["text"].replace(f"{{{{vtt_url_{idx}}}}}", sub_vtt_url)
+            registry[sub["m3u8_secret"]]["text"] = (
+                f"#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:1500\n"
+                f"#EXT-X-MEDIA-SEQUENCE:1\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXTINF:1500.0,\n"
+                f"{sub_vtt_url}\n#EXT-X-ENDLIST\n"
+            )
 
         master_lines.append(
             f'#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="{sub["name"]}",'

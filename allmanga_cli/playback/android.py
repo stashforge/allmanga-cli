@@ -154,7 +154,7 @@ def play_android(
                 subtitles=subtitles,
             )
             replace_active_local_proxy(proxy_server)
-            intent_type = "application/x-mpegURL"
+            intent_type = "video/*"
         except Exception as exc:
             _error(f"Could not prepare split audio stream: {exc}")
             return False
@@ -176,7 +176,7 @@ def play_android(
                 subtitles=subtitles,
             )
             replace_active_local_proxy(proxy_server)
-            intent_type = "application/x-mpegURL"
+            intent_type = "video/*"
         except Exception as exc:
             _error(f"Could not prepare Dailymotion stream: {exc}")
             return False
@@ -195,10 +195,7 @@ def play_android(
                 subtitles=subtitles,
             )
             replace_active_local_proxy(proxy_server)
-            if url.lower().endswith(".m3u8") or stream.get("type") == "hls":
-                intent_type = "application/x-mpegURL"
-            else:
-                intent_type = "video/*"
+            intent_type = "video/*"
         except Exception as exc:
             _error(f"Could not start local stream proxy: {exc}")
             return False
