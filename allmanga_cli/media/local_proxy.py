@@ -397,6 +397,23 @@ def _build_proxy_server(initial_entries, timeout):
                         return
 
                     try:
+                        first_chunk = b""
+                        if method == "GET":
+                            first_chunk = response.read(65536)
+                            while first_chunk.startswith(b"\x89PNG\r\n\x1a\n") and len(first_chunk) < 253:
+                                more = response.read(253 - len(first_chunk))
+                                if not more:
+                                    break
+                                first_chunk += more
+
+                        is_png_ts = (
+                            first_chunk.startswith(b"\x89PNG\r\n\x1a\n")
+                            and len(first_chunk) > 252
+                            and first_chunk[252] == 0x47
+                        )
+                        if is_png_ts:
+                            first_chunk = first_chunk[252:]
+
                         self.send_response(response.status)
                         content_type_sent = False
                         has_accept_ranges = False
@@ -404,21 +421,28 @@ def _build_proxy_server(initial_entries, timeout):
                             k_low = key.lower()
                             if k_low == "accept-ranges":
                                 has_accept_ranges = True
-                            if k_low == "content-type":
-                                if entry.get("content_type"):
+                            elif k_low == "content-length":
+                                if is_png_ts and value.isdigit():
+                                    value = str(max(0, int(value) - 252))
+                            elif k_low == "content-type":
+                                if is_png_ts:
+                                    value = "video/MP2T"
+                                elif entry.get("content_type"):
                                     value = entry["content_type"]
                                 elif not value.startswith("video/") and not value.startswith("audio/"):
                                     value = "video/MP2T"
                                 content_type_sent = True
                             self.send_header(key, value)
-                        if not content_type_sent and entry.get("content_type"):
-                            self.send_header("Content-Type", entry["content_type"])
+                        if not content_type_sent:
+                            self.send_header("Content-Type", "video/MP2T" if is_png_ts else entry.get("content_type", "video/MP2T"))
                         if not has_accept_ranges and response.status == 200:
                             self.send_header("Accept-Ranges", "bytes")
                         self.send_header("Access-Control-Allow-Origin", "*")
                         self.send_header("Access-Control-Allow-Headers", "*")
                         self.end_headers()
                         if method == "GET":
+                            if first_chunk:
+                                self.wfile.write(first_chunk)
                             while chunk := response.read(65536):
                                 try:
                                     self.wfile.write(chunk)
@@ -499,6 +523,28 @@ def _build_proxy_server(initial_entries, timeout):
                             return
 
                         try:
+                            first_chunk = b""
+                            resp_iter = None
+                            if method == "GET":
+                                resp_iter = resp.iter_content(65536)
+                                try:
+                                    first_chunk = next(resp_iter)
+                                except StopIteration:
+                                    first_chunk = b""
+                                while first_chunk.startswith(b"\x89PNG\r\n\x1a\n") and len(first_chunk) < 253:
+                                    try:
+                                        first_chunk += next(resp_iter)
+                                    except StopIteration:
+                                        break
+
+                            is_png_ts = (
+                                first_chunk.startswith(b"\x89PNG\r\n\x1a\n")
+                                and len(first_chunk) > 252
+                                and first_chunk[252] == 0x47
+                            )
+                            if is_png_ts:
+                                first_chunk = first_chunk[252:]
+
                             self.send_response(resp.status_code)
                             content_type_sent = False
                             has_accept_ranges = False
@@ -508,26 +554,34 @@ def _build_proxy_server(initial_entries, timeout):
                                     continue
                                 if k_low == "accept-ranges":
                                     has_accept_ranges = True
-                                if k_low == "content-type":
-                                    if entry.get("content_type"):
+                                elif k_low == "content-length":
+                                    if is_png_ts and str(value).isdigit():
+                                        value = str(max(0, int(value) - 252))
+                                elif k_low == "content-type":
+                                    if is_png_ts:
+                                        value = "video/MP2T"
+                                    elif entry.get("content_type"):
                                         value = entry["content_type"]
                                     elif not value.startswith("video/") and not value.startswith("audio/"):
                                         value = "video/MP2T"
                                     content_type_sent = True
                                 self.send_header(key, value)
-                            if not content_type_sent and entry.get("content_type"):
-                                self.send_header("Content-Type", entry["content_type"])
+                            if not content_type_sent:
+                                self.send_header("Content-Type", "video/MP2T" if is_png_ts else entry.get("content_type", "video/MP2T"))
                             if not has_accept_ranges and resp.status_code == 200:
                                 self.send_header("Accept-Ranges", "bytes")
                             self.send_header("Access-Control-Allow-Origin", "*")
                             self.send_header("Access-Control-Allow-Headers", "*")
                             self.end_headers()
                             if method == "GET":
-                                for chunk in resp.iter_content(65536):
-                                    try:
-                                        self.wfile.write(chunk)
-                                    except (BrokenPipeError, ConnectionResetError):
-                                        break
+                                if first_chunk:
+                                    self.wfile.write(first_chunk)
+                                if resp_iter:
+                                    for chunk in resp_iter:
+                                        try:
+                                            self.wfile.write(chunk)
+                                        except (BrokenPipeError, ConnectionResetError):
+                                            break
                         except (BrokenPipeError, ConnectionResetError):
                             pass
                         return

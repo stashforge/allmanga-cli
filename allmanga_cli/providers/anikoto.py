@@ -17,6 +17,52 @@ from allmanga_cli.services import normalize as anilist_normalize
 
 _logger = logging.getLogger(__name__)
 
+_MEGAPLAY_KEY = b"i?LMTAx0Q6,:}50U".ljust(32, b"\x00")
+_MEGAPLAY_IV = b"W0;27ToaUpl_P%'c"
+
+
+def _decrypt_megaplay_enc(enc: str) -> dict | None:
+    if not enc:
+        return None
+    try:
+        import base64
+        enc_clean = enc.replace("-", "+").replace("_", "/")
+        rem = len(enc_clean) % 4
+        if rem:
+            enc_clean += "=" * (4 - rem)
+        ciphertext = base64.b64decode(enc_clean)
+
+        plaintext = None
+        try:
+            from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+            from cryptography.hazmat.backends import default_backend
+            cipher = Cipher(algorithms.AES(_MEGAPLAY_KEY), modes.CBC(_MEGAPLAY_IV), backend=default_backend())
+            decryptor = cipher.decryptor()
+            plaintext = decryptor.update(ciphertext) + decryptor.finalize()
+        except Exception:
+            for lib in ("Cryptodome", "Crypto"):
+                try:
+                    AES = __import__(f"{lib}.Cipher", fromlist=["AES"]).AES
+                    cipher = AES.new(_MEGAPLAY_KEY, AES.MODE_CBC, _MEGAPLAY_IV)
+                    plaintext = cipher.decrypt(ciphertext)
+                    break
+                except ImportError:
+                    continue
+                except Exception:
+                    pass
+
+        if not plaintext:
+            return None
+
+        pad_len = plaintext[-1]
+        if 0 < pad_len <= 16:
+            plaintext = plaintext[:-pad_len]
+        return json.loads(plaintext.decode("utf-8"))
+    except Exception as e:
+        _logger.debug("Failed to decrypt MegaPlay enc: %s", e)
+        return None
+
+
 class AnikotoProvider:
     id = "anikoto"
     audio_mode = "separate_catalogs"
@@ -181,39 +227,79 @@ class AnikotoProvider:
                 tracks = src_res.get("tracks", [])
             elif "megaplay" in host:
                 s_param = qs.get("s", [""])[0]
-                if not s_param and ("hd-1" in s_name.lower() or "hd-2" in s_name.lower()):
+                if not s_param:
                     s_param = "tcdn"
-                src_api = f"https://megaplay.buzz/stream/getSourcesNew?id={d_id}"
-                if s_param:
-                    src_api += f"&s={s_param}"
-                req_src = urllib.request.Request(src_api, headers={
-                    "User-Agent": self.headers["User-Agent"],
-                    "Referer": embed_url,
-                    "Origin": "https://megaplay.buzz",
-                    "X-Requested-With": "XMLHttpRequest"
-                })
-                try:
-                    src_res = json.loads(urllib.request.urlopen(req_src, timeout=6).read().decode('utf-8'))
-                except Exception:
-                    src_api_old = f"https://megaplay.buzz/stream/getSources?id={d_id}"
-                    if s_param:
-                        src_api_old += f"&s={s_param}"
-                    req_old = urllib.request.Request(src_api_old, headers={
+
+                def _fetch_megaplay_sources(target_s: str) -> dict | None:
+                    api = f"https://megaplay.buzz/stream/getSourcesNew?id={d_id}"
+                    if target_s:
+                        api += f"&s={target_s}"
+                    req = urllib.request.Request(api, headers={
                         "User-Agent": self.headers["User-Agent"],
                         "Referer": embed_url,
                         "Origin": "https://megaplay.buzz",
                         "X-Requested-With": "XMLHttpRequest"
                     })
-                    src_res = json.loads(urllib.request.urlopen(req_old, timeout=6).read().decode('utf-8'))
+                    try:
+                        return json.loads(urllib.request.urlopen(req, timeout=6).read().decode('utf-8'))
+                    except Exception:
+                        api_old = f"https://megaplay.buzz/stream/getSources?id={d_id}"
+                        if target_s:
+                            api_old += f"&s={target_s}"
+                        req_old = urllib.request.Request(api_old, headers={
+                            "User-Agent": self.headers["User-Agent"],
+                            "Referer": embed_url,
+                            "Origin": "https://megaplay.buzz",
+                            "X-Requested-With": "XMLHttpRequest"
+                        })
+                        try:
+                            return json.loads(urllib.request.urlopen(req_old, timeout=6).read().decode('utf-8'))
+                        except Exception:
+                            return None
 
-                sources = src_res.get("sources", [])
-                if isinstance(sources, dict):
-                    stream_url = sources.get("file")
-                elif isinstance(sources, list) and sources:
-                    stream_url = sources[0].get("file") if isinstance(sources[0], dict) else None
-                else:
-                    stream_url = None
+                src_res = None
+                try:
+                    src_res = _fetch_megaplay_sources(s_param)
+                except Exception:
+                    src_res = None
+
+                if not src_res and s_param != "tcdn":
+                    try:
+                        src_res = _fetch_megaplay_sources("tcdn")
+                    except Exception:
+                        src_res = None
+
+                if not src_res:
+                    return []
+
+                stream_url = None
+                if src_res.get("enc"):
+                    dec = _decrypt_megaplay_enc(src_res["enc"])
+                    if dec and isinstance(dec, dict):
+                        stream_url = dec.get("file") or dec.get("url")
+
+                if not stream_url:
+                    sources = src_res.get("sources", [])
+                    if isinstance(sources, dict):
+                        stream_url = sources.get("file")
+                    elif isinstance(sources, list) and sources:
+                        stream_url = sources[0].get("file") if isinstance(sources[0], dict) else None
+
                 tracks = src_res.get("tracks", [])
+
+                # If primary endpoint returned the blocked fetch.nexabloom.top domain,
+                # retry with s=tcdn which yields working CDN hosts (megap.*)
+                if not stream_url or "fetch.nexabloom.top" in stream_url:
+                    try:
+                        src_res_tcdn = _fetch_megaplay_sources("tcdn")
+                        if src_res_tcdn and src_res_tcdn.get("enc"):
+                            dec_tcdn = _decrypt_megaplay_enc(src_res_tcdn["enc"])
+                            if dec_tcdn and isinstance(dec_tcdn, dict) and dec_tcdn.get("file"):
+                                stream_url = dec_tcdn["file"]
+                                if not tracks:
+                                    tracks = src_res_tcdn.get("tracks", [])
+                    except Exception:
+                        pass
 
             if not stream_url:
                 return []
@@ -507,6 +593,16 @@ class AnikotoProvider:
                     )
                     res_api = urllib.request.urlopen(req_api, timeout=7).read().decode('utf-8')
                     sources_data = json.loads(res_api)
+                    enc_payload = sources_data.get("enc")
+                    if enc_payload:
+                        dec = _decrypt_megaplay_enc(enc_payload)
+                        if isinstance(dec, dict):
+                            if "tracks" in sources_data and "tracks" not in dec:
+                                dec["tracks"] = sources_data["tracks"]
+                            sources_data = dec
+                        elif isinstance(dec, list):
+                            sources_data = {"sources": dec, "tracks": sources_data.get("tracks", [])}
+
                     subtitles = []
                     for track in sources_data.get("tracks", []):
                         if isinstance(track, dict) and track.get("file"):
