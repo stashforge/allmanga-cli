@@ -120,7 +120,7 @@ def _add_vtt_padding(vtt_text: str) -> str:
         return timing
 
     return re.sub(
-        r"(\d{1,2}:\d{2}:\d{2}[\.,]\d{3}\s*-->\s*\d{1,2}:\d{2}:\d{2}[\.,]\d{3}[^\r\n]*)",
+        r"((?:(?:\d{1,2}:)?\d{2}:\d{2}[\.,]\d{3})\s*-->\s*(?:(?:\d{1,2}:)?\d{2}:\d{2}[\.,]\d{3})[^\r\n]*)",
         _repl,
         vtt_text,
     )
@@ -136,14 +136,16 @@ def _ensure_vtt(data_bytes: bytes) -> bytes:
         except Exception:
             pass
     text = data_bytes.decode("utf-8", errors="replace").strip()
-    if "[Events]" in text or "[Script Info]" in text:
-        return _ass_to_vtt(text).encode("utf-8")
-    if text.startswith("WEBVTT"):
-        return _add_vtt_padding(text).encode("utf-8")
+    clean_text = text.lstrip("\ufeff")
+    if "[Events]" in clean_text or "[Script Info]" in clean_text:
+        return _ass_to_vtt(clean_text).encode("utf-8")
+    if clean_text.startswith("WEBVTT"):
+        return _add_vtt_padding(clean_text).encode("utf-8")
     # If it's an SRT subtitle or text cues, convert commas to dots and prepend WEBWTT
-    text = re.sub(r"(\d{2}:\d{2}:\d{2}),(\d{3})", r"\1.\2", text)
-    text = _add_vtt_padding(text)
-    return f"WEBVTT\n\n{text}\n".encode("utf-8")
+    clean_text = re.sub(r"(\d{1,2}:\d{2}:\d{2}),(\d{3})", r"\1.\2", clean_text)
+    clean_text = re.sub(r"(\d{2}:\d{2}),(\d{3})", r"\1.\2", clean_text)
+    clean_text = _add_vtt_padding(clean_text)
+    return f"WEBVTT\n\n{clean_text}\n".encode("utf-8")
 
 
 def _prepare_subtitle_entries(subtitles):
