@@ -158,11 +158,25 @@ def handle_details_state(
     is_completed = (playback_status == "COMPLETED") or (watched_idx is not None and watched_idx == len(episode_ids) - 1 and str(s.get("status") or "").upper() == "FINISHED")
 
     if episode_ids:
+        cur_watched = False
+        if ms.current_ep is not None and watched_idx is not None:
+            cur_idx = episode_index_for_id(episode_ids, ms.current_ep, labels=s.get("_episode_labels"))
+            if cur_idx is not None and cur_idx <= watched_idx:
+                cur_watched = True
+
         cur_has_resume = (
             ms.current_ep is not None
+            and not cur_watched
             and (app_core.get_resume_time(s.get("_id"), ms.current_ep) or 0) > 0
         )
-        if cur_has_resume:
+        if (
+            getattr(ms, "_android_pending_watched_ep", None) is not None
+            and getattr(ms, "_android_pending_show_id", None) == s.get("_id")
+            and ms.current_ep_index is not None
+            and 0 <= ms.current_ep_index < len(episode_ids)
+        ):
+            ms.current_ep = episode_id_at(episode_ids, ms.current_ep_index)
+        elif cur_has_resume:
             ms.current_ep_index = episode_index_for_id(episode_ids, ms.current_ep, labels=s.get("_episode_labels"))
             if ms.current_ep_index is None:
                 ms.current_ep_index = 0
@@ -171,12 +185,7 @@ def handle_details_state(
             ms.current_ep_index = 0
             ms.current_ep = episode_id_at(episode_ids, 0)
         elif watched_idx is not None:
-            watched_ep = episode_id_at(episode_ids, watched_idx)
-            watched_resume = app_core.get_resume_time(s.get("_id"), watched_ep) or 0
-            if watched_resume > 0:
-                target_idx = watched_idx
-            else:
-                target_idx = watched_idx + 1 if watched_idx + 1 < len(episode_ids) else watched_idx
+            target_idx = watched_idx + 1 if watched_idx + 1 < len(episode_ids) else watched_idx
             ms.current_ep_index = target_idx
             ms.current_ep = episode_id_at(episode_ids, target_idx)
         elif ms.current_ep_index is not None and 0 <= ms.current_ep_index < len(episode_ids):

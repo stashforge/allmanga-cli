@@ -646,6 +646,16 @@ def handle_play_state(
             app_core._clear_streams()
             return "PLAY"
 
+        if result:
+            ms._android_pending_show_id = ms.show_id
+            ms._android_pending_watched_ep = ms.current_ep
+            ms._android_pending_watched_idx = ms.current_ep_index
+            if ms.current_ep_index is not None and ms.current_ep_index + 1 < ms.total_eps:
+                ms.current_ep_index += 1
+                ms.current_ep = episode_id_at(episode_ids, ms.current_ep_index)
+                ms.selected_stream = None
+                app_core._clear_streams()
+
         app_core._exit_player_screen()
         return "DETAILS"
 

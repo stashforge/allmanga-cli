@@ -148,6 +148,13 @@ def handle_action_menu_state(
         acts = []
         action_hints = {}
 
+        if getattr(ms, "_android_pending_show_id", None) and ms._android_pending_show_id != ms.show_id:
+            ms._android_pending_watched_ep = None
+            ms._android_pending_watched_idx = None
+            ms._android_pending_show_id = None
+
+        pending_watched_ep = getattr(ms, "_android_pending_watched_ep", None)
+
         resume_time = 0
         if not getattr(ms, "_is_downloads", False) and ms.show_id:
             resume_time = (
@@ -161,16 +168,20 @@ def handle_action_menu_state(
             opts.append("Start Rewatch")
             acts.append("REWATCH")
             action_hints["Start Rewatch"] = "play EP 1 from start"
-        elif resume_time > 0:
+        elif resume_time > 0 and not is_watched:
             effective_resume = max(0, resume_time - 30)
             opts.append("Continue")
             acts.append("CONTINUE")
             action_hints["Continue"] = f"resume {playback_mod._fmt_ep(current_ep_label)} from {app_core.format_video_time(effective_resume)}"
+        elif pending_watched_ep is not None and str(pending_watched_ep) == str(ms.current_ep):
+            opts.append("Replay")
+            acts.append("REPLAY")
+            action_hints["Replay"] = f"play {playback_mod._fmt_ep(current_ep_label)} from start"
         elif is_watched:
             opts.append("Replay")
             acts.append("REPLAY")
             action_hints["Replay"] = f"play {playback_mod._fmt_ep(current_ep_label)} from start"
-        elif eff_prog > 0:
+        elif eff_prog > 0 or pending_watched_ep is not None:
             opts.append("Play Next")
             acts.append("PLAY_CURRENT")
             action_hints["Play Next"] = f"play {playback_mod._fmt_ep(current_ep_label)}"
@@ -180,13 +191,19 @@ def handle_action_menu_state(
             action_hints["Play"] = f"play {playback_mod._fmt_ep(current_ep_label)}"
 
         # Replay (if not primary action and not completed)
-        if "Replay" not in opts and not is_completed and (resume_time > 0 or is_watched):
-            opts.append("Replay")
-            acts.append("REPLAY")
-            action_hints["Replay"] = "from start"
+        if "Replay" not in opts and not is_completed:
+            if pending_watched_ep is not None and str(pending_watched_ep) != str(ms.current_ep):
+                opts.append("Replay")
+                acts.append("REPLAY")
+                pending_lbl = playback_mod._display_episode_label(action_show, pending_watched_ep, ttype)
+                action_hints["Replay"] = f"play {playback_mod._fmt_ep(pending_lbl)} from start"
+            elif resume_time > 0 or is_watched:
+                opts.append("Replay")
+                acts.append("REPLAY")
+                action_hints["Replay"] = "from start"
 
         # Previous (if prev_ep exists)
-        if prev_ep is not None and not is_completed:
+        if prev_ep is not None and not is_completed and (pending_watched_ep is None or str(prev_ep) != str(pending_watched_ep)):
             opts.append("Previous")
             acts.append("PREV")
             action_hints["Previous"] = f"play {playback_mod._fmt_ep(prev_ep_label)}"
@@ -362,25 +379,29 @@ def handle_action_menu_state(
     if idx in (-2, -3):
         return ui.action_prev_state or "DETAILS"
 
-    def _execute_track_action():
+    def _mark_ep_watched(target_ep, target_idx=None):
+        if target_idx is None:
+            target_idx = episode_index_for_id(episode_ids, target_ep, labels=action_show.get("_episode_labels"))
         if getattr(ms, "_is_downloads", False):
             from allmanga_cli.core.storage import update_offline_watch_status
             folder_name = action_show.get("_folder_name", ms.show_title)
-            if update_offline_watch_status(folder_name, ms.current_ep):
+            if update_offline_watch_status(folder_name, target_ep):
                 watched = action_show.get("watched_episodes", [])
-                if str(ms.current_ep) not in watched:
-                    watched.append(str(ms.current_ep))
+                if str(target_ep) not in watched:
+                    watched.append(str(target_ep))
                 action_show["watched_episodes"] = watched
                 app_core.prepare_show_display_state(action_show, ttype, False)
-            app_core.save_history(action_show, ms.current_ep, ttype)
-            app_core.set_action_feedback(action_show, f"✔ Marked {playback_mod._fmt_ep(current_ep_label)} watched")
-            app_core.save_resume_time(ms.show_id, ms.current_ep, 0)
+            app_core.save_history(action_show, target_ep, ttype)
+            target_lbl = playback_mod._display_episode_label(action_show, target_ep, ttype)
+            app_core.set_action_feedback(action_show, f"✔ Marked {playback_mod._fmt_ep(target_lbl)} watched")
+            app_core.save_resume_time(ms.show_id, target_ep, 0)
             return False
-            
+
         tkn = cfg.get("anilist_token")
         synced = False
+        target_idx_val = target_idx if target_idx is not None else 0
+        progress_ep = episode_progress_number(target_ep, target_idx_val + 1)
         if tkn and resolve_tracking_fn(ui.search_prev_state, args, cfg, action_show):
-            progress_ep = episode_progress_number(ms.current_ep, ms.current_ep_index + 1)
             al_id = app_core.get_show_anilist_id(action_show)
             result = app_core.with_loading(
                 "Syncing to AniList…",
@@ -395,13 +416,23 @@ def handle_action_menu_state(
         else:
             app_core.with_loading(
                 "Saving progress…",
-                app_core.save_history, action_show, ms.current_ep, ttype
+                app_core.save_history, action_show, target_ep, ttype
             )
-            app_core.set_action_feedback(action_show, f"✔ Marked {playback_mod._fmt_ep(current_ep_label)} watched")
+            target_lbl = playback_mod._display_episode_label(action_show, target_ep, ttype)
+            app_core.set_action_feedback(action_show, f"✔ Marked {playback_mod._fmt_ep(target_lbl)} watched")
 
-        app_core.save_resume_time(ms.show_id, ms.current_ep, 0)
+        app_core.save_resume_time(ms.show_id, target_ep, 0)
         app_core.prepare_show_display_state(action_show, ttype)
         return synced
+
+    def _execute_track_action():
+        pending_ep = getattr(ms, "_android_pending_watched_ep", None)
+        pending_idx = getattr(ms, "_android_pending_watched_idx", None)
+        ms._android_pending_watched_ep = None
+        ms._android_pending_watched_idx = None
+        if pending_ep is not None and str(pending_ep) != str(ms.current_ep):
+            _mark_ep_watched(pending_ep, pending_idx)
+        return _mark_ep_watched(ms.current_ep, ms.current_ep_index)
 
     def _execute_untrack_action():
         if getattr(ms, "_is_downloads", False):
@@ -441,6 +472,16 @@ def handle_action_menu_state(
         return True
 
     a = acts[idx]
+    pending_ep = getattr(ms, "_android_pending_watched_ep", None)
+    pending_idx = getattr(ms, "_android_pending_watched_idx", None)
+
+    if a in ("CONTINUE", "PLAY", "PLAY_FIRST", "PLAY_CURRENT", "BINGE", "NEXT"):
+        if pending_ep is not None:
+            ms._android_pending_watched_ep = None
+            ms._android_pending_watched_idx = None
+            if str(pending_ep) != str(ms.current_ep):
+                _mark_ep_watched(pending_ep, pending_idx)
+
     if a == "CONTINUE":
         ms.selected_stream = None
         app_core._clear_streams()
@@ -454,6 +495,8 @@ def handle_action_menu_state(
         return "PLAY"
 
     elif a == "REWATCH":
+        ms._android_pending_watched_ep = None
+        ms._android_pending_watched_idx = None
         ms.current_ep_index = 0
         ms.current_ep = episode_id_at(episode_ids, 0)
         ms.selected_stream = None
@@ -468,6 +511,8 @@ def handle_action_menu_state(
         return "DETAILS"
 
     elif a == "UNTRACK":
+        ms._android_pending_watched_ep = None
+        ms._android_pending_watched_idx = None
         _execute_untrack_action()
         ms.current_ep_index = None
         ms.current_ep = None
@@ -498,6 +543,8 @@ def handle_action_menu_state(
         return "PLAY"
 
     elif a == "PREV":
+        ms._android_pending_watched_ep = None
+        ms._android_pending_watched_idx = None
         ms.current_ep_index -= 1
         ms.current_ep = episode_id_at(episode_ids, ms.current_ep_index)
         playback_mod._clear_episode_source_state(ms)
@@ -508,6 +555,15 @@ def handle_action_menu_state(
         return "EPISODE"
 
     elif a == "REPLAY":
+        if pending_ep is not None:
+            ms._android_pending_watched_ep = None
+            ms._android_pending_watched_idx = None
+            if str(pending_ep) != str(ms.current_ep):
+                ms.current_ep = pending_ep
+                if pending_idx is not None:
+                    ms.current_ep_index = pending_idx
+                else:
+                    ms.current_ep_index = episode_index_for_id(episode_ids, pending_ep, labels=action_show.get("_episode_labels"))
         playback_mod._clear_episode_source_state(ms)
         app_core.save_resume_time(ms.show_id, ms.current_ep, 0)
         return "PLAY"

@@ -275,6 +275,8 @@ def handle_episode_state(
 
         ms.current_ep_index = target_idx
         ms.current_ep = target_eid
+        ms._android_pending_watched_ep = None
+        ms._android_pending_watched_idx = None
         ui.action_prev_state = "EPISODE"
         ms.selected_stream = None
         app_core._clear_streams()
