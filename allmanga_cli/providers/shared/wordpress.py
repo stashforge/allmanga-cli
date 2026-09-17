@@ -119,7 +119,7 @@ def parse_cards(base_url: str, page_html: str, *, only_main: bool = False, valid
     return entries
 
 
-def parse_series(base_url: str, page_html: str, valid_domains: list[str] = None) -> list[Entry]:
+def parse_series(base_url: str, page_html: str, valid_domains: list[str] = None, fetch_fn = None) -> list[Entry]:
     soup = BeautifulSoup(page_html, "html.parser")
     section = soup.select_one("div.eplister, div.episodelist") or soup
     items: list[Entry] = []
@@ -167,8 +167,27 @@ def parse_series(base_url: str, page_html: str, valid_domains: list[str] = None)
             ep_num = None
 
         if latest_released_num is not None and ep_num is not None and ep_num > latest_released_num:
-            # Skip unreleased upcoming countdown episode
-            continue
+            # Check if this episode is truly an unreleased countdown or an early release
+            is_unreleased = False
+            if fetch_fn:
+                try:
+                    ep_page_html = fetch_fn(href)
+                    ep_soup = BeautifulSoup(ep_page_html, "html.parser")
+                    mirrors = ep_soup.select("select.mirror option[value], div.player-embed iframe, div.megavid iframe, video")
+                    has_playable = any(
+                        (m.get("value", "").strip() and m.get("value", "").strip() not in ("#", "/"))
+                        or m.get("src", "").strip()
+                        for m in mirrors
+                    )
+                    tick = ep_soup.select_one("a.tickcounter[data-id], .tickcounter[data-id]")
+                    if tick and not has_playable:
+                        is_unreleased = True
+                except Exception:
+                    pass
+            if is_unreleased:
+                continue
+            else:
+                latest_released_num = max(latest_released_num, ep_num)
 
         img = item.select_one("img")
         image_url = ""
@@ -521,14 +540,19 @@ class WordPressAnimeProvider:
                         break
 
                 if unreleased_ep is not None:
-                    title["_next_airing_ep"] = int(unreleased_ep)
-                    title["status"] = "RELEASING"
+                    is_truly_unreleased = False
                     if unreleased_url:
                         try:
                             ep_page_html = self._fetch(unreleased_url)
                             ep_soup = BeautifulSoup(ep_page_html, "html.parser")
+                            mirrors = ep_soup.select("select.mirror option[value], div.player-embed iframe, div.megavid iframe, video")
+                            has_playable = any(
+                                (m.get("value", "").strip() and m.get("value", "").strip() not in ("#", "/"))
+                                or m.get("src", "").strip()
+                                for m in mirrors
+                            )
                             tick = ep_soup.select_one("a.tickcounter[data-id], .tickcounter[data-id]")
-                            if tick and tick.get("data-id"):
+                            if tick and tick.get("data-id") and not has_playable:
                                 data_id = tick.get("data-id")
                                 w_url = f"https://www.tickcounter.com/widget/countdown/{data_id}"
                                 w_html = self._fetch(w_url)
@@ -537,10 +561,23 @@ class WordPressAnimeProvider:
                                     from datetime import datetime, timezone
                                     dt = datetime.fromisoformat(m_cd.group(1))
                                     target_ts = int(dt.replace(tzinfo=timezone.utc).timestamp())
-                                    title["_next_airing_at"] = target_ts
-                                    title["_next_airing_time"] = target_ts
+                                    if target_ts > time.time():
+                                        is_truly_unreleased = True
+                                        title["_next_airing_ep"] = int(unreleased_ep)
+                                        title["_next_airing_at"] = target_ts
+                                        title["_next_airing_time"] = target_ts
+                                        title["status"] = "RELEASING"
                         except Exception:
                             pass
+
+                    if not is_truly_unreleased:
+                        latest_released_num = max(latest_released_num or 0, unreleased_ep)
+                        if not title.get("availableEpisodes"):
+                            title["availableEpisodes"] = {"sub": 0, "dub": 0, "raw": 0}
+                        title["availableEpisodes"]["sub"] = int(latest_released_num)
+                        title["_next_airing_ep"] = None
+                        title["_next_airing_at"] = None
+                        title["_next_airing_time"] = None
         except Exception:
             pass
 
@@ -554,7 +591,7 @@ class WordPressAnimeProvider:
     def episode_catalog(self, provider_id: str, ttype: str = "sub") -> dict:
         del ttype
         domains = getattr(self, 'domains', [])
-        entries = list(reversed(parse_series(self.base_url, self._fetch(provider_id), valid_domains=domains)))
+        entries = list(reversed(parse_series(self.base_url, self._fetch(provider_id), valid_domains=domains, fetch_fn=self._fetch)))
         episodes = []
         for index, entry in enumerate(entries):
             dual_num = episode_number(entry.title) if entry.title else ""

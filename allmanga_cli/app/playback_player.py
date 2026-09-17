@@ -229,9 +229,13 @@ def handle_play_state(
                             audio_penalty = 1 if (ttype == "sub" and is_dub) or (ttype == "dub" and not is_dub) else 0
                             is_hard = "hardsub" in sname or "hard-sub" in sname or "hard sub" in sname
                             is_soft = "softsub" in sname or "all sub" in sname or "multi sub" in sname
-                            sub_rank = 0 if is_hard else (2 if is_soft else 1)
+                            is_donghua = str(provider_id or "").lower() in {"animexin", "lucifer", "animekhor"}
+                            if is_donghua:
+                                sub_rank = 0 if is_hard else (2 if is_soft else 1)
+                            else:
+                                sub_rank = 0 if is_soft else (2 if is_hard else 1)
                             q_key = quality_preference_key(res, target_quality)
-                            return (sub_rank, audio_penalty, prio, q_key)
+                            return (sub_rank, audio_penalty, q_key, prio)
 
                         sorted_cached = sorted(cached_streams, key=_cached_sort_key)
                         for s in sorted_cached:
@@ -647,6 +651,7 @@ def handle_play_state(
             return "PLAY"
 
         if result:
+            app_core.touch_history(action_show, ttype)
             ms._android_pending_show_id = ms.show_id
             ms._android_pending_watched_ep = ms.current_ep
             ms._android_pending_watched_idx = ms.current_ep_index
@@ -678,35 +683,49 @@ def handle_play_state(
         action_show = ui.ui_show_ctx or {}
         mal_id = app_core.get_show_mal_id(action_show)
 
+        start_time_override = getattr(ms, "pending_resume_time", None)
+        ms.pending_resume_time = None
+
         result, percent, time_pos, duration, played_seconds = app_core.play_desktop(
             ms.show_title, current_ep_label, ms.selected_stream, fetch_cb,
             ms.total_eps, is_binge, ms.show_id, ms.pending_osd_msg,
             ms.current_ep_index, next_episode,
-            mal_id=mal_id, aniskip_enabled=aniskip_enabled, aniskip_auto=aniskip_auto
+            mal_id=mal_id, aniskip_enabled=aniskip_enabled, aniskip_auto=aniskip_auto,
+            start_time_override=start_time_override,
         )
 
         ms.pending_osd_msg = ""
         app_core._exit_player_screen()
 
-        if result == "ERROR":
+        if result in ("ERROR", "NEXT_MIRROR"):
+            is_manual_switch = (result == "NEXT_MIRROR")
             failed_stream = ms.selected_stream
             failed_name = (failed_stream.get("source_name") or "selected mirror") if failed_stream else "selected mirror"
             failed_base = failed_name.split(" (")[0].strip() if failed_name else ""
-            app_core.warn(f"Playback failed on '{failed_name}'. Attempting fallback to next mirror...")
-            app_core._ipc_player.send_cmd("show-text", f"⚠ {failed_name} failed\nFinding alternate mirror...", 10000)
+
+            if is_manual_switch:
+                app_core.info(f"Switching from '{failed_name}' to next mirror...")
+                app_core._ipc_player.send_cmd("show-text", "Switching to next mirror...", 3000)
+            else:
+                app_core.warn(f"Playback failed on '{failed_name}'. Attempting fallback to next mirror...")
+                app_core._ipc_player.send_cmd("show-text", f"⚠ {failed_name} failed\nFinding alternate mirror...", 10000)
+
+            # Preserve playback position so fallback mirror resumes right where the stream stalled/switched
+            if time_pos > 2:
+                ms.pending_resume_time = max(0.0, time_pos - 1.0)
+                app_core.save_resume_time(ms.show_id, ms.current_ep, int(time_pos))
+                app_core.save_resume_time(ms.show_id, current_ep_label, int(time_pos))
 
             cur_key = (ms.show_id, ms.current_ep, ttype, provider_id)
-            if failed_stream:
+            if failed_stream and not is_manual_switch:
                 app_core._prune_dead_stream(cur_key, failed_stream.get("link") or failed_stream.get("streamUrl"))
 
-            # Track all failed mirrors across fallback attempts for this episode
+            # Track all failed/skipped mirrors across fallback attempts for this episode
             failed_mirrors = getattr(ms, "_failed_mirrors", None)
             if failed_mirrors is None:
                 failed_mirrors = set()
             if failed_name:
                 failed_mirrors.add(failed_name)
-            if failed_base:
-                failed_mirrors.add(failed_base)
             if failed_stream and (failed_stream.get("link") or failed_stream.get("streamUrl")):
                 failed_mirrors.add(failed_stream.get("link") or failed_stream.get("streamUrl"))
             ms._failed_mirrors = failed_mirrors
@@ -717,17 +736,25 @@ def handle_play_state(
                 if (s.get("link") or s.get("streamUrl")) not in failed_mirrors
                 and (s.get("source_name") or "") not in failed_mirrors
                 and (s.get("source_parent_name") or "") not in failed_mirrors
-                and ((s.get("source_name") or "").split(" (")[0].strip()) not in failed_mirrors
             ]
 
             next_stream = None
             if remaining:
+                from ..media.sources import quality_preference_key
+                target_quality = getattr(args, "quality", None) or cfg.get("quality", "best")
+
                 def _failover_sort_key(s):
                     sname = (s.get("source_name") or "").lower()
+                    res = s.get("resolution") or sname
                     is_hard = "hardsub" in sname or "hard-sub" in sname or "hard sub" in sname
                     is_soft = "softsub" in sname or "all sub" in sname or "multi sub" in sname
-                    sub_rank = 0 if is_hard else (2 if is_soft else 1)
-                    return (sub_rank, s.get("source_priority", 4))
+                    is_donghua = str(provider_id or "").lower() in {"animexin", "lucifer", "animekhor"}
+                    if is_donghua:
+                        sub_rank = 0 if is_hard else (2 if is_soft else 1)
+                    else:
+                        sub_rank = 0 if is_soft else (2 if is_hard else 1)
+                    q_key = quality_preference_key(res, target_quality)
+                    return (sub_rank, q_key, s.get("source_priority", 4))
 
                 sorted_remaining = sorted(remaining, key=_failover_sort_key)
                 for cand in sorted_remaining:
@@ -756,21 +783,32 @@ def handle_play_state(
 
             if next_stream:
                 next_name = next_stream.get("source_name", "alternate mirror")
-                switch_msg = f"Playback failed on {failed_name} • Trying fallback mirror '{next_name}'..."
+                if is_manual_switch:
+                    switch_msg = f"Switched from {failed_name} • Loading mirror '{next_name}'..."
+                    ms.pending_osd_msg = f"Switched to {next_name}"
+                    app_core._ipc_player.send_cmd("show-text", f"Loading {next_name}...", 3000)
+                else:
+                    switch_msg = f"Playback failed on {failed_name} • Trying fallback mirror '{next_name}'..."
+                    ms.pending_osd_msg = f"⚠ Switched to {next_name} ({failed_name} failed)"
+                    app_core._ipc_player.send_cmd("show-text", f"⚠ {failed_name} failed\nLoading {next_name}...", 5000)
                 app_core.info(switch_msg)
                 ms.selected_stream = next_stream
-                ms.pending_osd_msg = f"⚠ Switched to {next_name} ({failed_name} failed)"
                 app_core.set_action_feedback(ui.ui_show_ctx, switch_msg)
-                app_core._ipc_player.send_cmd("show-text", f"⚠ {failed_name} failed\nLoading {next_name}...", 5000)
                 return "PLAY"
 
             # All mirrors exhausted
             app_core._ipc_player.quit()
             ms._failed_mirrors = set()
-            app_core.set_action_feedback(
-                ui.ui_show_ctx,
-                f"Playback failed on {failed_name} and no alternate mirrors were available."
-            )
+            if is_manual_switch:
+                app_core.set_action_feedback(
+                    ui.ui_show_ctx,
+                    f"No other alternate mirrors available after {failed_name}."
+                )
+            else:
+                app_core.set_action_feedback(
+                    ui.ui_show_ctx,
+                    f"Playback failed on {failed_name} and no alternate mirrors were available."
+                )
             return "DETAILS"
 
         # Smart Auto-Scrobble & Timestamping (80% OR <150s remaining)
@@ -827,6 +865,8 @@ def handle_play_state(
         )
         if should_update_history:
             app_core.save_history(ui.ui_show_ctx, ms.current_ep, ttype)
+        elif not getattr(ms, "_is_downloads", False) and played_seconds >= 5:
+            app_core.touch_history(ui.ui_show_ctx, ttype)
             
         if getattr(ms, "_is_downloads", False) and playback_updates_history(
             result, percent, time_pos, duration, played_seconds, start_time=start_time

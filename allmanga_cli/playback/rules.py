@@ -62,7 +62,12 @@ def playback_looks_complete(
         return False
 
     if result == "QUIT":
-        return remaining <= 30.0 or time_pos >= (duration - 30.0)
+        return (
+            near_end
+            or ending_reached
+            or remaining <= 30.0
+            or time_pos >= (duration - 30.0)
+        )
 
     return (
         result in ("EOF", "NEXT")
@@ -81,11 +86,8 @@ def playback_updates_history(
     played_seconds=0,
     start_time=0,
 ):
-    return (
-        playback_looks_complete(
-            result, percent, time_pos, duration, played_seconds, start_time=start_time
-        )
-        or played_seconds >= 30
+    return playback_looks_complete(
+        result, percent, time_pos, duration, played_seconds, start_time=start_time
     )
 
 

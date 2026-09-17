@@ -150,7 +150,8 @@ def handle_history_state(
             return
 
         if (
-            show.get("_episode_catalog_state") == "loaded"
+            (status not in ("RELEASING", "NOT_YET_RELEASED", "") and show.get("_episode_catalog_state") == "loaded")
+            or show.get("_provider_catalog_checked_at", 0) >= _history_open_time
             or show.get("_anilist_airing_checked_at", 0) >= _history_open_time
             or show.get("_allanime_checked_at", 0) >= _history_open_time
         ):
@@ -277,7 +278,9 @@ def handle_history_state(
         return _set_history_mode(mode_index + direction)
 
     def _hist_refresh(_selected=None):
+        _refreshed_history_ids.clear()
         _start_batch_refresh()
+        _trigger_hover_refresh_if_needed()
         return hopts, _hist_hdr(0)
 
     def _hist_tick():
@@ -288,6 +291,12 @@ def handle_history_state(
             history_refresh_status.get("BATCH") is not None
             or bool(_in_flight_hover_refresh)
         )
+
+    def _hist_item_prefix(oi):
+        if 0 <= oi < len(filtered_hist):
+            if filtered_hist[oi].get("has_new_release"):
+                return "\033[38;2;166;227;161m◆\033[0m "
+        return "  "
 
     hidx = tui_pick(
         flags, ui,
@@ -309,7 +318,8 @@ def handle_history_state(
         ),
         keep_cursor_hidden_on_select=True,
         count_total=lambda: len(hist),
-        tick_fn=_hist_tick
+        tick_fn=_hist_tick,
+        item_prefix_fn=_hist_item_prefix,
     )
     if hidx == -2:
         return "QUIT"

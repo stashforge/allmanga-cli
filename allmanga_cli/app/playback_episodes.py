@@ -69,17 +69,55 @@ def _clear_episode_source_state(ms: "MachineState") -> None:
 
 
 def format_mirror_label(stream: dict, *, prefix: str = "", safe_tag: str = "") -> str:
-    name = str(stream.get("source_name") or "Unknown")
+    name = str(stream.get("source_name") or "Unknown").strip()
     stream_type = str(stream.get("type") or "?").upper()
-    resolution = str(stream.get("resolution") or "?")
-    parts = [f"{prefix}{name}"]
-    if f"[{stream_type}" not in name.upper():
-        parts.append(f"[{stream_type}{safe_tag}]")
-    elif safe_tag and "✓" not in name and "✔" not in name:
-        parts.append(safe_tag.strip())
+    resolution = str(stream.get("resolution") or "?").strip()
 
-    if resolution != "?" and resolution.casefold() not in name.casefold():
-        parts.append(resolution)
+    cat_match = re.search(r"\[(Softsub|Hardsub|Dub|RAW|Sub|Multi-Sub)\]", name, flags=re.I)
+    cat_prefix = ""
+    if cat_match:
+        cat_prefix = f"[{cat_match.group(1).capitalize()}] "
+        name = name[:cat_match.start()] + name[cat_match.end():]
+        name = re.sub(r"\s+", " ", name).strip()
+
+    res_match = re.search(r"\(([^)]+)\)", name)
+    if res_match:
+        quality_str = res_match.group(1).strip()
+        name = name[:res_match.start()] + name[res_match.end():]
+        name = re.sub(r"\s+", " ", name).strip()
+    elif resolution != "?" and resolution.casefold() not in name.casefold():
+        quality_str = resolution
+    else:
+        quality_str = ""
+
+    if quality_str:
+        if quality_str.lower().endswith("p") and quality_str[:-1].isdigit():
+            res_part = f"({quality_str.upper()})"
+        elif quality_str.lower() in ("auto", "adaptive"):
+            res_part = "(Auto)"
+        else:
+            res_part = f"({quality_str})"
+    else:
+        res_part = ""
+
+    name = re.sub(r"\[\s*" + re.escape(stream_type) + r"[^\]]*\]", "", name, flags=re.I).strip()
+    name = re.sub(r"\s+", " ", name).strip()
+
+    check = "✓" if (safe_tag and ("✓" in safe_tag or "✔" in safe_tag)) else ""
+    if check:
+        type_part = f"{stream_type} {check}"
+    elif stream_type != "?":
+        type_part = stream_type
+    else:
+        type_part = ""
+
+    head = f"{prefix}{cat_prefix}{name}".strip()
+    parts = [head] if head else []
+    if res_part:
+        parts.append(res_part)
+    if type_part:
+        parts.append(type_part)
+
     return re.sub(r"\s+", " ", " ".join(parts)).strip()
 
 

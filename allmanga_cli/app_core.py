@@ -393,6 +393,7 @@ from allmanga_cli.domain.history import (
 _preserve_invalid_state_file = storage._preserve_invalid_state_file
 load_history = storage.load_history
 save_history = storage.save_history
+touch_history = storage.touch_history
 delete_history_entry = storage.delete_history_entry
 
 fetch_anilist_media = anilist.fetch_anilist_media

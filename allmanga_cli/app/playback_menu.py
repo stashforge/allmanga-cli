@@ -98,11 +98,21 @@ def handle_action_menu_state(
     except (TypeError, ValueError):
         highest_ep_num = ms.total_eps
 
+    status_str = str(action_show.get("status") or "").upper()
+    is_finished = status_str in ("FINISHED", "COMPLETED", "ENDED")
+    all_available_watched = bool(
+        (ms.total_eps > 0 and eff_prog >= ms.total_eps)
+        or (highest_ep_num > 0 and eff_prog >= highest_ep_num)
+    )
+
     playback_status = str(action_show.get("_anilist_list", "")).upper() if use_anilist else ""
     is_completed = bool(
-        playback_status == "COMPLETED"
-        or (total_count > 0 and eff_prog >= total_count)
-        or (highest_ep_num > 0 and eff_prog >= highest_ep_num and str(action_show.get("status") or "").upper() == "FINISHED")
+        all_available_watched
+        and (
+            playback_status == "COMPLETED"
+            or is_finished
+            or (total_count > 0 and eff_prog >= total_count and is_finished)
+        )
     )
 
     def _check_watched():
@@ -907,7 +917,7 @@ def handle_mirrors_state(
         streams.start_bg_resolve(cached_ep_data, exclude_names, ms.show_id, ms.current_ep, ttype, target_pid)
 
     def _mlabel(s):
-        tag = " ✔" if s.get("android_safe") else ""
+        tag = " ✓" if s.get("android_safe") else ""
         pref = app_core.get_preferred_mirror(ms.show_id)
         is_pref = pref.get("source_name") == s["source_name"] and pref.get("resolution") == s.get("resolution", "?")
 
@@ -923,20 +933,25 @@ def handle_mirrors_state(
     def _dedup():
         seen, out = set(), []
         active_list = app_core._stream_snapshot(ms.show_id, ms.current_ep, ttype, target_pid)
-        from ..media.sources import parse_resolution_height
+        target_quality = getattr(args, "quality", None) or cfg.get("quality", "best")
+        from ..media.sources import quality_preference_key
 
         def _mirror_sort_key(s):
             sname = (s.get("source_name") or "").lower()
-            res = s.get("resolution") or ""
-            h = parse_resolution_height(res)
+            res = s.get("resolution") or sname
             prio = s.get("source_priority", 4)
             is_sub = "sub" in sname
             is_dub = ("dub" in sname) or ((" eng" in sname or "english" in sname) and not is_sub)
             audio_penalty = 1 if (ttype == "sub" and is_dub) or (ttype == "dub" and not is_dub) else 0
             is_hard = "hardsub" in sname or "hard-sub" in sname or "hard sub" in sname
             is_soft = "softsub" in sname or "all sub" in sname or "multi sub" in sname
-            sub_rank = 0 if is_hard else (2 if is_soft else 1)
-            return (sub_rank, audio_penalty, prio, -h)
+            is_donghua = str(target_pid or "").lower() in {"animexin", "lucifer", "animekhor"}
+            if is_donghua:
+                sub_rank = 0 if is_hard else (2 if is_soft else 1)
+            else:
+                sub_rank = 0 if is_soft else (2 if is_hard else 1)
+            q_key = quality_preference_key(res, target_quality)
+            return (sub_rank, audio_penalty, q_key, prio)
 
         for s in sorted(active_list, key=_mirror_sort_key):
             key = (s.get("source_name"), s.get("resolution"), s.get("link"))

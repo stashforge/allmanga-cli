@@ -185,6 +185,9 @@ def load_prefs() -> dict:
     global _prefs_cache
     if _prefs_cache is not None:
         return _prefs_cache
+    if is_incognito():
+        _prefs_cache = {}
+        return _prefs_cache
     if not os.path.exists(paths.PLAYBACK_PATH):
         return {}
     try:
@@ -204,10 +207,10 @@ def load_prefs() -> dict:
 
 def save_prefs(prefs: dict):
     global _prefs_cache
-    if is_incognito():
-        return False
-    _atomic_write_json(paths.PLAYBACK_PATH, prefs)
     _prefs_cache = prefs
+    if is_incognito():
+        return True
+    _atomic_write_json(paths.PLAYBACK_PATH, prefs)
     return True
 
 
@@ -216,8 +219,6 @@ def get_preferred_mirror(show_id: str) -> dict:
 
 
 def toggle_preferred_mirror(show_id: str, sname: str, resolution: str):
-    if is_incognito():
-        return
     save_prefs(preference_state.toggle_preferred_mirror(
         load_prefs(), show_id, sname, resolution
     ))
@@ -230,8 +231,6 @@ def get_episode_order(show_id: str, default_order: str) -> str:
 
 
 def toggle_episode_order(show_id: str, default_order: str) -> str:
-    if is_incognito():
-        return get_episode_order(show_id, default_order)
     prefs = load_prefs()
     new_order = preference_state.toggle_episode_order(
         prefs, show_id, default_order
@@ -272,28 +271,20 @@ def set_title_sync(show, enabled: bool):
 # ---------------------------------------------------------------------------
 
 def get_resume_time(show_id: str, ep: int) -> int:
-    if is_incognito():
-        return 0
     return preference_state.resume_time(load_prefs(), show_id, ep)
 
 
 def save_resume_time(show_id: str, ep: int, time: int):
-    if is_incognito():
-        return
     save_prefs(preference_state.save_resume_time(
         load_prefs(), show_id, ep, time
     ))
 
 
 def get_pending_completion(show_id: str) -> dict:
-    if is_incognito():
-        return {}
     return preference_state.pending_completion(load_prefs(), show_id)
 
 
 def save_pending_completion(show_id: str, ep, progress_ep: int, next_ep, time_pos: int, duration: int):
-    if is_incognito():
-        return
     save_prefs(preference_state.save_pending_completion(
         load_prefs(),
         show_id,
@@ -306,8 +297,6 @@ def save_pending_completion(show_id: str, ep, progress_ep: int, next_ep, time_po
 
 
 def clear_pending_completion(show_id: str):
-    if is_incognito():
-        return
     save_prefs(preference_state.clear_pending_completion(
         load_prefs(), show_id
     ))
@@ -409,9 +398,11 @@ def sanitize_history_list(history):
 
 
 def load_history():
-    if is_incognito():
-        return []
     global _history_cache
+    if is_incognito():
+        if _history_cache is None:
+            _history_cache = []
+        return _history_cache
     try:
         raw = list_state.load_json_list(
             paths.HISTORY_PATH,
@@ -428,8 +419,6 @@ def load_history():
 
 
 def get_history_entry(show, ttype="sub"):
-    if is_incognito():
-        return None
     show_id = str((show or {}).get("_id") or (show or {}).get("id") or "")
     if not show_id:
         return None
@@ -447,8 +436,6 @@ def get_history_entry(show, ttype="sub"):
 
 
 def get_local_progress(show, ttype="sub"):
-    if is_incognito():
-        return None
     return history_domain.local_progress(
         load_history(),
         show,
@@ -457,8 +444,6 @@ def get_local_progress(show, ttype="sub"):
 
 
 def get_local_episode_label(show, ttype="sub"):
-    if is_incognito():
-        return None
     entry = get_history_entry(show, ttype)
     if entry and "episode" in entry:
         eid = entry["episode"]
@@ -534,9 +519,8 @@ def episode_id_for_progress(show, ttype, progress):
 
 def write_history_progress(show, progress, ttype, last_synced=None, touch=False):
     global _history_cache
-    if is_incognito():
-        return None
-    os.makedirs(paths.STATE_DIR, exist_ok=True)
+    if not is_incognito():
+        os.makedirs(paths.STATE_DIR, exist_ok=True)
 
     import decimal
     try:
@@ -561,6 +545,20 @@ def write_history_progress(show, progress, ttype, last_synced=None, touch=False)
         "translation_type": ttype,
         "timestamp": timestamp,
     }
+    if old:
+        if "was_caught_up" in old:
+            entry["was_caught_up"] = old["was_caught_up"]
+        if "has_new_release" in old:
+            entry["has_new_release"] = old["has_new_release"]
+    from allmanga_cli.domain.history import history_available_episode_count
+    avail = history_available_episode_count(entry)
+    try:
+        p_dec = decimal.Decimal(str(progress))
+        if avail is not None and p_dec >= decimal.Decimal(str(avail)):
+            entry["was_caught_up"] = True
+            entry["has_new_release"] = False
+    except decimal.InvalidOperation:
+        pass
     if last_synced is None and old and "last_synced_progress" in old:
         entry["last_synced_progress"] = old["last_synced_progress"]
     elif last_synced is not None:
@@ -602,8 +600,6 @@ def set_last_synced_progress(show, progress, ttype="sub"):
 
 def save_history(show, episode, ttype):
     from ..domain.episodes import episode_index_for_id
-    if is_incognito():
-        return
     episode_ids = show.get("_episode_ids") or []
     labels = show.get("_episode_labels") or {}
     if episode_ids:
@@ -624,10 +620,17 @@ def save_history(show, episode, ttype):
         debug_warn("Failed to save watch history", e)
 
 
+def touch_history(show, ttype):
+    """Update show's recency timestamp in history without modifying watched progress."""
+    old = get_history_entry(show, ttype)
+    if old and "episode" in old:
+        write_history_progress(show, old["episode"], ttype, touch=True)
+    else:
+        write_history_progress(show, "0", ttype, touch=True)
+
+
 def delete_history_entry(show_id, ttype):
     global _history_cache
-    if is_incognito():
-        return False
     history, changed = list_state.delete_history_entry(
         load_history(),
         show_id,
@@ -635,6 +638,9 @@ def delete_history_entry(show_id, ttype):
     )
     if not changed:
         return False
+    if is_incognito():
+        _history_cache = history
+        return True
     try:
         _atomic_write_json(paths.HISTORY_PATH, sanitize_history_list(history), indent=2)
         _history_cache = history
@@ -646,12 +652,12 @@ def delete_history_entry(show_id, ttype):
 
 def save_refreshed_history(history):
     global _history_cache
-    if is_incognito():
-        return False
     clean_history = sanitize_history_list(history)
+    _history_cache = clean_history
+    if is_incognito():
+        return True
     try:
         _atomic_write_json(paths.HISTORY_PATH, clean_history, indent=2)
-        _history_cache = clean_history
         return True
     except Exception as e:
         debug_warn("Failed to save refreshed history", e)
@@ -659,7 +665,7 @@ def save_refreshed_history(history):
 
 
 def patch_history_entry_show(show_id, ttype, updated_show):
-    if not show_id or is_incognito():
+    if not show_id:
         return False
     history = load_history()
     changed = False

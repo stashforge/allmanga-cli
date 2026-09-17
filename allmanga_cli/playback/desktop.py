@@ -22,7 +22,8 @@ def play_desktop(
         next_episode=None,
         mal_id=None,
         aniskip_enabled=True,
-        aniskip_auto=True):
+        aniskip_auto=True,
+        start_time_override=None):
     url = validate_stream_url(stream["link"])
     audio_url = (
         validate_stream_url(stream["audio_url"])
@@ -67,13 +68,16 @@ def play_desktop(
             ep_str = ep_str.title()
         media_title = f"{title} - {ep_str} ({resolution})"
 
-    start_time = (
-        get_resume_time(show_id, episode)
-        or get_resume_time(show_id, ep_str)
-        or get_resume_time(show_id, raw_ep)
-    ) if show_id else 0
-    if start_time > 0:
-        start_time = max(0, start_time - 30)
+    if start_time_override is not None and float(start_time_override) > 0:
+        start_time = float(start_time_override)
+    else:
+        start_time = (
+            get_resume_time(show_id, episode)
+            or get_resume_time(show_id, ep_str)
+            or get_resume_time(show_id, raw_ep)
+        ) if show_id else 0
+        if start_time > 0:
+            start_time = max(0, start_time - 30)
     resume_message = (
         f"Resuming at {int(start_time // 60):02d}:"
         f"{int(start_time % 60):02d}"
@@ -93,7 +97,13 @@ def play_desktop(
             skip_intervals = []
 
     proxy_server = None
-    if stream.get("requires_proxy") or "uwucdn.top" in url or "kwik." in referer:
+    if (
+        stream.get("requires_proxy")
+        or "uwucdn.top" in url
+        or "kwik." in referer
+        or "megap." in url
+        or "akirax.buzz" in url
+    ):
         try:
             from ..media.local_proxy import start_local_proxy, replace_active_local_proxy
             url, proxy_server = start_local_proxy(

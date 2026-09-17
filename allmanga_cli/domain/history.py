@@ -223,10 +223,6 @@ def history_available_episode_count(entry):
         if ep_ids:
             return highest_episode_number(ep_ids)
 
-    next_episode = positive_int(show.get("_next_airing_ep"))
-    if next_episode:
-        return max(0, next_episode - 1)
-
     avail = (show.get("availableEpisodes") or {}).get(ttype)
     import decimal
     try:
@@ -236,6 +232,15 @@ def history_available_episode_count(entry):
                 return int(avail_dec) if avail_dec % 1 == 0 else str(avail_dec)
     except decimal.InvalidOperation:
         pass
+
+    next_episode = positive_int(show.get("_next_airing_ep"))
+    if next_episode:
+        airing_at = show.get("_next_airing_at")
+        try:
+            airing_passed = bool(airing_at and float(airing_at) <= time.time())
+        except (TypeError, ValueError):
+            airing_passed = False
+        return next_episode if airing_passed else max(0, next_episode - 1)
 
     return None
 
@@ -280,12 +285,18 @@ def history_entry_category(
 
     if provider_completed:
         if target_dec is not None and local_num >= target_dec:
+            entry["was_caught_up"] = False
+            entry["has_new_release"] = False
             return "Completed"
         return "Active"
 
     if target_dec is not None:
         if local_num < target_dec:
+            if entry.get("was_caught_up"):
+                entry["has_new_release"] = True
             return "Active"
+        entry["was_caught_up"] = True
+        entry["has_new_release"] = False
         return "Up to date"
 
     return "Active"
@@ -366,6 +377,12 @@ def refresh_history_entry_provider_catalog(entry):
                         show["availableEpisodes"] = {}
                     update_available_count_from_episode_ids(show, ttype, catalog["ids"], catalog.get("detail"))
                     changed = True
+                    if old_avail is not None:
+                        try:
+                            if int(new_avail) > int(old_avail) and entry.get("was_caught_up"):
+                                entry["has_new_release"] = True
+                        except (ValueError, TypeError):
+                            pass
 
                 if show.get("_episode_catalog_state") != "loaded":
                     show["_episode_catalog_state"] = "loaded"
@@ -380,6 +397,16 @@ def refresh_history_entry_provider_catalog(entry):
     else:
         try:
             prov = _provider_for_title(show)
+            if hasattr(prov, "get_title"):
+                try:
+                    prov_show = prov.get_title(show_id)
+                    if prov_show and isinstance(prov_show, dict):
+                        from .metadata import apply_provider_metadata_to_history_show
+                        if apply_provider_metadata_to_history_show(show, prov_show):
+                            changed = True
+                except Exception as e:
+                    debug_warn(f"Failed to refresh title metadata for {pkey}", e)
+
             catalog = prov.episode_catalog(show_id, ttype=ttype)
             if catalog and catalog.get("state") == "loaded":
                 old_avail = (show.get("availableEpisodes") or {}).get(ttype)
@@ -393,9 +420,16 @@ def refresh_history_entry_provider_catalog(entry):
                     show["_episode_labels"] = catalog.get("labels", {})
                     show["_episode_ids_ttype"] = ttype
                     changed = True
+                    if old_avail is not None:
+                        try:
+                            if int(new_avail) > int(old_avail) and entry.get("was_caught_up"):
+                                entry["has_new_release"] = True
+                        except (ValueError, TypeError):
+                            pass
                 if show.get("_episode_catalog_state") != "loaded":
                     show["_episode_catalog_state"] = "loaded"
                     changed = True
+                show["_provider_catalog_checked_at"] = int(time.time())
                 if "aniListId" not in show and catalog.get("aniListId"):
                     show["aniListId"] = str(catalog["aniListId"])
                     changed = True

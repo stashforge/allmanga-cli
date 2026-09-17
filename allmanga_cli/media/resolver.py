@@ -101,6 +101,8 @@ def _pre_resolved_stream(source, name, priority, warn):
         "source_priority": priority,
         "android_safe": bool(android_safe),
     }
+    if source.get("requires_proxy") or "megap." in stream_url or "akirax.buzz" in stream_url:
+        stream_dict["requires_proxy"] = True
     if source.get("subtitle_url"):
         stream_dict["subtitle_url"] = source["subtitle_url"]
     if source.get("subtitles"):

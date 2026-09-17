@@ -133,6 +133,7 @@ def tui_pick(
     multi_select: bool = False,
     select_fn=None,
     initial_selected: int = 0,
+    item_prefix_fn=None,
 ):
 
     """Bottom-anchored alt-screen picker with flipped (bottom-up) item list.
@@ -178,6 +179,7 @@ def tui_pick(
             keep_cursor_hidden_on_select=keep_cursor_hidden_on_select,
             select_fn=select_fn,
             disabled_indices=disabled_indices,
+            item_prefix_fn=item_prefix_fn,
         )
 
     def current_prompt() -> str:
@@ -201,6 +203,7 @@ def tui_pick(
             keep_cursor_hidden_on_select=keep_cursor_hidden_on_select,
             select_fn=select_fn,
             disabled_indices=disabled_indices,
+            item_prefix_fn=item_prefix_fn,
         )
 
     tty_fd = -1
@@ -437,16 +440,21 @@ def tui_pick(
                 continue
             is_sel = (scroll + vi == sel)
             disabled = oi in disabled_indices
+            prefix = item_prefix_fn(oi) if item_prefix_fn else ""
+            prefix_w = _display_width(prefix)
+            eff_max_w = max(10, item_max_w - prefix_w)
             if disabled:
-                label = _truncate_display(str(options[oi] or ""), max(0, cols - 2))
-                out.append(f"\033[2K{_fit_terminal_line(f'  {label}', cols)}")
+                label = _truncate_display(str(options[oi] or ""), max(0, cols - 2 - prefix_w))
+                out.append(f"\033[2K{_fit_terminal_line(f'  {prefix}{label}', cols)}")
                 continue
             ptr    = f"{_C_PTR}\u276f{_RST}" if is_sel and not disabled else " "
-            label  = _render_item(options[oi], query, is_sel, max_w=item_max_w)
+            label  = _render_item(options[oi], query, is_sel, max_w=eff_max_w)
             if multi_select:
                 is_marked = (oi in marked_indices)
                 box = "\033[38;2;166;227;161m[✔]\033[0m " if is_marked else "\033[38;5;244m[ ]\033[0m "
                 label = f"{box}{label}"
+            if prefix:
+                label = f"{prefix}{label}"
             hint   = ""
             if is_sel and hints:
                 kp = _strip_ansi(options[oi])

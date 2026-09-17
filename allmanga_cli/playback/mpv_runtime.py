@@ -134,6 +134,7 @@ def create_mpv_runtime():
         config.write("SHIFT+LEFT script-message prev_ep\n")
         config.write("TAB script-message skip_interval\n")
         config.write("s script-message skip_interval\n")
+        config.write("n script-message next_mirror\n")
     chapters_path = os.path.join(runtime_dir, "chapters.txt")
     with open(chapters_path, "w", encoding="utf-8") as chap:
         chap.write(";FFMETADATA1\n")

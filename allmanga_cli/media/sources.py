@@ -116,7 +116,7 @@ _resolution_height = parse_resolution_height
 def quality_preference_key(res: str, target: str = "best") -> tuple:
     """
     Sort key for quality preference:
-    Matches requested quality first, else fallback to auto/adaptive, else next lower quality, else higher.
+    Matches requested quality first, else fallback to auto/adaptive, else higher quality (closest higher first), else lower quality (closest lower first).
     """
     target_clean = str(target or "best").lower().strip()
     h = parse_resolution_height(res)
@@ -141,12 +141,12 @@ def quality_preference_key(res: str, target: str = "best") -> tuple:
     # 2. Fallback to auto/adaptive
     if is_auto:
         return (1, 0)
-    # 3. Fallback to lower qualities (closest lower first)
-    if 0 < h < target_h:
-        return (2, -h)
-    # 4. Fallback to higher qualities (closest higher first)
+    # 3. Fallback to higher qualities (closest higher first)
     if h > target_h:
-        return (3, h)
+        return (2, h)
+    # 4. Fallback to lower qualities (closest lower first)
+    if 0 < h < target_h:
+        return (3, -h)
     return (4, 0)
 
 

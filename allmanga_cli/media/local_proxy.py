@@ -408,13 +408,19 @@ def _build_proxy_server(initial_entries, timeout):
                                     break
                                 first_chunk += more
 
-                        is_png_ts = (
-                            first_chunk.startswith(b"\x89PNG\r\n\x1a\n")
-                            and len(first_chunk) > 252
-                            and first_chunk[252] == 0x47
-                        )
-                        if is_png_ts:
-                            first_chunk = first_chunk[252:]
+                        is_png_ts = False
+                        png_offset = 0
+                        if first_chunk.startswith(b"\x89PNG\r\n\x1a\n"):
+                            iend_pos = first_chunk.find(b"IEND")
+                            if iend_pos != -1 and len(first_chunk) > (iend_pos + 8) and first_chunk[iend_pos + 8] == 0x47:
+                                is_png_ts = True
+                                png_offset = iend_pos + 8
+                            elif len(first_chunk) > 252 and first_chunk[252] == 0x47:
+                                is_png_ts = True
+                                png_offset = 252
+
+                        if is_png_ts and png_offset > 0:
+                            first_chunk = first_chunk[png_offset:]
 
                         self.send_response(response.status)
                         content_type_sent = False
@@ -425,7 +431,7 @@ def _build_proxy_server(initial_entries, timeout):
                                 has_accept_ranges = True
                             elif k_low == "content-length":
                                 if is_png_ts and value.isdigit():
-                                    value = str(max(0, int(value) - 252))
+                                    value = str(max(0, int(value) - png_offset))
                             elif k_low == "content-type":
                                 if is_png_ts:
                                     value = "video/MP2T"
@@ -539,13 +545,19 @@ def _build_proxy_server(initial_entries, timeout):
                                     except StopIteration:
                                         break
 
-                            is_png_ts = (
-                                first_chunk.startswith(b"\x89PNG\r\n\x1a\n")
-                                and len(first_chunk) > 252
-                                and first_chunk[252] == 0x47
-                            )
-                            if is_png_ts:
-                                first_chunk = first_chunk[252:]
+                            is_png_ts = False
+                            png_offset = 0
+                            if first_chunk.startswith(b"\x89PNG\r\n\x1a\n"):
+                                iend_pos = first_chunk.find(b"IEND")
+                                if iend_pos != -1 and len(first_chunk) > (iend_pos + 8) and first_chunk[iend_pos + 8] == 0x47:
+                                    is_png_ts = True
+                                    png_offset = iend_pos + 8
+                                elif len(first_chunk) > 252 and first_chunk[252] == 0x47:
+                                    is_png_ts = True
+                                    png_offset = 252
+
+                            if is_png_ts and png_offset > 0:
+                                first_chunk = first_chunk[png_offset:]
 
                             self.send_response(resp.status_code)
                             content_type_sent = False
@@ -558,7 +570,7 @@ def _build_proxy_server(initial_entries, timeout):
                                     has_accept_ranges = True
                                 elif k_low == "content-length":
                                     if is_png_ts and str(value).isdigit():
-                                        value = str(max(0, int(value) - 252))
+                                        value = str(max(0, int(value) - png_offset))
                                 elif k_low == "content-type":
                                     if is_png_ts:
                                         value = "video/MP2T"

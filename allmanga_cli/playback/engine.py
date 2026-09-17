@@ -113,6 +113,7 @@ def play_desktop(
     mal_id: int | None = None,
     aniskip_enabled: bool = True,
     aniskip_auto: bool = True,
+    start_time_override: float | None = None,
 ):
     return desktop_playback.play_desktop(
         _ipc_player,
@@ -134,6 +135,7 @@ def play_desktop(
         mal_id=mal_id,
         aniskip_enabled=aniskip_enabled,
         aniskip_auto=aniskip_auto,
+        start_time_override=start_time_override,
     )
 
 

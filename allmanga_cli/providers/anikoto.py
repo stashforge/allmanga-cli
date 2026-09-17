@@ -188,7 +188,7 @@ class AnikotoProvider:
             _logger.debug("Anikoto episode_catalog error: %s", e)
             return normalize_episode_catalog({"ids": []}, provider_id=self.id, provider_title_id=provider_id)
 
-    def _extract_single_server(self, s_name: str, link_id: str, watch_url: str) -> list[dict[str, Any]]:
+    def _extract_single_server(self, s_name: str, link_id: str, watch_url: str, cat_label: str = "") -> list[dict[str, Any]]:
         results = []
         try:
             emb_api = f"{self.anikoto_url}/ajax/server?get={urllib.parse.quote(link_id)}"
@@ -304,30 +304,47 @@ class AnikotoProvider:
             if not stream_url:
                 return []
 
+            cat_l = (cat_label or "").lower()
+            is_hardsub = "hardsub" in cat_l or "hsub" in cat_l
+
             subtitles = []
-            for track in tracks:
-                if isinstance(track, dict) and track.get("file"):
-                    subtitles.append({
-                        "url": track["file"],
-                        "label": track.get("label", "Unknown"),
-                        "kind": track.get("kind", "captions"),
-                        "default": bool(track.get("default")),
-                    })
+            if not is_hardsub:
+                for track in tracks:
+                    if isinstance(track, dict) and track.get("file"):
+                        subtitles.append({
+                            "url": track["file"],
+                            "label": track.get("label", "Unknown"),
+                            "kind": track.get("kind", "captions"),
+                            "default": bool(track.get("default")),
+                        })
             default_sub = next((s["url"] for s in subtitles if s.get("default")), None)
             if not default_sub and subtitles:
-                default_sub = next((s["url"] for s in subtitles if "eng" in s.get("label", "").lower()), subtitles[0]["url"])
+                default_sub = next((s["url"] for s in subtitles if "eng" in s.get("label", "").lower()), None)
 
             n = s_name.lower()
-            if "vidplay" in n:
+            if "hd-2" in n:
                 priority_val = 1
-            elif "vidstream" in n:
-                priority_val = 2
-            elif "hd-2" in n:
+            elif "vidstream-2" in n:
                 priority_val = 3
+            elif "vidstream" in n or "vidplay" in n:
+                priority_val = 4
             elif "hd-1" in n:
                 priority_val = 10
             else:
-                priority_val = 4
+                priority_val = 5
+
+            if is_hardsub:
+                priority_val += 1
+
+            display_name = f"[{cat_label}] {s_name}" if cat_label else s_name
+
+            is_megaplay = (
+                "megap." in stream_url
+                or "akirax.buzz" in stream_url
+                or "tiktokcdn" in stream_url
+                or "megaplay" in host
+                or "vidstream" in s_name.lower()
+            )
 
             # Master playlist variant parsing
             parsed_variants = False
@@ -351,18 +368,21 @@ class AnikotoProvider:
                                     if uri and not uri.startswith("#"):
                                         v_url = urllib.parse.urljoin(stream_url, uri)
                                         v_entry = {
-                                            "sourceName": f"{s_name} ({quality})",
+                                            "sourceName": f"{display_name} ({quality})",
                                             "streamUrl": v_url,
                                             "type": "hls",
                                             "priority": priority_val,
                                             "resolution": str(res_int) if res_int else "auto",
                                             "sort_key": res_int,
+                                            "referer": embed_referer,
                                             "headers": {
                                                 "Referer": embed_referer,
                                                 "Origin": embed_referer.rstrip("/"),
                                                 "User-Agent": self.headers["User-Agent"]
                                             }
                                         }
+                                        if is_megaplay or "megap." in v_url or "akirax.buzz" in v_url:
+                                            v_entry["requires_proxy"] = True
                                         if subtitles:
                                             v_entry["subtitles"] = subtitles
                                         if default_sub:
@@ -378,17 +398,20 @@ class AnikotoProvider:
                     _logger.debug("Failed to parse variants for %s: %s", s_name, parse_e)
 
             auto_entry = {
-                "sourceName": f"{s_name} (Auto)" if parsed_variants else s_name,
+                "sourceName": f"{display_name} (Auto)" if parsed_variants else display_name,
                 "streamUrl": stream_url,
                 "type": "hls" if stream_url.endswith(".m3u8") else "mp4",
                 "priority": priority_val,
                 "resolution": "auto",
+                "referer": embed_referer,
                 "headers": {
                     "Referer": embed_referer,
                     "Origin": embed_referer.rstrip("/"),
                     "User-Agent": self.headers["User-Agent"]
                 }
             }
+            if is_megaplay:
+                auto_entry["requires_proxy"] = True
             if subtitles:
                 auto_entry["subtitles"] = subtitles
             if default_sub:
@@ -504,63 +527,86 @@ class AnikotoProvider:
                     sv_res = json.loads(urllib.request.urlopen(req_sv, timeout=6).read().decode('utf-8'))
                     sv_soup = BeautifulSoup(sv_res.get("result", ""), "html.parser")
 
-                    type_div = sv_soup.find("div", class_="type", attrs={"data-type": ttype.lower()})
-                    if not type_div:
-                        type_div = sv_soup
-
                     server_items = []
-                    for li in type_div.find_all("li"):
-                        s_name = li.text.strip()
-                        link_id = li.get("data-link-id")
-                        if link_id:
-                            server_items.append((s_name, link_id))
+                    target_types = []
+                    if ttype.lower() == "sub":
+                        target_types = [("sub", "Softsub"), ("hsub", "Hardsub"), ("raw", "RAW")]
+                    else:
+                        target_types = [("dub", "Dub")]
+
+                    found_types = False
+                    for dtype, cat_label in target_types:
+                        type_div = sv_soup.find("div", class_="type", attrs={"data-type": dtype})
+                        if type_div:
+                            found_types = True
+                            for li in type_div.find_all("li"):
+                                s_name = li.text.strip()
+                                link_id = li.get("data-link-id")
+                                if link_id:
+                                    server_items.append((s_name, link_id, cat_label))
+
+                    if not found_types or not server_items:
+                        for li in sv_soup.find_all("li"):
+                            s_name = li.text.strip()
+                            link_id = li.get("data-link-id")
+                            if link_id:
+                                server_items.append((s_name, link_id, ttype.capitalize()))
 
                     def _server_rank(item):
                         n = item[0].lower()
-                        if "vidplay" in n:
-                            return 0
-                        if "vidstream" in n:
-                            return 1
+                        cat = (item[2] if len(item) > 2 else "").lower()
+                        base = 0
                         if "hd-2" in n:
-                            return 2
-                        if "hd-1" in n:
-                            return 99
-                        return 3
+                            base = 0
+                        elif "vidstream-2" in n:
+                            base = 10
+                        elif "vidstream" in n or "vidplay" in n:
+                            base = 12
+                        elif "hd-1" in n:
+                            base = 90
+                        else:
+                            base = 20
+                        if "hardsub" in cat or "hsub" in cat:
+                            base += 1
+                        return base
 
                     server_items.sort(key=_server_rank)
 
                     if server_items:
                         try:
                             from allmanga_cli import app_core
-                            s_names = ", ".join(s[0] for s in server_items[:4])
+                            s_names = ", ".join(f"{s[0]} [{s[2]}]" if len(s) > 2 and s[2] else s[0] for s in server_items[:6])
                             app_core.info(f"[{self.name}] Found {len(server_items)} servers ({s_names}) • Extracting streams...")
                         except Exception:
                             pass
 
                         from concurrent.futures import ThreadPoolExecutor, as_completed
-                        with ThreadPoolExecutor(max_workers=min(4, len(server_items))) as pool:
+                        with ThreadPoolExecutor(max_workers=min(6, len(server_items))) as pool:
                             futures = {
-                                pool.submit(self._extract_single_server, s_name, link_id, watch_url): s_name
-                                for s_name, link_id in server_items
+                                pool.submit(self._extract_single_server, s_name, link_id, watch_url, cat_label): (f"[{cat_label}] {s_name}" if cat_label else s_name)
+                                for s_name, link_id, cat_label in server_items
                             }
                             for fut in as_completed(futures):
-                                s_name = futures[fut]
+                                s_display = futures[fut]
                                 try:
                                     entries = fut.result()
                                     added = 0
                                     for entry in entries:
-                                        if entry.get("streamUrl") not in seen_urls:
-                                            seen_urls.add(entry["streamUrl"])
+                                        dedup_key = (entry.get("sourceName"), entry.get("streamUrl"))
+                                        if dedup_key not in seen_urls:
+                                            seen_urls.add(dedup_key)
                                             source_urls.append(entry)
                                             added += 1
                                     if added > 0:
                                         try:
                                             from allmanga_cli import app_core
-                                            app_core.info(f"[{self.name}] Resolved {s_name} ({added} streams)")
+                                            app_core.info(f"[{self.name}] Resolved {s_display} ({added} streams)")
                                         except Exception:
                                             pass
                                 except Exception as err:
-                                    _logger.debug("Server %s extraction failed: %s", s_name, err)
+                                    _logger.debug("Server %s extraction failed: %s", s_display, err)
+
+                    source_urls.sort(key=lambda s: s.get("priority", 10))
         except Exception as e:
             _logger.debug("Anikoto multi-server scraping error: %s", e)
 
@@ -614,22 +660,25 @@ class AnikotoProvider:
                             })
                     default_sub = next((s["url"] for s in subtitles if s.get("default")), None)
                     if not default_sub and subtitles:
-                        default_sub = next((s["url"] for s in subtitles if "eng" in s.get("label", "").lower()), subtitles[0]["url"])
+                        default_sub = next((s["url"] for s in subtitles if "eng" in s.get("label", "").lower()), None)
 
                     raw_sources = sources_data.get("sources", [])
                     if isinstance(raw_sources, dict):
                         raw_sources = [raw_sources]
                     for source in raw_sources:
                         url = source.get("file") or source.get("url")
-                        if not url or url in seen_urls:
+                        fb_key = ("MegaPlay (Auto)", url)
+                        if not url or fb_key in seen_urls:
                             continue
-                        seen_urls.add(url)
+                        seen_urls.add(fb_key)
                         fb_entry = {
                             "sourceName": "MegaPlay (Auto)",
                             "streamUrl": url,
                             "type": "hls" if url.endswith(".m3u8") else "mp4",
                             "priority": 1,
                             "resolution": "auto",
+                            "referer": f"{self.base_url}/",
+                            "requires_proxy": True,
                             "headers": {
                                 "Referer": f"{self.base_url}/",
                                 "Origin": self.base_url,

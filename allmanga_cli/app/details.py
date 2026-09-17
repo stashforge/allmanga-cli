@@ -154,8 +154,19 @@ def handle_details_state(
             except (ValueError, TypeError):
                 pass
 
+    status_str = str(s.get("status") or "").upper()
+    is_finished = status_str in ("FINISHED", "COMPLETED", "ENDED")
+    all_available_watched = bool(
+        episode_ids and watched_idx is not None and watched_idx >= len(episode_ids) - 1
+    )
     playback_status = str(s.get("_anilist_list", "")).upper() if use_anilist else ""
-    is_completed = (playback_status == "COMPLETED") or (watched_idx is not None and watched_idx == len(episode_ids) - 1 and str(s.get("status") or "").upper() == "FINISHED")
+    is_completed = bool(
+        all_available_watched
+        and (
+            playback_status == "COMPLETED"
+            or is_finished
+        )
+    )
 
     if episode_ids:
         cur_watched = False

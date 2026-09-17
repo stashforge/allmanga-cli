@@ -181,6 +181,8 @@ class MachineState:
     # Playback UX
     pending_osd_msg: str = ""
     """OSD message to display at the start of the next episode."""
+    pending_resume_time: float | None = None
+    """Override resume time (in seconds) for mirror switching or resume override."""
 
     # AniList search parent (for back-navigation)
     anilist_search_parent: str = "QUIT"

@@ -314,10 +314,14 @@ def start_bg_resolve(
         audio_penalty = 1 if (ttype == "sub" and is_dub) or (ttype == "dub" and not is_dub) else 0
         is_hard = "hardsub" in sname or "hard-sub" in sname or "hard sub" in sname
         is_soft = "softsub" in sname or "all sub" in sname or "multi sub" in sname
-        sub_rank = 0 if is_hard else (2 if is_soft else 1)
+        is_donghua = str(provider_id or "").lower() in {"animexin", "lucifer", "animekhor"}
+        if is_donghua:
+            sub_rank = 0 if is_hard else (2 if is_soft else 1)
+        else:
+            sub_rank = 0 if is_soft else (2 if is_hard else 1)
         prio = source_priority(s)
         q_key = quality_preference_key(res, "best")
-        return (sub_rank, audio_penalty, prio, q_key)
+        return (sub_rank, audio_penalty, q_key, prio)
 
     sources = sorted(sources, key=_bg_sort_key)
     now = time.time()
@@ -459,10 +463,14 @@ def fetch_episode_stream(show_id, ep_number, ttype="sub", quality="best", provid
         audio_penalty = 1 if (ttype == "sub" and is_dub) or (ttype == "dub" and not is_dub) else 0
         is_hard = "hardsub" in sname or "hard-sub" in sname or "hard sub" in sname
         is_soft = "softsub" in sname or "all sub" in sname or "multi sub" in sname
-        sub_rank = 0 if is_hard else (2 if is_soft else 1)
+        is_donghua = str(provider_id or "").lower() in {"animexin", "lucifer", "animekhor"}
+        if is_donghua:
+            sub_rank = 0 if is_hard else (2 if is_soft else 1)
+        else:
+            sub_rank = 0 if is_soft else (2 if is_hard else 1)
         prio = source_priority(src)
         q_key = quality_preference_key(res, quality)
-        return (sub_rank, audio_penalty, prio, q_key)
+        return (sub_rank, audio_penalty, q_key, prio)
 
     from ..media.resolver import generate_source_passes
     exclude_sources = set(exclude_sources or [])
@@ -475,11 +483,15 @@ def fetch_episode_stream(show_id, ep_number, ttype="sub", quality="best", provid
             ex_str = str(ex).strip().lower()
             if not ex_str:
                 continue
-            ex_base = ex_str.split(" (")[0].strip()
-            if ex_base and ex_base == base_name:
-                return True
-            if ex_str in sname.lower() or (link and ex_str == link):
-                return True
+            if "(" in ex_str and ")" in ex_str:
+                if ex_str == sname.lower() or (link and ex_str == link):
+                    return True
+            else:
+                ex_base = ex_str.split(" (")[0].strip()
+                if ex_base and ex_base == base_name:
+                    return True
+                if ex_str in sname.lower() or (link and ex_str == link):
+                    return True
         return False
 
     valid_sources = [s for s in sources if not _is_excluded(s)]

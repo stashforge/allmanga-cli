@@ -59,16 +59,16 @@ def parse_subtitle_cues(sub_text: str) -> list[tuple[float, float, str]]:
     lines = sub_text.splitlines()
     i = 0
     time_pat = re.compile(
-        r"(\d{1,2}):(\d{2}):(\d{2})[\.,](\d{3})\s*-->\s*(\d{1,2}):(\d{2}):(\d{2})[\.,](\d{3})"
+        r"(?:(\d{1,2}):)?(\d{2}):(\d{2})[\.,](\d{3})\s*-->\s*(?:(\d{1,2}):)?(\d{2}):(\d{2})[\.,](\d{3})"
     )
 
     while i < len(lines):
         line = lines[i].strip()
         m = time_pat.search(line)
         if m:
-            g = [int(x) for x in m.groups()]
-            start_s = g[0] * 3600 + g[1] * 60 + g[2] + g[3] / 1000.0
-            end_s = g[4] * 3600 + g[5] * 60 + g[6] + g[7] / 1000.0
+            h1, m1, s1, ms1, h2, m2, s2, ms2 = m.groups()
+            start_s = (int(h1) if h1 else 0) * 3600 + int(m1) * 60 + int(s1) + int(ms1) / 1000.0
+            end_s = (int(h2) if h2 else 0) * 3600 + int(m2) * 60 + int(s2) + int(ms2) / 1000.0
             text_lines = []
             i += 1
             while i < len(lines) and lines[i].strip():

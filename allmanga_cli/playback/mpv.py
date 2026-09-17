@@ -94,11 +94,20 @@ class MpvIpc:
             audio_url="", subtitle_url="", subtitles=None, skip_intervals=None, aniskip_auto=True, audio_tracks=None):
         self.start()
         self.running = True
+        if self.client:
+            try:
+                while True:
+                    d = self.client.recv(8192)
+                    if not d: break
+            except (BlockingIOError, socket.error):
+                pass
         self.props["playback-time"] = 0
         self.props["duration"] = 0
         self.props["pause"] = False
         self.props["paused-for-cache"] = False
         self.props["percent-pos"] = 0
+        self.max_playback_time = float(start_time or 0.0)
+        self.file_loaded = False
         self.skip_intervals = skip_intervals or []
         self.aniskip_auto = aniskip_auto
         self.skipped_intervals = set()
@@ -146,7 +155,10 @@ class MpvIpc:
             except Exception:
                 pass
 
-        self.send_cmd("loadfile", url)
+        if getattr(self, "resume_time", 0) > 0:
+            self.send_cmd("loadfile", url, "replace", -1, f"start={int(self.resume_time)}")
+        else:
+            self.send_cmd("loadfile", url, "replace")
         self.send_cmd(
             "script-message",
             "set_skip_intervals",
@@ -238,6 +250,15 @@ class MpvIpc:
         initial_osd_shown = False
         played_seconds = 0.0
         last_playback_tick = time.monotonic()
+        playback_start_mono = time.monotonic()
+        last_time_pos_change = playback_start_mono
+        last_cache_flush = playback_start_mono
+        file_loaded = False
+        last_observed_playback_time = -1.0
+        max_playback_time = float(getattr(self, "resume_time", 0) or 0.0)
+        normal_stall_timeout = float(getattr(self, "normal_stall_timeout", 10.0) or 10.0)
+        seek_stall_timeout = float(getattr(self, "seek_stall_timeout", 15.0) or 15.0)
+        startup_timeout = float(getattr(self, "startup_timeout", 15.0) or 15.0)
 
         def do_fetch(ep_target, action):
             nonlocal notify_prefetched
@@ -378,6 +399,10 @@ class MpvIpc:
                     if key.lower() == 'q':
                         pending_action = "QUIT"
                         self.send_cmd("stop")
+                    elif key.lower() == 'n':
+                        pending_action = "NEXT_MIRROR"
+                        self.send_cmd("show-text", "Switching to next mirror...", 3000)
+                        self.send_cmd("stop")
                     elif key in ('\t', 's', 'S') and not self.aniskip_auto and self.skip_intervals:
                         curr_time = self.props.get("playback-time", 0) or 0
                         for s_idx, s_item in enumerate(self.skip_intervals):
@@ -396,13 +421,8 @@ class MpvIpc:
                         if not data:
                             if pending_action:
                                 result = pending_action
-                            elif not initial_osd_shown or played_seconds < 2.0:
-                                curr_pos = float(self.props.get("playback-time") or 0)
-                                r_time = float(getattr(self, "resume_time", 0) or 0)
-                                if (curr_pos <= 0.0 and r_time <= 0.0) and played_seconds < 1.0:
-                                    result = "ERROR"
-                                else:
-                                    result = "QUIT"
+                            elif not file_loaded and (now - playback_start_mono) < startup_timeout:
+                                result = "ERROR"
                             else:
                                 result = "QUIT"
                             self.running = False; break
@@ -414,6 +434,10 @@ class MpvIpc:
                                 msg = json.loads(line)
                                 ev = msg.get("event")
                                 if ev == "file-loaded":
+                                    file_loaded = True
+                                    self.file_loaded = True
+                                    last_time_pos_change = now
+                                    last_cache_flush = now
                                     self._attach_pending_external_tracks()
                                     if self.skip_intervals:
                                         self.send_cmd(
@@ -422,21 +446,26 @@ class MpvIpc:
                                             json.dumps(self.skip_intervals),
                                             "yes" if self.aniskip_auto else "no",
                                         )
+                                elif ev in ("playback-restart", "seek"):
+                                    file_loaded = True
+                                    self.file_loaded = True
+                                    last_cache_flush = now
+                                    last_time_pos_change = now
                                 elif ev == "end-file":
                                     if getattr(self, "expect_ghost_eof", False):
                                         self.expect_ghost_eof = False
                                         continue
 
                                     reason = msg.get("reason")
+                                    dur = float(self.props.get("duration", 0) or 0)
+                                    curr_pos = max_playback_time
+
                                     if pending_action:
                                         result = pending_action
                                         if pending_action == "QUIT":
                                             self.running = False
                                     elif reason == "error":
-                                        curr_pos = float(self.props.get("playback-time") or 0)
-                                        dur = float(self.props.get("duration", 0) or 0)
-                                        r_time = float(getattr(self, "resume_time", 0) or 0)
-                                        if dur > 0 and (curr_pos >= dur - 30.0 or r_time >= dur - 30.0):
+                                        if dur > 0 and curr_pos >= (dur - 30.0):
                                             result = "EOF"
                                         else:
                                             result = "ERROR"
@@ -445,10 +474,10 @@ class MpvIpc:
                                         result = "QUIT"
                                         self.running = False
                                     elif reason == "eof":
-                                        curr_pos = float(self.props.get("playback-time") or 0)
-                                        dur = float(self.props.get("duration", 0) or 0)
-                                        r_time = float(getattr(self, "resume_time", 0) or 0)
-                                        if (played_seconds < 2.0 and curr_pos <= 0.0 and r_time <= 0.0) or (dur <= 0 and curr_pos <= 0.0 and r_time <= 0.0):
+                                        if dur > 60.0 and curr_pos < (dur * 0.90) and curr_pos < (dur - 60.0):
+                                            result = "ERROR"
+                                            self.send_cmd("show-text", "⚠ Stream ended prematurely. Trying next mirror...", 10000)
+                                        elif not file_loaded or (played_seconds < 2.0 and curr_pos <= 0.0):
                                             result = "ERROR"
                                         else:
                                             result = "EOF"
@@ -461,6 +490,27 @@ class MpvIpc:
                                         if val is not None:
                                             self.props[name] = val
                                         redraw()
+
+                                        if name == "playback-time" and val is not None:
+                                            curr_val = float(val or 0)
+                                            if curr_val > 0.0:
+                                                file_loaded = True
+                                                self.file_loaded = True
+                                            if last_observed_playback_time < 0 or abs(curr_val - last_observed_playback_time) >= 0.01:
+                                                last_time_pos_change = now
+                                                if last_observed_playback_time >= 0 and abs(curr_val - last_observed_playback_time) > 2.0:
+                                                    last_cache_flush = now
+                                                last_observed_playback_time = curr_val
+                                            if curr_val > max_playback_time:
+                                                max_playback_time = curr_val
+                                        elif name == "pause":
+                                            last_time_pos_change = now
+                                            last_cache_flush = now
+                                        elif name == "paused-for-cache" and val:
+                                            last_cache_flush = now
+                                        elif name in ("duration", "percent-pos") and float(val or 0) > 0:
+                                            file_loaded = True
+                                            self.file_loaded = True
 
                                         if name == "playback-time" and val is not None and not initial_osd_shown:
                                             initial_osd_shown = True
@@ -592,11 +642,40 @@ class MpvIpc:
                                                         ),
                                                         TRANSITION_OSD_MS,
                                                     )
+                                        elif args[0] == "next_mirror":
+                                            pending_action = "NEXT_MIRROR"
+                                            self.send_cmd("show-text", "Switching to next mirror...", 3000)
+                                            self.send_cmd("stop")
                             except Exception: pass
                     except BlockingIOError: pass
+
+                # 1. Check Startup Timeout (Dead link / network hang during initial connect)
+                if not file_loaded and (now - playback_start_mono) > startup_timeout:
+                    result = "ERROR"
+                    self.send_cmd("show-text", "⚠ Mirror connection timed out. Trying next mirror...", 5000)
+                    done = True
+                    break
+
+                # 2. Check Ground Truth Stall Invariant (unpaused & clock frozen)
+                if file_loaded:
+                    is_user_paused = bool(self.props.get("pause", False))
+                    if is_user_paused:
+                        last_time_pos_change = now
+                    else:
+                        in_grace = (now - last_cache_flush) < seek_stall_timeout
+                        timeout = seek_stall_timeout if in_grace else normal_stall_timeout
+                        if (now - last_time_pos_change) >= timeout:
+                            result = "ERROR"
+                            self.send_cmd("show-text", "⚠ Stream stalled. Switching mirror...", 5000)
+                            done = True
+                            break
+
                 redraw()
         finally:
             if old_attrs: termios.tcsetattr(tty_fd, termios.TCSADRAIN, old_attrs)
             print()
+
+        if max_playback_time > (float(self.props.get("playback-time") or 0)):
+            self.props["playback-time"] = max_playback_time
 
         return result, played_seconds

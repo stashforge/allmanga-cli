@@ -78,6 +78,7 @@ def plain_pick(
     tick_fn: Callable[[], bool] | None = None,
     keep_cursor_hidden_on_select: bool = False,
     select_fn: Callable[[int], bool] | None = None,
+    item_prefix_fn: Callable[[int], str] | None = None,
     input_fn: Callable[[str], str] = input,
     output_fn: Callable[..., None] = print,
     **kwargs: Any,
@@ -193,16 +194,17 @@ def plain_pick(
                         hint_str = str(hints[idx] or "")
 
                 clean_hint = strip_ansi(hint_str).strip()
+                prefix = item_prefix_fn(idx) if item_prefix_fn else ""
                 if clean_hint:
                     if clean_hint.startswith("(") and clean_hint.endswith(")"):
                         clean_hint = clean_hint[1:-1].strip()
                     pad = " " * (max(0, max_opt_len - len(clean_opt)) + 2) if max_opt_len <= 35 else "  "
                     _emit(
-                        f"\033[1;34m[{idx + 1}]\033[0m {clean_opt}{pad}\033[38;5;244m# {clean_hint}\033[0m",
+                        f"\033[1;34m[{idx + 1}]\033[0m {prefix}{clean_opt}{pad}\033[38;5;244m# {clean_hint}\033[0m",
                         output_fn,
                     )
                 else:
-                    _emit(f"\033[1;34m[{idx + 1}]\033[0m {clean_opt}", output_fn)
+                    _emit(f"\033[1;34m[{idx + 1}]\033[0m {prefix}{clean_opt}", output_fn)
 
             # Help / Available Actions Line (with gap separating from results)
             actions = ["[1-N] Select", "[q] Quit", "[b] Back"]

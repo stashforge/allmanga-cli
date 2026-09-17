@@ -193,18 +193,6 @@ def format_available_episodes(anime, ttype="sub", local_only=False):
         except (ValueError, TypeError):
             pass
 
-    next_episode = positive_int(anime.get("_next_airing_ep"))
-    if next_episode:
-        available_count = max(0, next_episode - 1)
-        if local_only:
-            entry = {"show": anime, "translation_type": ttype}
-            full = history_full_episode_count(entry)
-            if full and available_count >= full:
-                return ""
-        if sec_tag:
-            return f"Avail {available_count} [{sec_tag}]"
-        return f"Avail {available_count}"
-
     total = positive_int(anime.get("episodeCount"))
     available = anime.get("availableEpisodes", {}).get(ttype) if isinstance(anime.get("availableEpisodes"), dict) else None
     try:
@@ -212,15 +200,39 @@ def format_available_episodes(anime, ttype="sub", local_only=False):
     except (TypeError, ValueError):
         available = None
 
-    if not available and eids:
+    if (available is None or available <= 0) and eids:
         available = len(eids)
 
     if available is not None and available > 0:
+        if local_only:
+            entry = {"show": anime, "translation_type": ttype}
+            full = history_full_episode_count(entry)
+            if full and available >= full:
+                return ""
         if sec_tag:
             return f"Avail {available} [{sec_tag}]"
         if total is not None and available == total:
             return ""
         return f"Avail {available}"
+
+    next_episode = positive_int(anime.get("_next_airing_ep"))
+    if next_episode:
+        airing_at = anime.get("_next_airing_at")
+        try:
+            airing_passed = bool(airing_at and float(airing_at) <= (time.time() if not local_only else 0))
+        except (TypeError, ValueError):
+            airing_passed = False
+        available_count = next_episode if airing_passed else max(0, next_episode - 1)
+        if local_only:
+            entry = {"show": anime, "translation_type": ttype}
+            full = history_full_episode_count(entry)
+            if full and available_count >= full:
+                return ""
+        if sec_tag:
+            return f"Avail {available_count} [{sec_tag}]"
+        if total is not None and available_count == total:
+            return ""
+        return f"Avail {available_count}"
 
     return ""
 
@@ -230,6 +242,15 @@ def format_next_airing(anime, now=None):
     airing_at = anime.get("_next_airing_at")
     if not episode or not airing_at:
         return ""
+    # If this episode is already available in the catalog, do not show countdown or aired message
+    avail_count = (anime.get("availableEpisodes") or {}).get("sub") if isinstance(anime.get("availableEpisodes"), dict) else None
+    if avail_count is None:
+        avail_count = len(anime.get("_episode_ids") or [])
+    try:
+        if avail_count and int(avail_count) >= int(episode):
+            return ""
+    except (TypeError, ValueError):
+        pass
     try:
         current_time = time.time() if now is None else now
         remaining = int(float(airing_at)) - int(current_time)
@@ -402,13 +423,13 @@ def prepare_show_display_state(show, ttype="sub", sync_enabled=None):
     from allmanga_cli.core.storage import get_title_sync, get_local_progress, get_local_episode_label
 
     if runtime_flags.incognito_mode:
-        show["_local_progress"] = None
-        show["_local_episode_label"] = None
         show["_sync_enabled"] = False
         show.pop("_anilist_progress", None)
         show.pop("_anilist_list", None)
         show.pop("watched_episodes", None)
         show["_progress_authority"] = "LOCAL"
+        show["_local_progress"] = get_local_progress(show, ttype)
+        show["_local_episode_label"] = get_local_episode_label(show, ttype)
         return show
     raw_anilist_show = bool(
         show.get("_anilist_list")
@@ -613,6 +634,33 @@ def apply_provider_metadata_to_history_show(show, provider_show):
         if current_avail != avail:
             show["availableEpisodes"] = dict(avail)
             changed = True
+
+    # Reconcile airing fields: clear if provider_show has no airing ep or if already available
+    avail_sub = (show.get("availableEpisodes") or {}).get("sub") or 0
+    try:
+        avail_sub = int(avail_sub)
+    except (ValueError, TypeError):
+        avail_sub = 0
+
+    prov_airing_ep = provider_show.get("_next_airing_ep")
+    if prov_airing_ep is not None:
+        try:
+            if int(prov_airing_ep) <= avail_sub:
+                prov_airing_ep = None
+        except (ValueError, TypeError):
+            pass
+
+    if prov_airing_ep is None:
+        for key in ("_next_airing_ep", "_next_airing_at", "_next_airing_time"):
+            if show.get(key) is not None:
+                show[key] = None
+                changed = True
+    else:
+        for key in ("_next_airing_ep", "_next_airing_at", "_next_airing_time"):
+            val = provider_show.get(key)
+            if show.get(key) != val:
+                show[key] = val
+                changed = True
 
     return changed
 

@@ -168,11 +168,17 @@ def start_bg_resolve(ep_data: dict, exclude_names: set) -> None:
     """
     global _bg_thread, _bg_generation, _bg_stats
 
+    p_id = str(ep_data.get("_provider") or ep_data.get("provider") or ep_data.get("episode", {}).get("provider") or "").lower()
+    is_donghua = p_id in {"animexin", "lucifer", "animekhor"}
+
     def _bg_sort_key(s):
         sname = str(s.get("sourceName") or "").lower()
         is_hard = "hardsub" in sname or "hard-sub" in sname or "hard sub" in sname
         is_soft = "softsub" in sname or "all sub" in sname or "multi sub" in sname
-        sub_rank = 0 if is_hard else (2 if is_soft else 1)
+        if is_donghua:
+            sub_rank = 0 if is_hard else (2 if is_soft else 1)
+        else:
+            sub_rank = 0 if is_soft else (2 if is_hard else 1)
         return (sub_rank, source_priority(s))
 
     sources = sorted(
