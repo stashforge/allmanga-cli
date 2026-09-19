@@ -37,6 +37,9 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 include = ["allmanga_cli*"]
 
+[tool.setuptools.package-data]
+"*" = ["*.json"]
+
 [tool.ruff]
 target-version = "py39"
 line-length = 120
