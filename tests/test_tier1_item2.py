@@ -927,7 +927,7 @@ def test_plain_picker_delete_guard():
         deleted.append(idx)
         return ["EP 1", "EP 2"], "header"
 
-    inputs = iter(["del 1", "q"])
+    inputs = iter(["del 1", "b"])
     output = []
 
     plain_pick(

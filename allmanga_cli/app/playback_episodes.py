@@ -344,7 +344,8 @@ def handle_episode_state(
             orig_i = display_order[oi]
             eid = episode_ids[orig_i]
             lbl = episode_label(eid, episode_labels)
-            return f"Delete downloaded EP {lbl}? y/N"
+            clean_num = re.sub(r"^(?:episode|ep)\s*", "", str(lbl), flags=re.I).strip()
+            return f"Delete downloaded EP {clean_num}? y/N"
         return "Delete downloaded episode? y/N"
 
     while True:

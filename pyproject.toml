@@ -8,8 +8,6 @@ dependencies = [
     "requests",
     "curl-cffi",
     "beautifulsoup4",
-    "lxml",
-    "Pillow",
 ]
 
 [project.scripts]
