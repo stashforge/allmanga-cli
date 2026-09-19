@@ -1,6 +1,6 @@
 [project]
 name = "allmanga-cli"
-version = "0.8.6"
+version = "0.8.7"
 description = "Terminal anime stream player"
 readme = "README.md"
 requires-python = ">=3.9"
