@@ -1,10 +1,14 @@
-import logging
-import urllib.request
-import urllib.parse
 import json
+import logging
 import re
+import urllib.parse
+import urllib.request
 from typing import Any
+
 from bs4 import BeautifulSoup
+
+from allmanga_cli.services import anilist
+from allmanga_cli.services import normalize as anilist_normalize
 
 from .shared.models import (
     normalize_episode_catalog,
@@ -12,8 +16,6 @@ from .shared.models import (
     normalize_title,
     normalize_titles,
 )
-from allmanga_cli.services import anilist
-from allmanga_cli.services import normalize as anilist_normalize
 
 _logger = logging.getLogger(__name__)
 
@@ -34,8 +36,8 @@ def _decrypt_megaplay_enc(enc: str) -> dict | None:
 
         plaintext = None
         try:
-            from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
             from cryptography.hazmat.backends import default_backend
+            from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
             cipher = Cipher(algorithms.AES(_MEGAPLAY_KEY), modes.CBC(_MEGAPLAY_IV), backend=default_backend())
             decryptor = cipher.decryptor()
             plaintext = decryptor.update(ciphertext) + decryptor.finalize()
@@ -167,7 +169,7 @@ class AnikotoProvider:
             media = self._fetch_media(provider_id)
             if not media:
                 return normalize_episode_catalog({"ids": []}, provider_id=self.id, provider_title_id=provider_id)
-                
+
             total = media.get("episodes")
             if not total:
                 next_airing = media.get("nextAiringEpisode")
@@ -175,9 +177,9 @@ class AnikotoProvider:
                     total = next_airing["episode"] - 1
                 else:
                     total = 1  # Fallback
-                    
+
             ids = [str(ep) for ep in range(1, total + 1)]
-            
+
             detail = {
                 "sub": ids,
                 "dub": ids if ttype == "dub" else [],

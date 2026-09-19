@@ -1,6 +1,3 @@
-import os
-import shlex
-import shutil
 import subprocess
 
 from ..media.dash import generate_dash_mpd
@@ -14,7 +11,6 @@ from ..media.local_proxy import (
 from ..media.proxy_rules import proxy_filtered_headers
 from ..media.urls import validate_optional_referer, validate_stream_url
 
-
 PLAYERS = {
     "mpv": ("is.xyz.mpv", "is.xyz.mpv.MPVActivity"),
     "mpvrex": ("xyz.mpv.rex", None),
@@ -26,10 +22,14 @@ PLAYERS = {
 }
 
 _packages = None
-_info = lambda message: None
-_ok = lambda message: None
-_warn = lambda message: None
-_error = lambda message: None
+def _info(message):
+    return None
+def _ok(message):
+    return None
+def _warn(message):
+    return None
+def _error(message):
+    return None
 
 
 def configure_reporters(info, ok, warn, error):
@@ -77,8 +77,8 @@ def play_android(
     # Write AniSkip chapters for MPV on Android (always overwrites / clears if no skips)
     chapters_path = "/storage/emulated/0/Mpv/chapters.txt"
     try:
-        from ..media.aniskip import fetch_skip_times, generate_chapters_file
         from ..domain.episodes import episode_progress_number
+        from ..media.aniskip import fetch_skip_times, generate_chapters_file
         skip_intervals = []
         if aniskip_enabled and mal_id:
             ep_num = episode_progress_number(episode)
@@ -89,10 +89,10 @@ def play_android(
 
     headers = proxy_filtered_headers(stream.get("headers", {}))
     package, activity = PLAYERS.get(player, PLAYERS["mpv"])
-    from allmanga_cli.domain.episodes import episode_label, clean_episode_identifier
+    from allmanga_cli.domain.episodes import clean_episode_identifier, episode_label
     raw_ep = str(episode_label(episode)).strip()
     ep_str = clean_episode_identifier(raw_ep) or raw_ep
-    
+
     if ep_str.lower() in ("movie", "full"):
         media_title = f"{title}"
     else:

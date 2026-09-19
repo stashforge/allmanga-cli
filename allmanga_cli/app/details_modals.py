@@ -5,16 +5,16 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from ..context import CliFlags, UiState, MachineState
+from .. import app_core
+from ..context import CliFlags, MachineState, UiState
 from ..domain.episodes import highest_episode_number
 from ..domain.tracking import (
-    tracking_status_for_progress,
     apply_tracking_progress_local,
     completed_media_total,
+    tracking_status_for_progress,
 )
 from ..ui.help import picker_help
 from ..ui.picker import tui_pick
-from .. import app_core
 
 
 def handle_update_progress_state(
@@ -52,9 +52,9 @@ def handle_update_progress_state(
 
     from ..domain.episodes import (
         build_progress_entries,
+        clean_episode_identifier,
         parse_episode_dual_numbers,
         resolve_dual_episode_label,
-        clean_episode_identifier,
     )
     entries = build_progress_entries(s, episode_ids, labels=s.get("_episode_labels"), ttype=ttype_local)
     progress_entries = list(reversed(entries))
@@ -104,8 +104,10 @@ def handle_update_progress_state(
     _hdr_cache: dict[tuple, str] = {}
 
     def _progress_hdr(si):
-        try: w = os.get_terminal_size().columns
-        except OSError: w = 80
+        try:
+            w = os.get_terminal_size().columns
+        except OSError:
+            w = 80
         cache_key = (w, ttype_local, getattr(ms, "_is_downloads", False))
         if cache_key in _hdr_cache:
             return _hdr_cache[cache_key]
@@ -221,8 +223,10 @@ def handle_update_status_state(
     _hdr_cache: dict[tuple, str] = {}
 
     def _status_hdr(si):
-        try: w = os.get_terminal_size().columns
-        except OSError: w = 80
+        try:
+            w = os.get_terminal_size().columns
+        except OSError:
+            w = 80
         cache_key = (w, ttype_local, getattr(ms, "_is_downloads", False))
         if cache_key in _hdr_cache:
             return _hdr_cache[cache_key]
@@ -280,7 +284,7 @@ def handle_update_status_state(
                     s["_progress_authority"] = "AL"
                     app_core.set_action_feedback(
                         s,
-                        f"✔ Synced status to AniList"
+                        "✔ Synced status to AniList"
                     )
             else:
                 app_core.err(f"Could not update AniList status to {label}.")
@@ -303,8 +307,10 @@ def handle_update_score_state(
     _hdr_cache: dict[tuple, str] = {}
 
     def _score_hdr(si):
-        try: w = os.get_terminal_size().columns
-        except OSError: w = 80
+        try:
+            w = os.get_terminal_size().columns
+        except OSError:
+            w = 80
         cache_key = (w, ttype_local, getattr(ms, "_is_downloads", False))
         if cache_key in _hdr_cache:
             return _hdr_cache[cache_key]

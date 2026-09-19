@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import datetime as _dt
 
-
 AIRING_TABS = ("today", "tomorrow", "week")
 AIRING_TAB_LABELS = {
     "today": "Today",
@@ -110,11 +109,10 @@ def airing_row_label(show, *, tab="today", now=None, day_label_width=22):
     timestamp = _airing_timestamp(show)
     if timestamp is None:
         time_text = "--:--"
-        day_text = ""
     else:
         value = _local_datetime(timestamp)
         time_text = _row_time(value, now)
-        day_text = _airing_day_label(value, now)
+        _airing_day_label(value, now)
 
     ep = show.get("_next_airing_ep") or "?"
     title = show.get("name") or show.get("englishName") or "Unknown"

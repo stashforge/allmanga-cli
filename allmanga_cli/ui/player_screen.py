@@ -12,40 +12,46 @@ The module owns the ``_player_ui_state`` dict and the
 
 from __future__ import annotations
 
-import os
-import sys
 import hashlib
+import os
 import re
-import time
+import sys
 import threading
+import time
 from typing import TYPE_CHECKING
 
-from ..domain.titles import (
-    extract_title_parts as _extract_title_parts,
-    get_show_display_title,
-    get_display_titles,
-    wrap_title as _wrap_title,
+from ..core.terminal import fit_terminal_line as _fit_terminal_line
+from ..domain.metadata import (
+    anilist_list_status_label,
+    anime_status_label,
+    format_next_airing,
+    format_years,
 )
 from ..domain.metadata import (
     positive_int as _positive_int,
-    anime_status_label,
-    anilist_list_status_label,
-    format_years,
-    format_next_airing,
 )
-from ..core.terminal import fit_terminal_line as _fit_terminal_line
-from .poster import PosterManager
-from .covers import (
-    POSTER_HEIGHT,
-    POSTER_WIDTH,
-    poster_symbol_lines as _poster_symbol_lines,
-    poster_uses_native_protocol as _poster_uses_native_protocol,
+from ..domain.titles import (
+    get_display_titles,
+    get_show_display_title,
+)
+from ..domain.titles import (
+    wrap_title as _wrap_title,
 )
 from . import terminal_images
+from .covers import (
+    POSTER_HEIGHT,
+)
+from .covers import (
+    poster_symbol_lines as _poster_symbol_lines,
+)
+from .covers import (
+    poster_uses_native_protocol as _poster_uses_native_protocol,
+)
+from .poster import PosterManager
 from .spinner import spinner_frame
 
 if TYPE_CHECKING:
-    from ..context import UiState, CliFlags
+    from ..context import UiState
 
 TITLE_COLOR = "\033[1;38;2;145;185;245m"
 SECTION_LABEL = "\033[1;38;2;190;180;235m"
@@ -98,9 +104,11 @@ def _thin_progress_bar(position: float, duration: float, width: int) -> str:
     if duration > 0:
         ratio = max(0, min(1, position / duration))
     filled = int(ratio * bar_width)
+    filled_char = "\u2501"
+    empty_char = "\u2500"
     return (
-        f"\033[38;5;115m{'\u2501' * filled}\033[0m"
-        f"\033[38;5;240m{'\u2500' * (bar_width - filled)}\033[0m"
+        f"\033[38;5;115m{filled_char * filled}\033[0m"
+        f"\033[38;5;240m{empty_char * (bar_width - filled)}\033[0m"
     )
 
 
@@ -265,7 +273,7 @@ def add_status_line(message: str, color: str = "\033[94m") -> bool:
     return True
 
 
-def get_player_poster(show: dict | None, ui: "UiState | None" = None) -> str:
+def get_player_poster(show: dict | None, ui: UiState | None = None) -> str:
     """Return the poster string for *show*, updating the hover state if *ui* is given."""
     if not show:
         return ""
@@ -277,10 +285,10 @@ def get_player_poster(show: dict | None, ui: "UiState | None" = None) -> str:
 def _playback_episode_summary(show: dict | None, player_state: dict, ttype: str = "sub") -> str:
     if not isinstance(show, dict):
         return ""
-    
+
     fmt = str(show.get("format") or show.get("type") or "").upper()
     total = _positive_int(show.get("episodeCount"))
-    
+
     # Hide episode count for movies or single-episode titles
     if fmt == "MOVIE" or total == 1:
         return ""
@@ -305,8 +313,8 @@ def _playback_episode_summary(show: dict | None, player_state: dict, ttype: str 
 
 
 def render(
-    poster_manager: "PosterManager | None" = None,
-    ui: "UiState | None" = None,
+    poster_manager: PosterManager | None = None,
+    ui: UiState | None = None,
     enter_alt_screen_fn=None,
 ) -> None:
     """Render (or refresh) the player overlay on the terminal.
@@ -389,7 +397,8 @@ def render(
             meta_parts.append(avail_str)
 
     def _ext_year(val):
-        if isinstance(val, dict): return val.get("year")
+        if isinstance(val, dict):
+            return val.get("year")
         if isinstance(val, str):
             import re
             m = re.search(r'\b(20\d{2}|19\d{2})\b', val)
@@ -511,7 +520,7 @@ def render(
             description = html.unescape(description)
             description = re.sub(r"<[^>]+>", " ", description)
             description = re.sub(r"\s+", " ", description).strip()
-            
+
             poster_rows = POSTER_HEIGHT if poster_raw else 0
             extra_padding = 5 if detail_lines else 4
             used_lines = poster_rows + len(content) + len(detail_lines) + extra_padding

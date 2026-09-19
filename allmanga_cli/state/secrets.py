@@ -3,7 +3,6 @@
 import shutil
 import subprocess
 
-
 SERVICE = "allmanga-cli"
 ANILIST_KEY = "anilist_token"
 TMDB_KEY = "tmdb_token"

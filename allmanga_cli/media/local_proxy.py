@@ -18,7 +18,6 @@ from .proxy_rules import (
 )
 from .urls import validate_http_url
 
-
 try:
     from curl_cffi import requests as cffi_requests
     CURL_CFFI_AVAILABLE = True
@@ -29,7 +28,8 @@ except ImportError:
 
 _active_lock = threading.Lock()
 _active_server = None
-_debug_warn = lambda context, error: None
+def _debug_warn(context, error):
+    return None
 
 # Fallback UA used only when the caller hasn't supplied one. Some CDNs
 # validate the User-Agent shape (not just presence) against parameters
@@ -145,7 +145,7 @@ def _ensure_vtt(data_bytes: bytes) -> bytes:
     clean_text = re.sub(r"(\d{1,2}:\d{2}:\d{2}),(\d{3})", r"\1.\2", clean_text)
     clean_text = re.sub(r"(\d{2}:\d{2}),(\d{3})", r"\1.\2", clean_text)
     clean_text = _add_vtt_padding(clean_text)
-    return f"WEBVTT\n\n{clean_text}\n".encode("utf-8")
+    return f"WEBVTT\n\n{clean_text}\n".encode()
 
 
 def _prepare_subtitle_entries(subtitles):
@@ -257,7 +257,7 @@ def _build_proxy_server(initial_entries, timeout):
         return path
 
     def local_url_for(path):
-        return f"http://127.0.0.1:{port_holder['port']}{path}"
+        return path
 
     def rewrite_playlist(text, base_url, ref, hdrs):
         base = base_url.rsplit("/", 1)[0] + "/"
@@ -344,6 +344,9 @@ def _build_proxy_server(initial_entries, timeout):
                 request.add_header("User-Agent", hdrs.get("User-Agent", _DEFAULT_UA))
                 if ref:
                     request.add_header("Referer", ref)
+                    if "Origin" not in hdrs and "origin" not in hdrs:
+                        parsed_ref = urllib.parse.urlparse(ref)
+                        request.add_header("Origin", f"{parsed_ref.scheme}://{parsed_ref.netloc}")
                 for key, value in hdrs.items():
                     if key.casefold() == "user-agent":
                         continue
@@ -468,8 +471,12 @@ def _build_proxy_server(initial_entries, timeout):
                         cffi_hdrs = dict(hdrs) if hdrs else {}
                         if "User-Agent" not in cffi_hdrs and "user-agent" not in cffi_hdrs:
                             cffi_hdrs["User-Agent"] = _DEFAULT_UA
-                        if ref and "Referer" not in cffi_hdrs and "referer" not in cffi_hdrs:
-                            cffi_hdrs["Referer"] = ref
+                        if ref:
+                            if "Referer" not in cffi_hdrs and "referer" not in cffi_hdrs:
+                                cffi_hdrs["Referer"] = ref
+                            if "Origin" not in cffi_hdrs and "origin" not in cffi_hdrs:
+                                parsed_ref = urllib.parse.urlparse(ref)
+                                cffi_hdrs["Origin"] = f"{parsed_ref.scheme}://{parsed_ref.netloc}"
                         if range_header and not is_m3u8_fetch:
                             cffi_hdrs["Range"] = range_header
 
@@ -621,13 +628,20 @@ def _build_proxy_server(initial_entries, timeout):
         def do_HEAD(self):
             self._proxy("HEAD")
 
+        def do_OPTIONS(self):
+            self.send_response(200)
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "*")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
         do_POST = _reject_method
         do_PUT = _reject_method
         do_DELETE = _reject_method
-        do_OPTIONS = _reject_method
         do_PATCH = _reject_method
 
-    server = _ThreadedHTTPServer(("127.0.0.1", 0), ProxyHandler)
+    server = _ThreadedHTTPServer(("0.0.0.0", 0), ProxyHandler)
     port = server.server_address[1]
     port_holder["port"] = port
     threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -760,10 +774,10 @@ def start_local_proxy(
                         master_lines.append(f"http://127.0.0.1:{port}{var_path}")
                         pending_inf = None
             else:
-                master_lines.append(f'#EXT-X-STREAM-INF:BANDWIDTH=2889119,RESOLUTION=1920x1080,SUBTITLES="subs"')
+                master_lines.append('#EXT-X-STREAM-INF:BANDWIDTH=2889119,RESOLUTION=1920x1080,SUBTITLES="subs"')
                 master_lines.append(video_local_url)
         except Exception:
-            master_lines.append(f'#EXT-X-STREAM-INF:BANDWIDTH=2889119,RESOLUTION=1920x1080,SUBTITLES="subs"')
+            master_lines.append('#EXT-X-STREAM-INF:BANDWIDTH=2889119,RESOLUTION=1920x1080,SUBTITLES="subs"')
             master_lines.append(video_local_url)
 
         master_lines.append("")
@@ -969,10 +983,17 @@ def start_local_content_server(content, filename, content_type):
             self.send_header("Content-Length", "0")
             self.end_headers()
 
+        def do_OPTIONS(self):
+            self.send_response(200)
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "*")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
         do_POST = _reject_method
         do_PUT = _reject_method
         do_DELETE = _reject_method
-        do_OPTIONS = _reject_method
         do_PATCH = _reject_method
 
     server = _ThreadedHTTPServer(("127.0.0.1", 0), ContentHandler)

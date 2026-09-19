@@ -8,28 +8,27 @@ import sys
 import time
 from typing import Any
 
-
-from ..context import CliFlags, UiState, MachineState
-from ..domain.titles import get_show_display_title
+from .. import app_core
+from ..context import CliFlags, MachineState, UiState
+from ..core import streams as streams_mod
 from ..domain.episodes import (
     clean_episode_identifier,
     episode_id_at,
     episode_index_for_id,
     episode_progress_number,
 )
+from ..domain.titles import get_show_display_title
 from ..domain.tracking import tracking_status_for_progress
 from ..playback.rules import (
-    playback_looks_complete,
-    playback_updates_history,
     marked_watched_osd,
     pending_completion_osd,
+    playback_looks_complete,
+    playback_updates_history,
     sync_queued_osd,
 )
 from ..providers import title_provider_key
 from ..ui.display import suppress_terminal_echo
 from . import playback as playback_mod
-from ..core import streams as streams_mod
-from .. import app_core
 
 GREEN = "\033[1;32m"
 YELLOW = "\033[1;33m"
@@ -48,8 +47,6 @@ def handle_play_state(
     quality: str,
     resolve_tracking_fn,
 ) -> str:
-    app_core.enter_alt_screen()
-
     s_ctx = ui.ui_show_ctx
     sync_enabled = resolve_tracking_fn(ui.search_prev_state, args, cfg, s_ctx)
     app_core.prepare_show_display_state(s_ctx, ttype, sync_enabled)
@@ -78,7 +75,16 @@ def handle_play_state(
 
     is_download_mode = bool(getattr(args, 'download', False))
 
-    if not is_download_mode:
+    if is_download_mode:
+        app_core.restore_terminal()
+        print(
+            f"\n\033[1;36mDownloading episode {playback_mod._fmt_ep(current_ep_label)} for '{ms.show_title}' ({ttype.upper()})…\033[0m\n"
+        )
+        print(
+            f"\033[1;97mResolving stream for EP {playback_mod._fmt_ep(current_ep_label)}…\033[0m"
+        )
+    else:
+        app_core.enter_alt_screen()
         from ..ui.player_screen import _player_ui_state
         _player_ui_state.update({
             "active": True,
@@ -149,11 +155,12 @@ def handle_play_state(
                 ep_num = episode_progress_number(ms.current_ep)
                 if mal_id:
                     from concurrent.futures import ThreadPoolExecutor
+
                     from ..media.aniskip import fetch_skip_times
                     _skip_pool = ThreadPoolExecutor(max_workers=1)
                     aniskip_future = _skip_pool.submit(fetch_skip_times, mal_id, ep_num)
 
-            if getattr(ms, "_is_downloads", False):
+            if getattr(ms, "_is_downloads", False) and not is_download_mode:
                 ep_data = {"is_local": True}
             elif _cache_key == ms.ep_cache_key and ms.ep_cache_data:
                 ep_data = ms.ep_cache_data
@@ -189,10 +196,13 @@ def handle_play_state(
 
         if ms.selected_stream is None:
             _ipc_player = app_core._ipc_player
-            if getattr(ms, "_is_downloads", False):
+            target_quality = getattr(args, "quality", None) or cfg.get("quality", "best")
+            if getattr(ms, "_is_downloads", False) and not is_download_mode:
                 filepath = ms._download_files.get(str(ms.current_ep))
                 if filepath:
                     res = ({"link": filepath, "resolution": "Local", "is_local": True}, "Local File", {"is_local": True, "filepath": filepath}, [])
+                    ms.selected_stream = res[0]
+                    first_source_name = "Local File"
                 else:
                     res = None
             else:
@@ -205,84 +215,131 @@ def handle_play_state(
                     _ipc_player.prefetched_stream = None
                     _ipc_player.prefetched_res = None
                 else:
-                    cached_streams = app_core._stream_snapshot(ms.show_id, ms.current_ep, ttype, provider_id)
+                    cur_key = (ms.show_id, ms.current_ep, ttype, provider_id, target_quality)
+                    cached_ep_data = app_core._get_cached_ep_data(cur_key)
+
+                    # Start background resolver to populate cache if not already running
+                    if not cached_ep_data:
+                        cached_ep_data = app_core.get_episode_data(ms.show_id, ms.current_ep, ttype, provider_id=provider_id)
+
+                    # Start background resolver to populate cache
+                    streams_mod.start_bg_resolve(cached_ep_data, set(), ms.show_id, ms.current_ep, ttype, provider_id, target_quality)
+
+                    # Wait for background resolver to populate some streams
+                    import time as _time
+                    wait_start = _time.time()
+                    while _time.time() - wait_start < 5:  # Max 5 seconds wait
+                        cached_streams = app_core._stream_snapshot(ms.show_id, ms.current_ep, ttype, provider_id, target_quality, cached_ep_data)
+                        if cached_streams:
+                            break
+                        _time.sleep(0.15)
+
+                    res = None
+
                     if cached_streams:
                         pref = app_core.get_preferred_mirror(ms.show_id)
                         pref_name = pref.get("source_name", "")
                         pref_res = pref.get("resolution", "")
-                        cur_key = (ms.show_id, ms.current_ep, ttype, provider_id)
-                        target_quality = getattr(args, "quality", None) or cfg.get("quality", "best")
-                        
-                        candidates = []
+                        pref_name_lower = pref_name.lower()
+                        pref_res_lower = pref_res.lower() if pref_res else ""
+
+                        # 1. Check if preferred mirror is available - use it immediately
+                        preferred_stream = None
                         if pref_name:
                             for s in cached_streams:
-                                if s.get("source_name") == pref_name and s.get("resolution", "?") == pref_res:
-                                    candidates.append(s)
+                                src_name = s.get("source_name") or ""
+                                src_res = (s.get("resolution") or "?").lower()
+                                if src_name.lower().startswith(pref_name_lower) and (not pref_res_lower or src_res == pref_res_lower):
+                                    preferred_stream = s
                                     break
-                        from ..media.sources import quality_preference_key
-                        def _cached_sort_key(s):
-                            sname = (s.get("source_name") or "").lower()
-                            res = s.get("resolution") or ""
-                            prio = s.get("source_priority", 4)
-                            is_sub = "sub" in sname
-                            is_dub = ("dub" in sname) or ((" eng" in sname or "english" in sname) and not is_sub)
-                            audio_penalty = 1 if (ttype == "sub" and is_dub) or (ttype == "dub" and not is_dub) else 0
-                            is_hard = "hardsub" in sname or "hard-sub" in sname or "hard sub" in sname
-                            is_soft = "softsub" in sname or "all sub" in sname or "multi sub" in sname
-                            is_donghua = str(provider_id or "").lower() in {"animexin", "lucifer", "animekhor"}
-                            if is_donghua:
-                                sub_rank = 0 if is_hard else (2 if is_soft else 1)
-                            else:
-                                sub_rank = 0 if is_soft else (2 if is_hard else 1)
-                            q_key = quality_preference_key(res, target_quality)
-                            return (sub_rank, audio_penalty, q_key, prio)
 
-                        sorted_cached = sorted(cached_streams, key=_cached_sort_key)
-                        for s in sorted_cached:
-                            if s not in candidates:
-                                candidates.append(s)
-
-                        # Bounded pre-flight check (Max 3 candidate probes)
-                        selected = None
-                        now = time.time()
-                        for cand in candidates[:3]:
-                            validated_at = float(cand.get("validated_at") or 0)
-                            if (now - validated_at) < 30:
-                                selected = cand
-                                break
-                            if app_core.ping_stream_liveness(cand, timeout=0.8):
-                                cand["validated_at"] = now
-                                selected = cand
-                                break
-                            else:
-                                app_core._prune_dead_stream(cur_key, cand.get("link") or cand.get("streamUrl"))
-
-                        if not selected and candidates:
-                            selected = candidates[0]
-                        
-                        if selected:
-                            src_name = selected.get("source_name", "Stream")
-                            res = (selected, src_name, None, cached_streams)
+                        if preferred_stream:
+                            # Preferred mirror found - use it directly
+                            src_name = preferred_stream.get("source_name", "Stream")
+                            res = (preferred_stream, src_name, None, cached_streams)
                             if not ep_data:
                                 ep_data = app_core._get_cached_ep_data(cur_key)
-                            with streams_mod._bg_lock:
-                                bg_alive = bool(streams_mod._bg_thread and streams_mod._bg_thread.is_alive())
-                            if not bg_alive and ep_data:
-                                exclude_names = set()
-                                for s in cached_streams:
-                                    if s.get("source_parent_name"):
-                                        exclude_names.add(s["source_parent_name"])
-                                    if s.get("source_name"):
-                                        raw_sname = s["source_name"]
-                                        base_name = re.sub(r"\s*(?:\(\s*)?\b(?:\d+p|\d+k|adaptive|source)\b.*$", "", raw_sname, flags=re.I).strip()
-                                        if base_name:
-                                            exclude_names.add(base_name)
-                                        exclude_names.add(raw_sname.split(" (")[0].strip())
-                                sources_total = len(ep_data.get("episode", {}).get("sourceUrls", []))
-                                if len(exclude_names) < sources_total:
-                                    app_core.start_bg_resolve(ep_data, exclude_names, show_id=ms.show_id, ep=ms.current_ep, ttype=ttype, provider_id=provider_id)
-                    else:
-                        app_core.info("Finding a playable stream...")
+                            # Log the connection (same as fetch_episode_stream does)
+                            from ..core import reporting
+                            reporting.ok(f"Connected: {preferred_stream.get('source_name', src_name)} ({preferred_stream.get('resolution', '?')})")
+                        else:
+                            # 2. No preferred mirror or not available - fall back to normal logic
+                            from ..media.sources import quality_preference_key
+                            def _cached_sort_key(s):
+                                sname = (s.get("source_name") or "").lower()
+                                res = s.get("resolution") or ""
+                                prio = s.get("source_priority", 4)
+                                is_sub = "sub" in sname
+                                is_dub = ("dub" in sname) or ((" eng" in sname or "english" in sname) and not is_sub)
+                                audio_penalty = 1 if (ttype == "sub" and is_dub) or (ttype == "dub" and not is_dub) else 0
+                                is_hard = "hardsub" in sname or "hard-sub" in sname or "hard sub" in sname
+                                is_soft = "softsub" in sname or "all sub" in sname or "multi sub" in sname
+                                is_donghua = str(provider_id or "").lower() in {"animexin", "lucifer", "animekhor"}
+                                if is_donghua:
+                                    sub_rank = 0 if is_hard else (2 if is_soft else 1)
+                                else:
+                                    sub_rank = 0 if is_soft else (2 if is_hard else 1)
+
+                                # Preferred mirror gets highest priority (for sorting fallback candidates)
+                                pref_boost = 0
+                                if pref_name:
+                                    src_name = s.get("source_name") or ""
+                                    if src_name.lower().startswith(pref_name_lower) and (not pref_res_lower or res.lower() == pref_res_lower):
+                                        pref_boost = -100
+
+                                q_key = quality_preference_key(res, target_quality)
+                                return (pref_boost, sub_rank, audio_penalty, q_key, prio)
+
+                            sorted_cached = sorted(cached_streams, key=_cached_sort_key)
+                            candidates = []
+                            for s in sorted_cached:
+                                if s not in candidates:
+                                    candidates.append(s)
+
+                            # Bounded pre-flight check (Max 3 candidate probes)
+                            selected = None
+                            now = time.time()
+                            for cand in candidates[:3]:
+                                validated_at = float(cand.get("validated_at") or 0)
+                                if (now - validated_at) < 30:
+                                    selected = cand
+                                    break
+                                if app_core.ping_stream_liveness(cand, timeout=0.8):
+                                    cand["validated_at"] = now
+                                    selected = cand
+                                    break
+                                else:
+                                    app_core._prune_dead_stream(cur_key, cand.get("link") or cand.get("streamUrl"))
+
+                            if not selected and candidates:
+                                selected = candidates[0]
+
+                            if selected:
+                                src_name = selected.get("source_name", "Stream")
+                                res = (selected, src_name, None, cached_streams)
+                                if not ep_data:
+                                    ep_data = app_core._get_cached_ep_data(cur_key)
+                                with streams_mod._bg_lock:
+                                    bg_alive = bool(streams_mod._bg_thread and streams_mod._bg_thread.is_alive())
+                                if not bg_alive and ep_data:
+                                    exclude_names = set()
+                                    for s in cached_streams:
+                                        if s.get("source_parent_name"):
+                                            exclude_names.add(s["source_parent_name"])
+                                        if s.get("source_name"):
+                                            raw_sname = s["source_name"]
+                                            base_name = re.sub(r"\s*(?:\(\s*)?\b(?:\d+p|\d+k|adaptive|source)\b.*$", "", raw_sname, flags=re.I).strip()
+                                            if base_name:
+                                                exclude_names.add(base_name)
+                                            exclude_names.add(raw_sname.split(" (")[0].strip())
+                                        sources_total = len(ep_data.get("episode", {}).get("sourceUrls", []))
+                                        if len(exclude_names) < sources_total:
+                                            app_core.start_bg_resolve(ep_data, exclude_names, show_id=ms.show_id, ep=ms.current_ep, ttype=ttype, provider_id=provider_id, quality=target_quality)
+                                        else:
+                                            app_core.info("Finding a playable stream...")
+
+                    # Fallback: fetch episode stream if no cached stream was selected or no cached streams available
+                    if res is None:
                         res = app_core.fetch_episode_stream(
                             ms.show_id,
                             ms.current_ep,
@@ -292,12 +349,12 @@ def handle_play_state(
                             ep_data=ep_data,
                         )
                         if ep_data:
-                            app_core._set_cached_ep_data(ep_data, (ms.show_id, ms.current_ep, ttype, provider_id))
+                            app_core._set_cached_ep_data(ep_data, (ms.show_id, ms.current_ep, ttype, provider_id, target_quality))
 
-            if res:
-                ms.selected_stream, first_source_name, _, resolved_streams = res
-                app_core._extend_streams(resolved_streams, key=(ms.show_id, ms.current_ep, ttype, provider_id))
-        if not getattr(args, 'download', False) and not getattr(args, 'print_url', False) and not (args.sources and not ui.initial_sources_prompted):
+                if res:
+                    ms.selected_stream, first_source_name, _, resolved_streams = res
+                    app_core._extend_streams(resolved_streams, key=(ms.show_id, ms.current_ep, ttype, provider_id, target_quality))
+        if not getattr(args, 'download', False) and not getattr(args, 'print_url', False) and not (getattr(args, 'sources', False) and not ui.initial_sources_prompted):
             stream_name = ms.selected_stream.get("source_name", first_source_name or "Stream") if ms.selected_stream else (first_source_name or "Stream")
             resolution = ms.selected_stream.get("resolution", "") if ms.selected_stream else ""
             res_str = f" ({resolution})" if resolution else ""
@@ -416,10 +473,10 @@ def handle_play_state(
                         _player_ui_state["countdown_message"] = ""
 
 
-        if args.sources and not ui.initial_sources_prompted:
+        if getattr(args, "sources", False) and not ui.initial_sources_prompted:
             ui.initial_sources_prompted = True
             if first_source_name is not None and first_source_name != "Local File" and not getattr(ms, "_is_downloads", False):
-                app_core.start_bg_resolve(ep_data, {first_source_name}, show_id=ms.show_id, ep=ms.current_ep, ttype=ttype, provider_id=provider_id)
+                app_core.start_bg_resolve(ep_data, {first_source_name}, show_id=ms.show_id, ep=ms.current_ep, ttype=ttype, provider_id=provider_id, quality=quality)
             app_core._exit_player_screen()
             return "MIRRORS"
 
@@ -428,7 +485,9 @@ def handle_play_state(
             playback_mod._clear_episode_source_state(ms)
             p_name = (ui.ui_show_ctx.get("_provider_name") or (ui.ui_show_ctx.get("_provider") or "").title() or "this provider") if ui.ui_show_ctx else "this provider"
             ep_label = playback_mod._display_episode_label(ui.ui_show_ctx, ms.current_ep, ttype)
-            if ttype == "dub":
+            if getattr(ms, "_is_downloads", False) and not is_download_mode:
+                msg = f"✘ Episode {playback_mod._fmt_ep(ep_label)} is not downloaded locally."
+            elif ttype == "dub":
                 msg = f"No DUB stream available for {playback_mod._fmt_ep(ep_label)} on {p_name}."
             else:
                 msg = f"No stream available for {playback_mod._fmt_ep(ep_label)} on {p_name}."
@@ -436,6 +495,8 @@ def handle_play_state(
                 ui.ui_show_ctx,
                 msg,
             )
+            if is_download_mode:
+                args.download = False
             return "DETAILS"
 
     if args.print_url:
@@ -462,18 +523,18 @@ def handle_play_state(
 
     if getattr(args, 'download', False):
         app_core._exit_player_screen(close_alt=True)
-        
+
         exclude_sources = set()
         download_ok = False
         downloader_choice = getattr(args, "downloader", cfg.get("downloader", "auto"))
-        
+
         extra_args = getattr(args, "extra_args", [])
         if extra_args and extra_args[0] == "--":
             extra_args = extra_args[1:]
-        
+
         while True:
             download_ok = app_core.download_episode(
-                ms.show_title, current_ep_label, ms.selected_stream, 
+                ms.show_title, current_ep_label, ms.selected_stream,
                 cfg.get("download_dir", ""), downloader=downloader_choice,
                 extra_args=extra_args
             )
@@ -484,7 +545,7 @@ def handle_play_state(
                     title = ms.show_title
                     if title not in db["shows"]:
                         db["shows"][title] = {"episodes": []}
-                    
+
                     def build_offline_metadata(s):
                         meta = {}
                         keys_to_keep = [
@@ -494,7 +555,7 @@ def handle_play_state(
                             "endDate", "score", "genres", "tags", "aniListId", "malId",
                             "_display_name", "_display_english_name", "_anilist_list",
                             "_anilist_progress", "_anilist_score", "anilistMatch",
-                            "originalEpisodeCount"
+                            "originalEpisodeCount", "_provider", "provider", "_provider_name", "_provider_data"
                         ]
                         for k in keys_to_keep:
                             if k in s:
@@ -502,7 +563,7 @@ def handle_play_state(
                         if "originalEpisodeCount" not in meta and "episodeCount" in s:
                             meta["originalEpisodeCount"] = s["episodeCount"]
                         return meta
-                        
+
                     db["shows"][title]["metadata"] = build_offline_metadata(s_ctx)
                     ep_str = str(ms.current_ep)
                     if ep_str not in db["shows"][title]["episodes"]:
@@ -511,10 +572,10 @@ def handle_play_state(
                 except Exception:
                     pass
                 break
-            
+
             exclude_sources.add(first_source_name)
             print(f"{YELLOW}Download failed on mirror '{first_source_name}'. Trying next mirror...{RESET}")
-            
+
             res = app_core.fetch_episode_stream(
                 ms.show_id,
                 ms.current_ep,
@@ -546,16 +607,28 @@ def handle_play_state(
             return "PLAY"
         else:
             print(f"\n{GREEN}Downloads complete.{RESET}")
-            if getattr(args, "_from_action_menu_download", False):
-                if download_ok:
-                    app_core.set_action_feedback(ui.ui_show_ctx, f"✔ Downloaded {playback_mod._fmt_ep(current_ep_label)}")
-                else:
-                    app_core.set_action_feedback(ui.ui_show_ctx, f"✖ Download failed for {playback_mod._fmt_ep(current_ep_label)}")
-                args.download = False
+            if download_ok:
+                app_core.set_action_feedback(ui.ui_show_ctx, f"✔ Downloaded {playback_mod._fmt_ep(current_ep_label)}")
+                if getattr(ms, "_is_downloads", False):
+                    new_f = app_core.find_offline_file_for_episode(ms.show_title, current_ep_label, cfg)
+                    if new_f:
+                        ms._download_files[str(ms.current_ep)] = new_f
+                        ms._download_files[str(current_ep_label)] = new_f
+            else:
+                app_core.set_action_feedback(ui.ui_show_ctx, f"✘ Download failed for {playback_mod._fmt_ep(current_ep_label)}")
+            args.download = False
+            if hasattr(args, "_from_action_menu_download"):
                 args._from_action_menu_download = False
-                time.sleep(1.0)
-                return ui.action_prev_state or "DETAILS"
-            return "QUIT"
+            ms.selected_stream = None
+            app_core._clear_streams()
+            if getattr(ms, "_binge_auto_downloading", False):
+                ms._binge_auto_downloading = False
+                if download_ok:
+                    return "PLAY"
+            if getattr(flags, "plain_mode", False) or not sys.stdin.isatty() or getattr(args, "_cli_episode_passed", False):
+                return "QUIT"
+            time.sleep(1.0)
+            return "DETAILS"
 
 
 
@@ -583,6 +656,7 @@ def handle_play_state(
 
         if aniskip_enabled and mal_id:
             from concurrent.futures import ThreadPoolExecutor
+
             from ..media.aniskip import fetch_skip_times
             with ThreadPoolExecutor(max_workers=2) as pool:
                 pool.submit(fetch_skip_times, mal_id, episode_progress_number(target_ep))
@@ -634,7 +708,7 @@ def handle_play_state(
 
         if first_source_name is not None and first_source_name != "Local File" and not getattr(ms, "_is_downloads", False):
             exclude = {first_source_name}
-            app_core.start_bg_resolve(ep_data, exclude, show_id=ms.show_id, ep=ms.current_ep, ttype=ttype, provider_id=provider_id)
+            app_core.start_bg_resolve(ep_data, exclude, show_id=ms.show_id, ep=ms.current_ep, ttype=ttype, provider_id=provider_id, quality=quality)
 
         if result == "NEXT" and ms.current_ep_index + 1 < ms.total_eps:
             ms.current_ep_index += 1
@@ -667,7 +741,7 @@ def handle_play_state(
     else:
         if first_source_name is not None and first_source_name != "Local File" and not getattr(ms, "_is_downloads", False):
             exclude = {first_source_name}
-            app_core.start_bg_resolve(ep_data, exclude, show_id=ms.show_id, ep=ms.current_ep, ttype=ttype, provider_id=provider_id)
+            app_core.start_bg_resolve(ep_data, exclude, show_id=ms.show_id, ep=ms.current_ep, ttype=ttype, provider_id=provider_id, quality=quality)
 
         next_episode = episode_id_at(episode_ids, ms.current_ep_index + 1) if ms.current_ep_index + 1 < ms.total_eps else None
 
@@ -701,7 +775,7 @@ def handle_play_state(
             is_manual_switch = (result == "NEXT_MIRROR")
             failed_stream = ms.selected_stream
             failed_name = (failed_stream.get("source_name") or "selected mirror") if failed_stream else "selected mirror"
-            failed_base = failed_name.split(" (")[0].strip() if failed_name else ""
+            failed_name.split(" (")[0].strip() if failed_name else ""
 
             if is_manual_switch:
                 app_core.info(f"Switching from '{failed_name}' to next mirror...")
@@ -716,7 +790,7 @@ def handle_play_state(
                 app_core.save_resume_time(ms.show_id, ms.current_ep, int(time_pos))
                 app_core.save_resume_time(ms.show_id, current_ep_label, int(time_pos))
 
-            cur_key = (ms.show_id, ms.current_ep, ttype, provider_id)
+            cur_key = (ms.show_id, ms.current_ep, ttype, provider_id, quality)
             if failed_stream and not is_manual_switch:
                 app_core._prune_dead_stream(cur_key, failed_stream.get("link") or failed_stream.get("streamUrl"))
 
@@ -730,7 +804,8 @@ def handle_play_state(
                 failed_mirrors.add(failed_stream.get("link") or failed_stream.get("streamUrl"))
             ms._failed_mirrors = failed_mirrors
 
-            cached_streams = app_core._stream_snapshot(ms.show_id, ms.current_ep, ttype, provider_id)
+            cached_ep_data = app_core._get_cached_ep_data(cur_key)
+            cached_streams = app_core._stream_snapshot(ms.show_id, ms.current_ep, ttype, provider_id, quality, cached_ep_data)
             remaining = [
                 s for s in cached_streams
                 if (s.get("link") or s.get("streamUrl")) not in failed_mirrors
@@ -857,8 +932,7 @@ def handle_play_state(
                 app_core.clear_pending_completion(ms.show_id)
 
         should_update_history = (
-            not sync_enabled
-            and not getattr(ms, "_is_downloads", False)
+            not getattr(ms, "_is_downloads", False)
             and playback_updates_history(
                 result, percent, time_pos, duration, played_seconds, start_time=start_time
             )
@@ -867,7 +941,7 @@ def handle_play_state(
             app_core.save_history(ui.ui_show_ctx, ms.current_ep, ttype)
         elif not getattr(ms, "_is_downloads", False) and played_seconds >= 5:
             app_core.touch_history(ui.ui_show_ctx, ttype)
-            
+
         if getattr(ms, "_is_downloads", False) and playback_updates_history(
             result, percent, time_pos, duration, played_seconds, start_time=start_time
         ):
@@ -879,6 +953,37 @@ def handle_play_state(
                     if str(ms.current_ep) not in watched:
                         watched.append(str(ms.current_ep))
                     ui.ui_show_ctx["watched_episodes"] = watched
+
+                if getattr(ms, "auto_delete_watched", False):
+                    buf = int(getattr(ms, "auto_delete_buffer", 1))
+                    watched_list = ui.ui_show_ctx.get("watched_episodes", [])
+                    dl_files = getattr(ms, "_download_files", {})
+                    watched_dl = []
+                    for eid in episode_ids:
+                        eid_lbl = playback_mod._display_episode_label(ui.ui_show_ctx, eid, ttype)
+                        if (str(eid) in watched_list or str(eid_lbl) in watched_list) and (str(eid) in dl_files or str(eid_lbl) in dl_files):
+                            watched_dl.append((eid, eid_lbl))
+
+                    if buf >= 0 and len(watched_dl) > buf:
+                        to_del = watched_dl[:-buf] if buf > 0 else watched_dl
+                        deleted_labels = []
+                        for deid, dlbl in to_del:
+                            if app_core.delete_offline_episode(folder_name, dlbl, cfg) or app_core.delete_offline_episode(folder_name, str(deid), cfg):
+                                dl_files.pop(str(deid), None)
+                                dl_files.pop(str(dlbl), None)
+                                dl_files.pop(deid, None)
+                                dl_files.pop(dlbl, None)
+                                dl_eps = ui.ui_show_ctx.get("_downloaded_episodes", [])
+                                if str(dlbl) in dl_eps:
+                                    dl_eps.remove(str(dlbl))
+                                if str(deid) in dl_eps:
+                                    dl_eps.remove(str(deid))
+                                deleted_labels.append(str(dlbl))
+                        if deleted_labels:
+                            app_core.set_action_feedback(
+                                ui.ui_show_ctx,
+                                f"Auto-deleted watched EP {', '.join(deleted_labels)}"
+                            )
             except Exception:
                 pass
 
@@ -910,6 +1015,38 @@ def handle_play_state(
             if result == "EOF" and (args.binge or cfg.get("binge")) and auto_scrobbled:
                 if ms.current_ep_index + 1 < ms.total_eps:
                     next_ep = episode_id_at(episode_ids, ms.current_ep_index + 1)
+                    if getattr(ms, "_is_downloads", False):
+                        lbl_next = playback_mod._display_episode_label(ui.ui_show_ctx, next_ep, ttype)
+                        dl_files = getattr(ms, "_download_files", {})
+                        is_next_dl = str(next_ep) in dl_files or str(lbl_next) in dl_files or bool(app_core.find_offline_file_for_episode(ms.show_title, lbl_next, cfg))
+                        if not is_next_dl:
+                            if getattr(ms, "auto_download_next", False):
+                                if app_core.is_online():
+                                    ms.current_ep_index += 1
+                                    ms.current_ep = next_ep
+                                    ms.selected_stream = None
+                                    ms._failed_mirrors = set()
+                                    app_core._clear_streams()
+                                    ms._binge_auto_downloading = True
+                                    args.download = True
+                                    app_core._ipc_player.quit()
+                                    print(f"\n\033[1;36mAuto-downloading next episode ({lbl_next}) for binge playback…\033[0m")
+                                    return "PLAY"
+                                else:
+                                    app_core._ipc_player.quit()
+                                    app_core.set_action_feedback(
+                                        ui.ui_show_ctx,
+                                        f"Offline: cannot download EP {lbl_next}. Reached end of downloaded episodes."
+                                    )
+                                    return "DETAILS"
+                            else:
+                                app_core._ipc_player.quit()
+                                app_core.set_action_feedback(
+                                    ui.ui_show_ctx,
+                                    "Reached end of downloaded episodes."
+                                )
+                                return "DETAILS"
+
                     if flags.incognito_mode:
                         ms.pending_osd_msg = None
                     else:

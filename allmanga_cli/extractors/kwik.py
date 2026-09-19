@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import re
-import urllib.parse
+
 from bs4 import BeautifulSoup
 
-from .base import BaseExtractor, CURL_CFFI_AVAILABLE, cffi_requests
+from .base import CURL_CFFI_AVAILABLE, BaseExtractor, cffi_requests
 from .unpack import JsUnpacker
 
 

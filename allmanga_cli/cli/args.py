@@ -3,27 +3,18 @@
 import sys
 
 from .args_common import (
-    __version__,
-    COMMAND_NAMES,
-    COMPLETION_SHELLS,
     ANILIST_COMMAND_TARGETS,
+    COMPLETION_SHELLS,
     CLIParser,
     CommandHelpFormatter,
     MinimalHelpFormatter,
+    __version__,
+    _add_anilist_options,
+    _add_debug_option,
+    _add_plain_option,
     _configure_help_parser,
     _provider_command_names,
     _set_cli_defaults,
-    _add_debug_option,
-    _add_plain_option,
-    _add_anilist_options,
-    _provider_help,
-    _help_color_enabled,
-    _anilist_target,
-    _auth_action,
-    _add_provider_option,
-    _add_search_options,
-    _add_download_options,
-    _add_resume_options,
 )
 from .args_subcommands import register_all_subcommands
 

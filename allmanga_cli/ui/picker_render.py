@@ -4,8 +4,8 @@ import os
 import select
 
 from ..core.terminal import sanitize_terminal_text, truncate_display
-from .spinner import loading_line, spinner_frame
-
+from .fuzzy import fuzzy_highlight, fuzzy_match
+from .spinner import spinner_frame
 
 NORMAL = "\033[38;5;252m"
 SELECTED = "\033[1;97m"
@@ -78,7 +78,6 @@ def get_key(descriptor):
     return char.decode("utf-8", errors="ignore")
 
 
-from .fuzzy import fuzzy_match, fuzzy_highlight
 
 
 def match(query, text):

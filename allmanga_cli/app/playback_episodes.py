@@ -7,19 +7,17 @@ import re
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from ..context import CliFlags, UiState, MachineState
+    from ..context import CliFlags, MachineState, UiState
 
+from .. import app_core
+from ..core.terminal import truncate_display as _truncate_display
 from ..domain.episodes import (
-    episode_id_at,
-    episode_index_for_id,
-    episode_label,
     clean_episode_identifier,
+    episode_id_at,
+    episode_label,
 )
-from ..playback.rules import should_clear_query_on_child_left
 from ..ui.help import picker_help
 from ..ui.picker import tui_pick
-from ..core.terminal import truncate_display as _truncate_display
-from .. import app_core
 
 _C_HINT = "\033[38;5;244m"
 _RST    = "\033[0m"
@@ -62,7 +60,7 @@ def _fmt_ep(label):
     return label_str.title()
 
 
-def _clear_episode_source_state(ms: "MachineState") -> None:
+def _clear_episode_source_state(ms: MachineState) -> None:
     ms.ep_cache_key = None
     ms.ep_cache_data = None
     ms.selected_stream = None
@@ -186,20 +184,26 @@ def handle_episode_state(
 
     def _build_ep_option(eid):
         lbl = episode_label(eid, episode_labels)
-        if getattr(ms, "_is_downloads", False) and not _is_ep_downloaded(eid, lbl):
+        if getattr(ms, "_is_downloads", False):
+            if _is_ep_downloaded(eid, lbl):
+                return f"{lbl}  \033[38;2;166;227;161m✔\033[0m"
             return f"\033[38;5;244m{lbl}\033[0m"
         return lbl
 
     def _compute_disabled_indices():
+        return set()
+
+    def _ep_hint_fn(oi):
         if not getattr(ms, "_is_downloads", False):
-            return set()
-        dis = set()
-        for opt_i, orig_i in enumerate(display_order):
-            eid = episode_ids[orig_i]
-            lbl = episode_label(eid, episode_labels)
-            if not _is_ep_downloaded(eid, lbl):
-                dis.add(opt_i)
-        return dis
+            return ""
+        if not (0 <= oi < len(display_order)):
+            return ""
+        orig_i = display_order[oi]
+        eid = episode_ids[orig_i]
+        lbl = episode_label(eid, episode_labels)
+        if _is_ep_downloaded(eid, lbl):
+            return "ready to watch"
+        return f"\033[38;5;167m✘\033[38;5;244m not downloaded\033[0m"
 
     ep_opts = [_build_ep_option(episode_ids[i]) for i in display_order]
     disabled_indices = _compute_disabled_indices()
@@ -207,25 +211,38 @@ def handle_episode_state(
     _hdr_cache: dict[tuple, str] = {}
 
     def _ep_hdr(si):
-        try: w = os.get_terminal_size().columns
-        except OSError: w = 80
+        try:
+            w = os.get_terminal_size().columns
+        except OSError:
+            w = 80
         feedback = app_core.get_active_feedback(show)
-        cache_key = (w, ttype, feedback, getattr(ms, "_is_downloads", False))
+        cache_key = (w, ttype, feedback, getattr(ms, "_is_downloads", False), si)
         if cache_key in _hdr_cache:
             return _hdr_cache[cache_key]
         parts = []
         if show:
             app_core.build_info_panel(show, ttype, w, parts, local_only=getattr(ms, "_is_downloads", False))
 
-        _t = lambda s: _truncate_display(s, max(1, w - 1))
+        def _t(s):
+            return _truncate_display(s, max(1, w - 1))
         direct_single = ui.ep_prev_state == "SEARCH" and len(ms.shows) <= 1 and ms.just_searched
         nav_text = "Esc=Search" if direct_single else "Esc=Back"
         if feedback:
             parts.append(f"\033[38;5;222m{_t(feedback)}{_RST}")
         else:
             p_name = (show.get("_provider_name") or (show.get("_provider") or "").title()) if show else ""
-            prefix = f"{p_name} • " if p_name else ""
-            parts.append(f"{_C_HINT}{_t(prefix + 'Tab=Sub/Dub • Ctrl+R=flip • Enter=play • ?=Help • ' + nav_text)}{_RST}")
+            offline_badge = "\033[38;2;225;85;85m[Offline]\033[0m • " if not app_core.is_online() else ""
+            prefix = f"{offline_badge}{p_name} • " if p_name else offline_badge
+            action_nav = ""
+            if getattr(ms, "_is_downloads", False) and 0 <= si < len(display_order):
+                orig_i = display_order[si]
+                eid = episode_ids[orig_i]
+                lbl = episode_label(eid, episode_labels)
+                if _is_ep_downloaded(eid, lbl):
+                    action_nav = "Enter=Play • Del=Delete • "
+                else:
+                    action_nav = "Enter=Download • "
+            parts.append(f"{_C_HINT}{_t(prefix + action_nav + 'Tab=Sub/Dub • Ctrl+R=flip • ?=Help • ' + nav_text)}{_RST}")
         res = "\n".join(parts)
         _hdr_cache[cache_key] = res
         return res
@@ -273,6 +290,63 @@ def handle_episode_state(
         app_core.set_action_feedback(show, f"Order: {'Newest first (N → 1)' if new_order == 'desc' else 'Oldest first (1 → N)'}")
         return (ep_opts, _ep_hdr(0), disabled_indices)
 
+    def _delete_ep_file(sel_idx):
+        nonlocal ep_opts, disabled_indices
+        if not getattr(ms, "_is_downloads", False):
+            return None
+        if not (0 <= sel_idx < len(display_order)):
+            return None
+        orig_i = display_order[sel_idx]
+        eid = episode_ids[orig_i]
+        lbl = episode_label(eid, episode_labels)
+        if not _is_ep_downloaded(eid, lbl):
+            app_core.set_action_feedback(show, f"Episode {lbl} is not downloaded.")
+            _hdr_cache.clear()
+            return ep_opts, _ep_hdr(sel_idx)
+
+        folder_name = show.get("_folder_name", ms.show_title)
+        deleted = app_core.delete_offline_episode(folder_name, lbl, cfg)
+        if not deleted:
+            deleted = app_core.delete_offline_episode(folder_name, str(eid), cfg)
+
+        if deleted:
+            dl_files = getattr(ms, "_download_files", {})
+            dl_files.pop(str(eid), None)
+            dl_files.pop(str(lbl), None)
+            dl_files.pop(eid, None)
+            dl_files.pop(lbl, None)
+            dl_eps = show.get("_downloaded_episodes", [])
+            if str(lbl) in dl_eps:
+                dl_eps.remove(str(lbl))
+            if str(eid) in dl_eps:
+                dl_eps.remove(str(eid))
+            app_core.set_action_feedback(show, f"✔ Deleted EP {lbl}")
+        else:
+            app_core.set_action_feedback(show, f"✘ Could not delete EP {lbl}")
+
+        _hdr_cache.clear()
+        ep_opts = [_build_ep_option(episode_ids[i]) for i in display_order]
+        disabled_indices = _compute_disabled_indices()
+        return ep_opts, _ep_hdr(sel_idx)
+
+    def _can_delete_ep(oi):
+        if not getattr(ms, "_is_downloads", False):
+            return False
+        if not (0 <= oi < len(display_order)):
+            return False
+        orig_i = display_order[oi]
+        eid = episode_ids[orig_i]
+        lbl = episode_label(eid, episode_labels)
+        return _is_ep_downloaded(eid, lbl)
+
+    def _ep_delete_prompt(oi):
+        if 0 <= oi < len(display_order):
+            orig_i = display_order[oi]
+            eid = episode_ids[orig_i]
+            lbl = episode_label(eid, episode_labels)
+            return f"Delete downloaded EP {lbl}? y/N"
+        return "Delete downloaded episode? y/N"
+
     while True:
         if ms.total_eps <= 1:
             idx = 0
@@ -284,6 +358,7 @@ def handle_episode_state(
                 "Quit" if direct_single else "Go back",
                 "Toggle Sub/Dub",
                 reverse_label="Flip order",
+                delete_label="Delete episode" if getattr(ms, "_is_downloads", False) else None,
             )
             init_sel = display_order.index(ms.current_ep_index) if ms.current_ep_index in display_order else 0
             idx = tui_pick(
@@ -292,6 +367,10 @@ def handle_episode_state(
                 header_fn=_ep_hdr,
                 tab_fn=_ep_tab_fn,
                 reverse_fn=_ep_reverse_fn,
+                delete_fn=_delete_ep_file if getattr(ms, "_is_downloads", False) else None,
+                delete_prompt=_ep_delete_prompt if getattr(ms, "_is_downloads", False) else None,
+                can_delete_fn=_can_delete_ep if getattr(ms, "_is_downloads", False) else None,
+                hints=_ep_hint_fn if getattr(ms, "_is_downloads", False) else None,
                 info_fn=app_core.make_single_show_info_fn(ui.ui_show_ctx, ui),
                 help_dict=hd6,
                 disabled_indices=disabled_indices,
@@ -305,11 +384,21 @@ def handle_episode_state(
         target_eid = episode_id_at(episode_ids, target_idx)
         target_lbl = episode_label(target_eid, episode_labels)
         if getattr(ms, "_is_downloads", False) and not _is_ep_downloaded(target_eid, target_lbl):
-            app_core.set_action_feedback(show, f"Episode {target_lbl} is not downloaded.")
-            _hdr_cache.clear()
-            if ms.total_eps <= 1:
-                return ui.ep_prev_state or "DETAILS"
-            continue
+            if not app_core.is_online():
+                app_core.set_action_feedback(show, "✘ Cannot download: Offline")
+                _hdr_cache.clear()
+                if ms.total_eps <= 1:
+                    return ui.ep_prev_state or "DETAILS"
+                continue
+            ms.current_ep_index = target_idx
+            ms.current_ep = target_eid
+            ms._android_pending_watched_ep = None
+            ms._android_pending_watched_idx = None
+            ui.action_prev_state = "EPISODE"
+            ms.selected_stream = None
+            app_core._clear_streams()
+            args.download = True
+            return "PLAY"
 
         ms.current_ep_index = target_idx
         ms.current_ep = target_eid

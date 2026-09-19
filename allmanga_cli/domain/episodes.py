@@ -66,7 +66,7 @@ def episode_index_for_id(episode_ids, episode_id, labels=None):
         lbl = str(labels.get(candidate, "")) if labels else ""
         if not lbl:
             lbl = str(labels.get(candidate_str, "")) if labels else ""
-        
+
         # Exact string/label equality
         if lbl and lbl.strip().lower() == episode_string.lower():
             return index
@@ -267,7 +267,7 @@ def parse_episode_label(label):
         }
 
 def anilist_progress_target_for_episode(label, fallback=0):
-    from decimal import Decimal, InvalidOperation, ROUND_FLOOR
+    from decimal import ROUND_FLOOR, Decimal, InvalidOperation
     try:
         value = Decimal(str(label))
     except (InvalidOperation, TypeError, ValueError):

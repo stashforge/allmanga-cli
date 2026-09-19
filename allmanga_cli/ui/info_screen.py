@@ -80,7 +80,7 @@ def _fmt_fuzzy_date(d: dict | str | None) -> str:
     if isinstance(d, str):
         return d
     y = d.get("year")
-    m = d.get("month") or d.get("date") and None  # month key
+    d.get("month") or d.get("date") and None  # month key
     # support both {year, month, date} and {year, month, day}
     month = d.get("month")
     day   = d.get("date") or d.get("day")
@@ -175,7 +175,7 @@ def _build_content(show: dict, w: int) -> list[str]:
         ep_parts.append(f"Available {avail_sub}")
     if total_eps:
         ep_parts.append(f"Total {total_eps}")
-        
+
     fmt = str(show.get("format") or show.get("type") or "").upper()
     if ep_parts and fmt != "MOVIE" and total_eps != 1:
         _section("Episodes", " • ".join(ep_parts), w, lines)
@@ -238,12 +238,18 @@ def _build_content(show: dict, w: int) -> list[str]:
 def show_info_screen(
     show: dict | None,
     *,
-    poster_manager: "PosterManager | None" = None,
-    ui: "UiState | None" = None,
+    poster_manager: PosterManager | None = None,
+    ui: UiState | None = None,
 ) -> None:
-    """Render a full-screen info overlay for *show* and block until ESC/Q."""
     if not show:
         return
+
+    if (not show.get("description") or not show.get("genres")) and not show.get("_enrichment_attempted"):
+        try:
+            from ..core.enrichment import enrich_show_if_missing
+            enrich_show_if_missing(show)
+        except Exception:
+            pass
 
     tty_fd = -1
     tty_file = None
@@ -269,12 +275,16 @@ def show_info_screen(
             ui.hovered_show_obj = show
         poster_raw = (poster_manager.get(show) if poster_manager else None) or ""
 
+        from . import terminal_images
         from .covers import (
             POSTER_HEIGHT,
+        )
+        from .covers import (
             poster_symbol_lines as _poster_symbol_lines,
+        )
+        from .covers import (
             poster_uses_native_protocol as _poster_uses_native_protocol,
         )
-        from . import terminal_images
 
         def _render(scroll_offset: int = 0) -> int:
             try:

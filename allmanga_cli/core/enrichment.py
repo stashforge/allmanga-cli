@@ -1,12 +1,14 @@
 import logging
+
 from allmanga_cli.core.anilist import fetch_anilist_by_ids
 from allmanga_cli.core.storage import get_source_anilist_matches, save_source_anilist_matches
 from allmanga_cli.domain.matching import choose_confident_match, reset_title_cache
 
+
 def _merge_anilist_into_provider(provider_show, anilist_show):
     """
     Merges AniList metadata into a provider show in a strictly additive manner.
-    It will not overwrite fields that the provider already populated, 
+    It will not overwrite fields that the provider already populated,
     unless they are empty or 'Unknown'.
     """
     # Essential tracking fields
@@ -34,7 +36,7 @@ def _merge_anilist_into_provider(provider_show, anilist_show):
         provider_show["_next_airing_at"] = anilist_show.get("_next_airing_at")
 
     # Additive metadata merging
-    for field in ("thumbnail", "score", "genres", "episodeCount", "airedStart", 
+    for field in ("thumbnail", "score", "genres", "episodeCount", "airedStart",
                   "airedEnd", "season", "status", "type", "format", "description"):
         provider_val = provider_show.get(field)
         al_val = anilist_show.get(field)
@@ -43,19 +45,19 @@ def _merge_anilist_into_provider(provider_show, anilist_show):
 
     # Advanced Alt-Title logic (swapping english/romaji based on provider's primary name)
     main_name = provider_show.get("_display_name")
-    
+
     al_romaji = anilist_show.get("romajiName")
     al_english = anilist_show.get("englishName")
-    
+
     alt_names = []
     if main_name == al_romaji and al_english:
         alt_names = [al_english]
     elif main_name == al_english and al_romaji:
         alt_names = [al_romaji]
-    
+
     if not alt_names:
         alt_names = list(anilist_show.get("altNames") or [])
-        
+
     provider_val = provider_show.get("altNames")
     if (not provider_val or provider_val == []) and alt_names:
         provider_show["altNames"] = alt_names
@@ -180,6 +182,42 @@ def enrich_provider_results_background(unmatched_shows, token="", on_updated_cal
         logging.getLogger(__name__).debug(f"Background AniList enrich error: {e}")
 
 
+def _persist_enrichment_state(show: dict):
+    """Persist enrichment flags (_title_enriched, _enrichment_attempted) to history."""
+    if not show:
+        return
+    # Try multiple ID fields for matching
+    show_id = str(show.get("_id") or show.get("_provider_id") or show.get("id") or "")
+    if not show_id:
+        return
+    try:
+        from ..core.storage import load_history, save_refreshed_history
+        hist = load_history()
+        patched = False
+        for entry in hist:
+            s = entry.get("show")
+            if not s:
+                continue
+            # Match by any ID field
+            entry_id = str(s.get("_id") or s.get("_provider_id") or s.get("id") or "")
+            if entry_id and entry_id == show_id:
+                for k in ("_title_enriched", "_enrichment_attempted", "_enrichment_in_progress"):
+                    v = show.get(k)
+                    if v is not None:
+                        s[k] = v
+                    elif k == "_enrichment_in_progress" and k in s:
+                        s.pop(k, None)
+                patched = True
+        if patched:
+            save_refreshed_history(hist)
+        else:
+            from ..core.reporting import debug_warn
+            debug_warn(f"Enrichment persist: no matching history entry for show_id={show_id}")
+    except Exception as e:
+        from ..core.reporting import debug_warn
+        debug_warn(f"Failed to persist enrichment state for {show_id}", e)
+
+
 def enrich_provider_results(results, token, fuzzy_anilist_results=None):
     """
     Legacy sync wrapper. Performs fast in-memory enrichment first, and fetches any missing
@@ -191,58 +229,182 @@ def enrich_provider_results(results, token, fuzzy_anilist_results=None):
     return enriched
 
 
-def enrich_show_if_missing(show: dict) -> None:
-    if not show:
-        return
-    if show.get("_title_enriched") or show.get("aniListId") or show.get("_anilist_score"):
-        show["_title_enriched"] = True
-        return
+def enrich_show_if_missing(show: dict) -> bool:
+    if not show or not isinstance(show, dict):
+        return False
 
-    from ..providers.shared.models import title_provider_id, title_provider_key
-    from ..providers import get_provider
-    from ..services.http import request_json as _req
-    from ..core.reporting import debug_warn
-    from ..core.storage import load_config
+    has_desc = bool(show.get("description"))
+    has_genres = bool(show.get("genres"))
+    has_al = bool(show.get("aniListId") or show.get("anilistMatch"))
 
-    show_id = title_provider_id(show)
-    if not show_id:
+    if has_desc and has_genres and has_al:
         show["_title_enriched"] = True
-        return
+        show["_enrichment_attempted"] = True
+        # Persist the enriched state to history
+        _persist_enrichment_state(show)
+        return False
 
-    provider = get_provider(title_provider_key(show), _req)
-    if provider.id not in ("anidb", "anidbapp", "animexin", "lucifer", "animekhor", "animegg", "anizone"):
-        show["_title_enriched"] = True
-        return
+    # Don't re-attempt enrichment if we already tried and failed (no data to show for it)
+    if show.get("_enrichment_attempted") and not (has_desc and has_genres and has_al):
+        return False
 
-    get_title_fn = getattr(provider, "get_title", None)
-    if not get_title_fn:
-        show["_title_enriched"] = True
-        return
+    if show.get("_enrichment_in_progress"):
+        return False
+
+    show["_enrichment_in_progress"] = True
+    show["_enrichment_attempted"] = True
+    _persist_enrichment_state(show)
+    updated = False
 
     try:
-        title_data = get_title_fn(show_id)
-        show["_title_enriched"] = True
-        if title_data:
-            # Merge any newly scraped data (description, episodes, etc.) into the active show object
-            for k, v in title_data.items():
-                if k in ("status", "episodeCount", "_next_airing_ep", "_next_airing_at", "_next_airing_time", "aniListId", "malId", "format") and v:
-                    show[k] = v
-                elif v and not show.get(k):
-                    show[k] = v
-                elif k == "availableEpisodes" and isinstance(v, dict):
-                    show.setdefault(k, {})
-                    for ep_k, ep_v in v.items():
-                        if ep_v > show[k].get(ep_k, 0):
-                            show[k][ep_k] = ep_v
+        from ..core.anilist import search_anilist
+        from ..core.reporting import debug_warn
+        from ..core.storage import load_config
+        from ..domain.matching import choose_confident_match
+        from ..providers import get_provider
+        from ..providers.shared.models import title_provider_id, title_provider_key
+        from ..services.http import request_json as _req
 
-            if title_data.get("aniListId") or title_data.get("malId"):
-                token = load_config().get("anilist_token")
-                al_ids = [title_data["aniListId"]] if title_data.get("aniListId") else None
-                mal_ids = [title_data["malId"]] if title_data.get("malId") else None
+        show_id = title_provider_id(show)
+        pkey = title_provider_key(show)
+
+        # 1. Provider title fetch (if provider implements get_title)
+        if show_id and pkey:
+            try:
+                provider = get_provider(pkey, _req)
+                get_title_fn = getattr(provider, "get_title", None)
+                if get_title_fn:
+                    title_data = get_title_fn(show_id)
+                    if title_data and isinstance(title_data, dict):
+                        for k, v in title_data.items():
+                            if k in ("status", "episodeCount", "_next_airing_ep", "_next_airing_at", "_next_airing_time", "aniListId", "malId", "format", "score") and v:
+                                if show.get(k) != v:
+                                    show[k] = v
+                                    updated = True
+                            elif v and not show.get(k):
+                                show[k] = v
+                                updated = True
+                            elif k == "availableEpisodes" and isinstance(v, dict):
+                                show.setdefault(k, {})
+                                for ep_k, ep_v in v.items():
+                                    if ep_v > show[k].get(ep_k, 0):
+                                        show[k][ep_k] = ep_v
+                                        updated = True
+            except Exception as e:
+                debug_warn("Provider get_title enrichment failed", e)
+
+        # 2. Direct AniList ID lookup
+        al_id = show.get("aniListId")
+        if not al_id and show_id and str(show_id).isdigit() and pkey in ("anikoto", "miruro"):
+            al_id = str(show_id)
+        mal_id = show.get("malId")
+
+        token = ""
+        try:
+            token = load_config().get("anilist_token") or ""
+        except Exception:
+            pass
+
+        if al_id or mal_id:
+            try:
+                al_ids = [int(al_id)] if al_id else None
+                mal_ids = [int(mal_id)] if mal_id else None
                 al_data = fetch_anilist_by_ids(token, anilist_ids=al_ids, mal_ids=mal_ids)
                 if al_data:
                     _merge_anilist_into_provider(show, al_data[0])
-    except Exception as e:
-        show["_title_enriched"] = True
-        debug_warn("Late enrichment failed", e)
+                    updated = True
+            except Exception as e:
+                debug_warn("AniList ID enrichment failed", e)
 
+        # 3. Fallback AniList search if description or ID is still missing
+        if not show.get("description") or not (show.get("aniListId") or show.get("anilistMatch")):
+            titles_to_try = []
+            for t in (
+                show.get("name"),
+                show.get("englishName"),
+                show.get("romajiName"),
+                title_data.get("name") if 'title_data' in locals() and title_data else None,
+                show.get("name", "").replace("-", "") if "-" in show.get("name", "") else None,
+            ):
+                if t and t not in titles_to_try:
+                    titles_to_try.append(t)
+
+            for title_name in titles_to_try:
+                try:
+                    candidates = search_anilist(token, title_name)
+                    if not candidates:
+                        import re
+                        clean_name = re.sub(r'\s*[\(\[]\s*\d{4}\s*[\)\]]', '', title_name).strip()
+                        if clean_name and clean_name != title_name:
+                            candidates = search_anilist(token, clean_name)
+                    if candidates:
+                        best = choose_confident_match(show, candidates) or candidates[0]
+                        _merge_anilist_into_provider(show, best)
+                        updated = True
+                        break
+                except Exception as e:
+                    debug_warn("AniList fallback title search failed", e)
+
+        # 4. Cache poster image to disk
+        thumb_url = show.get("thumbnail")
+        if thumb_url and thumb_url.startswith("http"):
+            try:
+                import hashlib
+                import os
+
+                from ..core.storage import cover_cache_dir
+                from ..ui.covers import enforce_cache_limits, fetch_cover_bytes
+                w_dir = cover_cache_dir()
+                os.makedirs(w_dir, exist_ok=True)
+                out_path = os.path.join(w_dir, f"{hashlib.sha256(thumb_url.encode('utf-8')).hexdigest()[:32]}.jpg")
+                if not os.path.exists(out_path):
+                    img_data = fetch_cover_bytes(thumb_url)
+                    if img_data:
+                        with open(out_path, "wb") as f:
+                            f.write(img_data)
+                        enforce_cache_limits(w_dir)
+            except Exception:
+                pass
+
+        # 5. Persist to history.json if this show is present in history
+        # Only mark as enriched if we actually got useful data
+        has_desc = bool(show.get("description"))
+        has_genres = bool(show.get("genres"))
+        has_al = bool(show.get("aniListId") or show.get("anilistMatch"))
+        if has_desc and has_genres and has_al:
+            show["_title_enriched"] = True
+
+        if show_id:
+            try:
+                from ..core.storage import load_history, save_refreshed_history
+                hist = load_history()
+                patched = False
+                for entry in hist:
+                    s = entry.get("show")
+                    if s and str(s.get("_id") or s.get("id") or "") == str(show_id):
+                        for k in (
+                            "description", "genres", "banner", "format", "type", "score",
+                            "status", "season", "airedStart", "airedEnd", "thumbnail",
+                            "englishName", "nativeName", "altNames", "aniListId", "malId",
+                            "anilistMatch", "_next_airing_ep", "_next_airing_at", "_next_airing_time",
+                            "_anilist_score", "_title_enriched", "_enrichment_attempted"
+                        ):
+                            v = show.get(k)
+                            if v is not None:
+                                s[k] = v
+                        patched = True
+                if patched:
+                    save_refreshed_history(hist)
+            except Exception as e:
+                debug_warn("Failed to persist enriched show to history", e)
+
+        if updated:
+            try:
+                from ..ui.info_panel import invalidate_panel_cache
+                invalidate_panel_cache()
+            except Exception:
+                pass
+
+        return updated
+    finally:
+        show.pop("_enrichment_in_progress", None)

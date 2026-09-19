@@ -2,7 +2,6 @@
 
 import http.client
 import io
-import json
 import re
 import ssl
 import time
@@ -12,7 +11,6 @@ from queue import Empty, Queue
 
 from ..core.api import read_json_response
 from ..media.urls import validate_optional_referer, validate_stream_url
-
 
 SSL_CTX = ssl.create_default_context()
 SSL_CTX.check_hostname = False

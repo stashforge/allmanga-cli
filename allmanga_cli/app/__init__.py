@@ -16,28 +16,33 @@ details   — handle_details_state, handle_update_progress_state,
             handle_update_status_state, handle_update_score_state
 playback  — handle_episode_state, handle_play_state,
             handle_mirrors_state, handle_action_menu_state,
+            handle_browser_play_state, handle_episode_state,
+            handle_play_state, handle_mirrors_state, handle_action_menu_state,
             handle_browser_play_state
 """
 
-from .search import handle_search_state, handle_history_state
 from .anilist import (
-    handle_anilist_menu_state,
     handle_anilist_airing_state,
     handle_anilist_browse_state,
+    handle_anilist_menu_state,
     handle_anilist_search_state,
 )
 from .details import (
     handle_details_state,
+)
+from .details_modals import (
     handle_update_progress_state,
-    handle_update_status_state,
     handle_update_score_state,
+    handle_update_status_state,
 )
 from .playback import (
-    handle_episode_state,
-    handle_play_state,
-    handle_mirrors_state,
     handle_action_menu_state,
+    handle_episode_state,
+    handle_mirrors_state,
+    handle_play_state,
+    handle_browser_play_state,
 )
+from .search import handle_history_state, handle_search_state
 
 __all__ = [
     "handle_search_state",
@@ -54,4 +59,5 @@ __all__ = [
     "handle_play_state",
     "handle_mirrors_state",
     "handle_action_menu_state",
+    "handle_browser_play_state",
 ]

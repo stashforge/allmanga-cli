@@ -6,7 +6,6 @@ from ..core.terminal import (
     display_width,
     sanitize_terminal_text,
     split_display_prefix,
-    truncate_display,
 )
 
 
@@ -26,31 +25,31 @@ def wrap_title(text, columns, max_lines=2):
         if not words:
             lines.append("")
             continue
-            
+
         current_line = []
         current_width = 0
-        
+
         for word in words:
             word_width = display_width(word)
             space_width = 1 if current_line else 0
-            
+
             if current_width + space_width + word_width > columns:
                 if current_line:
                     lines.append(" ".join(current_line))
                     current_line = []
                     current_width = 0
-                
+
                 while display_width(word) > columns:
                     w_line, word = split_display_prefix(word, columns)
                     lines.append(w_line)
-                
+
                 if word:
                     current_line.append(word)
                     current_width = display_width(word)
             else:
                 current_line.append(word)
                 current_width += space_width + word_width
-                
+
         if current_line:
             lines.append(" ".join(current_line))
 

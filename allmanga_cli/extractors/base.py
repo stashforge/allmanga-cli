@@ -8,7 +8,6 @@ import urllib.request
 from typing import Any
 
 from ..media.sources import format_source_label, quality_from_dimensions
-from ..media.urls import validate_optional_referer, validate_stream_url
 from ..services.http import SSL_CTX, UA
 
 try:

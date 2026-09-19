@@ -41,7 +41,6 @@ from ..state import secrets as secret_state
 from ..state.config import (
     load_config_file,
     save_config_file,
-    secure_permissions as _secure_permissions,
 )
 from ..state.io import atomic_write_json, write_private_text
 from .reporting import debug_warn, warn
@@ -185,22 +184,20 @@ def load_prefs() -> dict:
     global _prefs_cache
     if _prefs_cache is not None:
         return _prefs_cache
-    if is_incognito():
+    if not os.path.exists(paths.PLAYBACK_PATH):
         _prefs_cache = {}
         return _prefs_cache
-    if not os.path.exists(paths.PLAYBACK_PATH):
-        return {}
     try:
+        import copy
         import json
         with open(paths.PLAYBACK_PATH) as f:
-            _prefs_cache = json.load(f)
+            raw = json.load(f)
+            _prefs_cache = copy.deepcopy(raw) if is_incognito() else raw
             return _prefs_cache
     except Exception as e:
         debug_warn("Failed to load playback prefs", e)
-        if is_incognito():
-            _prefs_cache = {}
-            return _prefs_cache
-        _preserve_invalid_state_file(paths.PLAYBACK_PATH, "Playback prefs")
+        if not is_incognito():
+            _preserve_invalid_state_file(paths.PLAYBACK_PATH, "Playback prefs")
         _prefs_cache = {}
         return _prefs_cache
 
@@ -369,6 +366,10 @@ HISTORY_SHOW_STRIP_KEYS = ANILIST_HISTORY_STRIP_KEYS | {
     "_folder_name",
     "_download_files",
     "_is_downloads",
+    "_enrichment_in_progress",
+    # "_enrichment_attempted" - MUST persist across sessions to prevent re-enrichment
+    "_anilist_search_checked",
+    "_hist_backfill_checked",
 }
 
 
@@ -376,9 +377,13 @@ def sanitize_show_for_history(show):
     stored = dict(show or {})
     for key in HISTORY_SHOW_STRIP_KEYS:
         stored.pop(key, None)
-    if "_provider" not in stored and "provider" not in stored:
+    prov = stored.get("_provider") or stored.get("provider")
+    if not prov:
         from ..providers.shared.models import title_provider_key
-        stored["_provider"] = title_provider_key(show)
+        prov = title_provider_key(show, default="")
+    if prov:
+        stored["_provider"] = str(prov)
+    stored.pop("provider", None)
     return stored
 
 
@@ -393,27 +398,31 @@ def sanitize_history_list(history):
             if "aniListId" not in show:
                 show["aniListId"] = str(show["_anilist_id"])
             del show["_anilist_id"]
+        show.pop("provider", None)
         clean_history.append(clean_entry)
     return clean_history
 
 
 def load_history():
     global _history_cache
-    if is_incognito():
-        if _history_cache is None:
-            _history_cache = []
+    if _history_cache is not None:
         return _history_cache
     try:
         raw = list_state.load_json_list(
             paths.HISTORY_PATH,
             _history_cache,
         )
-        if _history_cache is None:
-            _history_cache = sanitize_history_list(raw)
+        sanitized = sanitize_history_list(raw)
+        if is_incognito():
+            import copy
+            _history_cache = copy.deepcopy(sanitized)
+        else:
+            _history_cache = sanitized
         return _history_cache
     except Exception as e:
         debug_warn("Failed to load watch history", e)
-        _preserve_invalid_state_file(paths.HISTORY_PATH, "Watch history")
+        if not is_incognito():
+            _preserve_invalid_state_file(paths.HISTORY_PATH, "Watch history")
         _history_cache = []
         return _history_cache
 
@@ -531,7 +540,12 @@ def write_history_progress(show, progress, ttype, last_synced=None, touch=False)
     history = load_history()
     old = get_history_entry(show, ttype)
     timestamp = int(time.time()) if touch else int((old or {}).get("timestamp") or time.time())
-    stored_show = sanitize_show_for_history(show)
+    if old and isinstance(old.get("show"), dict):
+        merged_show = dict(old["show"])
+        merged_show.update({k: v for k, v in (show or {}).items() if v is not None and v != ""})
+        stored_show = sanitize_show_for_history(merged_show)
+    else:
+        stored_show = sanitize_show_for_history(show)
     episode_id = episode_id_for_progress(show, ttype, progress)
     if episode_id is None:
         debug_warn(
@@ -553,11 +567,13 @@ def write_history_progress(show, progress, ttype, last_synced=None, touch=False)
     from allmanga_cli.domain.history import history_available_episode_count
     avail = history_available_episode_count(entry)
     try:
-        p_dec = decimal.Decimal(str(progress))
+        from allmanga_cli.domain.episodes import clean_episode_identifier
+        p_str = clean_episode_identifier(str(progress)) or clean_episode_identifier(str(episode_id)) or str(progress)
+        p_dec = decimal.Decimal(str(p_str))
         if avail is not None and p_dec >= decimal.Decimal(str(avail)):
             entry["was_caught_up"] = True
             entry["has_new_release"] = False
-    except decimal.InvalidOperation:
+    except (decimal.InvalidOperation, TypeError, ValueError):
         pass
     if last_synced is None and old and "last_synced_progress" in old:
         entry["last_synced_progress"] = old["last_synced_progress"]
@@ -673,13 +689,16 @@ def patch_history_entry_show(show_id, ttype, updated_show):
     safe_keys = {
         "status", "episodeCount", "availableEpisodes", "availableEpisodesDetail",
         "name", "englishName", "nativeName", "thumbnail", "altNames",
-        "type", "season", "airedStart", "score",
+        "type", "season", "airedStart", "airedEnd", "score",
         "_episode_ids", "_episode_ids_ttype", "_episode_labels", "_episode_labels_ttype",
         "_episode_catalog_state", "_allanime_checked_at",
         "aniListId", "malId", "_provider", "_provider_id", "_provider_name",
+        "description", "genres", "banner", "format",
+        "_next_airing_ep", "_next_airing_time", "_next_airing_at",
+        "_anilist_score", "anilistMatch", "_title_enriched",
     }
     for entry in history:
-        if entry.get("translation_type", "sub") == ttype:
+        if ttype is None or entry.get("translation_type", "sub") == ttype:
             s = entry.get("show")
             if s and str(s.get("_id") or s.get("id") or "") == str_show_id:
                 if s is updated_show:
@@ -690,7 +709,8 @@ def patch_history_entry_show(show_id, ttype, updated_show):
                         if v is not None and s.get(k) != v:
                             s[k] = v
                             changed = True
-                break
+                if ttype is not None:
+                    break
     if changed:
         return save_refreshed_history(history)
     return False
@@ -819,18 +839,18 @@ def get_default_download_dir():
     termux_storage = os.path.expanduser("~/storage/downloads")
     if os.path.isdir(termux_storage):
         return os.path.join(termux_storage, "allmanga-cli")
-        
+
     # Windows native
     if platform.system() == "Windows":
         win_path = os.path.join(os.environ.get("USERPROFILE", os.path.expanduser("~")), "Downloads")
         if os.path.isdir(win_path):
             return os.path.join(win_path, "allmanga-cli")
-            
+
     # Standard macOS/Linux
     unix_path = os.path.expanduser("~/Downloads")
     if os.path.isdir(unix_path):
         return os.path.join(unix_path, "allmanga-cli")
-        
+
     # Absolute fallback
     return os.path.join(os.getcwd(), "allmanga-cli")
 
@@ -978,4 +998,43 @@ def find_offline_file_for_episode(show_title: str, episode, cfg: dict | None = N
     except OSError:
         pass
     return None
+
+
+def delete_offline_episode(show_title: str, episode, cfg: dict | None = None) -> bool:
+    """Delete a downloaded episode video file from disk and update downloads.db."""
+    filepath = find_offline_file_for_episode(show_title, episode, cfg)
+    deleted = False
+    if filepath and os.path.isfile(filepath):
+        try:
+            os.remove(filepath)
+            deleted = True
+        except OSError:
+            pass
+
+    db = load_downloads_db()
+    for title_key in (show_title, show_title.strip()):
+        if title_key in db.get("shows", {}):
+            show_data = db["shows"][title_key]
+            eps = show_data.get("episodes", [])
+            ep_str = str(episode).strip()
+            from allmanga_cli.domain.episodes import clean_episode_identifier, parse_episode_dual_numbers
+            t_prim, _ = parse_episode_dual_numbers(ep_str)
+            t_clean = (t_prim or clean_episode_identifier(ep_str) or ep_str).lstrip("0") or "0"
+
+            new_eps = []
+            for e in eps:
+                e_prim, _ = parse_episode_dual_numbers(str(e))
+                e_clean = (e_prim or clean_episode_identifier(str(e)) or str(e)).lstrip("0") or "0"
+                if e_clean != t_clean and str(e).strip() != ep_str:
+                    new_eps.append(e)
+
+            show_data["episodes"] = new_eps
+            meta = show_data.get("metadata", {})
+            meta["downloadedCount"] = len(new_eps)
+            watched = show_data.get("watched_episodes", [])
+            show_data["watched_episodes"] = [w for w in watched if str(w).strip() != ep_str]
+            save_downloads_db(db)
+            break
+
+    return deleted
 

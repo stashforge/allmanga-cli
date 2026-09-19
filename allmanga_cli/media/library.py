@@ -3,7 +3,6 @@
 import os
 import re
 
-
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".webm", ".avi", ".mov", ".m4v"}
 
 

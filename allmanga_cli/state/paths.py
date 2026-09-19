@@ -2,7 +2,6 @@
 
 import os
 
-
 STATE_DIR = os.path.expanduser("~/.local/state/allmanga-cli")
 CONFIG_DIR = os.path.expanduser("~/.config/allmanga-cli")
 CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")

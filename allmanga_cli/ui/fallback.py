@@ -2,7 +2,6 @@
 
 import re
 
-
 ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
 

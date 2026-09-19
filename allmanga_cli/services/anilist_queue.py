@@ -4,13 +4,11 @@ from __future__ import annotations
 
 import threading
 import time as _time
-from typing import Any
 
-from ..state import paths as _paths
-from ..state import anilist_queue as anilist_queue_state
 from ..context import FLAGS
-from ..core import storage
-from ..core import reporting
+from ..core import reporting, storage
+from ..state import anilist_queue as anilist_queue_state
+from ..state import paths as _paths
 
 debug_warn = reporting.debug_warn
 ANILIST_TIMEOUT = 12

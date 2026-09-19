@@ -2,7 +2,6 @@
 
 import time
 
-
 DIM = "\033[38;5;248m"
 
 
@@ -72,6 +71,8 @@ def format_ep_progress(label, progress, total, local_only=False):
         progress = str(progress).strip()
         if progress.lower().startswith("episode "):
             progress = progress[8:].strip()
+        elif progress.lower() in ("movie", "special", "ova") or not progress.replace(".", "", 1).isdigit():
+            progress = "0"
         if not progress or progress.lower() == "none":
             return ""
     prefix = f"\033[38;5;244mWatched{DIM}"
@@ -117,7 +118,7 @@ def format_progress(anime, local_only=False, ttype="sub"):
     if not local_label:
         local_label = local_progress
 
-    from .episodes import resolve_dual_episode_label, parse_episode_dual_numbers
+    from .episodes import parse_episode_dual_numbers, resolve_dual_episode_label
     dual_lbl = resolve_dual_episode_label(anime, local_label or local_progress)
     if dual_lbl:
         local_label = dual_lbl
@@ -168,8 +169,9 @@ def format_progress(anime, local_only=False, ttype="sub"):
 
 
 def format_available_episodes(anime, ttype="sub", local_only=False):
-    from allmanga_cli.domain.history import history_available_episode_count, history_full_episode_count
-    from .episodes import parse_episode_dual_numbers, clean_episode_identifier
+    from allmanga_cli.domain.history import history_full_episode_count
+
+    from .episodes import clean_episode_identifier, parse_episode_dual_numbers
 
     if str(anime.get("status") or "").upper() != "RELEASING":
         return ""
@@ -177,8 +179,6 @@ def format_available_episodes(anime, ttype="sub", local_only=False):
     eids = anime.get("_episode_ids") or []
     labels = anime.get("_episode_labels") or {}
     sec_tag = None
-    first_num = None
-    last_num = None
 
     if eids:
         first_lbl = str(labels.get(eids[0], labels.get(str(eids[0]), eids[0])))
@@ -188,8 +188,8 @@ def format_available_episodes(anime, ttype="sub", local_only=False):
 
         sec_tag = sec_l
         try:
-            first_num = int(prim_f or clean_episode_identifier(first_lbl))
-            last_num = int(sec_l or prim_l or clean_episode_identifier(last_lbl))
+            int(prim_f or clean_episode_identifier(first_lbl))
+            int(sec_l or prim_l or clean_episode_identifier(last_lbl))
         except (ValueError, TypeError):
             pass
 
@@ -363,7 +363,7 @@ def format_info_metadata_line(
         progress = format_progress(anime, local_only=local_only, ttype=ttype)
         if not progress:
             progress = format_total_episodes(anime, ttype=ttype)
-            
+
         # For downloads, if we show Watched X/Y where Y is downloaded count,
         # also show the anime's actual total episodes if available.
         if local_only and "originalEpisodeCount" in anime:
@@ -398,6 +398,12 @@ def format_info_metadata_line(
 
     if anilist_label:
         details.append(anilist_label)
+    try:
+        from allmanga_cli.core.network import is_online
+        if not is_online():
+            details.append("\033[38;2;230;80;80mOFFLINE\033[0m")
+    except Exception:
+        pass
     if media_status_label:
         details.append(media_status_label)
     if anime_type:
@@ -420,7 +426,7 @@ def prepare_show_display_state(show, ttype="sub", sync_enabled=None):
     if not show:
         return show
     from allmanga_cli.context import FLAGS as runtime_flags
-    from allmanga_cli.core.storage import get_title_sync, get_local_progress, get_local_episode_label
+    from allmanga_cli.core.storage import get_local_episode_label, get_local_progress, get_title_sync
 
     if runtime_flags.incognito_mode:
         show["_sync_enabled"] = False
@@ -447,7 +453,7 @@ def prepare_show_display_state(show, ttype="sub", sync_enabled=None):
     elif sync_enabled is None:
         sync_enabled = get_title_sync(show)
     show["_sync_enabled"] = bool(sync_enabled)
-    
+
     hist_progress = get_local_progress(show, ttype)
     hist_label = get_local_episode_label(show, ttype)
     if hist_progress is not None or hist_label is not None:
@@ -465,6 +471,8 @@ def prepare_show_display_state(show, ttype="sub", sync_enabled=None):
         show["_local_episode_label"] = hist_label
 
     if not show.get("aniListId") and not show.get("_episode_ids"):
+        if not show.get("_hist_backfill_checked"):
+            show["_hist_backfill_checked"] = True
             from allmanga_cli.core.storage import get_history_entry
             entry = get_history_entry(show, ttype)
             if entry and isinstance(entry.get("show"), dict):
@@ -622,11 +630,25 @@ def apply_provider_metadata_to_history_show(show, provider_show):
             show[key] = val
             changed = True
 
-    for key in ("thumbnail", "name", "englishName", "nativeName"):
+    for key in ("thumbnail", "name", "englishName", "nativeName", "description", "banner", "format"):
         val = provider_show.get(key)
         if val and not show.get(key):
             show[key] = val
             changed = True
+
+    for key in ("genres", "altNames"):
+        val = provider_show.get(key)
+        if val and not show.get(key):
+            show[key] = list(val)
+            changed = True
+
+    if provider_show.get("aniListId") and not show.get("aniListId"):
+        show["aniListId"] = str(provider_show["aniListId"])
+        changed = True
+
+    if provider_show.get("malId") and not show.get("malId"):
+        show["malId"] = provider_show["malId"]
+        changed = True
 
     avail = provider_show.get("availableEpisodes")
     if avail and isinstance(avail, dict):

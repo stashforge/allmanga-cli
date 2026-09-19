@@ -8,11 +8,14 @@ build/
 dist/
 *.egg-info/
 
-# Optional local whole-file snapshots; Git is the primary project history now.
+# Optional local whole-file snapshots;
 /backups/
 *.bak
 *.bak.*
 venv/
 .venv/
 scratch/
+.ruff_cache/
 
+# Web UI / Server (separate from CLI codebase)
+/web/

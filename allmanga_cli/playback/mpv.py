@@ -99,7 +99,7 @@ class MpvIpc:
                 while True:
                     d = self.client.recv(8192)
                     if not d: break
-            except (BlockingIOError, socket.error):
+            except (OSError, BlockingIOError):
                 pass
         self.props["playback-time"] = 0
         self.props["duration"] = 0
@@ -138,11 +138,6 @@ class MpvIpc:
                 from ..ui.player_screen import _fmt_time
                 skip_msg = f"Skipped {first_skip.get('label', 'Opening')} ({_fmt_time(first_skip['start'])} → {_fmt_time(first_skip['end'])})\n\n"
 
-        if getattr(self, "resume_time", 0) > 0:
-            self.send_cmd("set_property", "start", str(int(self.resume_time)))
-        else:
-            self.send_cmd("set_property", "start", "none")
-
         self._pending_audio_url = audio_url or ""
         self._pending_audio_tracks = list(audio_tracks) if audio_tracks else []
         self._pending_subtitle_url = subtitle_url or ""
@@ -159,6 +154,9 @@ class MpvIpc:
             self.send_cmd("loadfile", url, "replace", -1, f"start={int(self.resume_time)}")
         else:
             self.send_cmd("loadfile", url, "replace")
+        # Reset the global `start` property immediately so it doesn't bleed into
+        # subsequent loadfile calls (e.g. next episode, mirror failover).
+        self.send_cmd("set_property", "start", "none")
         self.send_cmd(
             "script-message",
             "set_skip_intervals",
@@ -256,8 +254,8 @@ class MpvIpc:
         file_loaded = False
         last_observed_playback_time = -1.0
         max_playback_time = float(getattr(self, "resume_time", 0) or 0.0)
-        normal_stall_timeout = float(getattr(self, "normal_stall_timeout", 10.0) or 10.0)
-        seek_stall_timeout = float(getattr(self, "seek_stall_timeout", 15.0) or 15.0)
+        normal_stall_timeout = float(getattr(self, "normal_stall_timeout", 20.0) or 20.0)
+        seek_stall_timeout = float(getattr(self, "seek_stall_timeout", 30.0) or 30.0)
         startup_timeout = float(getattr(self, "startup_timeout", 15.0) or 15.0)
 
         def do_fetch(ep_target, action):
@@ -559,7 +557,10 @@ class MpvIpc:
                                                     trigger_fetch(next_ord, "NEXT")
 
                                                 if self.prefetched_stream:
-                                                    from allmanga_cli.domain.episodes import episode_label, clean_episode_identifier
+                                                    from allmanga_cli.domain.episodes import (
+                                                        clean_episode_identifier,
+                                                        episode_label,
+                                                    )
                                                     raw_next = str(episode_label(next_label))
                                                     ep_str = clean_episode_identifier(raw_next) or raw_next
                                                     if ep_str and ep_str[0].isdigit():
@@ -660,11 +661,14 @@ class MpvIpc:
                 if file_loaded:
                     is_user_paused = bool(self.props.get("pause", False))
                     if is_user_paused:
+                        # While paused, keep both timers fresh so we don't fire on resume.
                         last_time_pos_change = now
+                        last_cache_flush = now
                     else:
+                        # in_grace: we recently seeked/flushed — give the stream more time.
                         in_grace = (now - last_cache_flush) < seek_stall_timeout
-                        timeout = seek_stall_timeout if in_grace else normal_stall_timeout
-                        if (now - last_time_pos_change) >= timeout:
+                        active_timeout = seek_stall_timeout if in_grace else normal_stall_timeout
+                        if (now - last_time_pos_change) >= active_timeout:
                             result = "ERROR"
                             self.send_cmd("show-text", "⚠ Stream stalled. Switching mirror...", 5000)
                             done = True

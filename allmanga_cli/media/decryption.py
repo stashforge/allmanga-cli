@@ -2,14 +2,6 @@
 
 import base64
 import hashlib
-import json
-import subprocess
-import time
-
-
-import base64
-import hashlib
-import json
 
 _ALLANIME_PASSPHRASE = b"Xot36i3lK3:v1"
 
@@ -21,23 +13,23 @@ def decrypt_tobeparsed(encoded):
         return None
     if len(encrypted) < 30:
         return None
-        
+
     iv12 = encrypted[1:13]
     ciphertext = encrypted[13:]
-    
+
     # Counter for AES-CTR: iv12 + 00 00 00 02
     nonce = iv12 + b'\x00\x00\x00\x02'
-    
+
     try:
-        from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
         from cryptography.hazmat.backends import default_backend
+        from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
         cipher = Cipher(algorithms.AES(key), modes.CTR(nonce), backend=default_backend())
         decryptor = cipher.decryptor()
         decrypted = decryptor.update(ciphertext) + decryptor.finalize()
         return decrypted.decode("utf-8", errors="ignore")
     except Exception:
         pass
-        
+
     for lib in ("Cryptodome", "Crypto"):
         try:
             AES = __import__(f"{lib}.Cipher", fromlist=["AES"]).AES
@@ -53,5 +45,5 @@ def decrypt_tobeparsed(encoded):
             sys.stderr.write(f"\\n[DEBUG] {lib} decryption failed: {exc}\\n")
             sys.stderr.flush()
             continue
-            
+
     return None

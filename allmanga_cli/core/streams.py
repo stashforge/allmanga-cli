@@ -20,20 +20,17 @@ module global so tests can patch ``streams.resolve_source`` (or via the
 ``__globals__`` of any moved function) exactly as before.
 """
 
-import time
 import threading
-from typing import Optional
+import time
 
-from . import reporting
 from ..media.resolver import resolve_source
 from ..media.sources import (
-    source_priority,
-    is_stream_valid,
-    is_stream_valid_fast,
     calculate_stream_expiry,
     check_stream_health_and_refresh,
     quality_preference_key,
+    source_priority,
 )
+from . import reporting
 from .storage import get_preferred_mirror
 
 YELLOW = "\033[1;33m"
@@ -95,6 +92,7 @@ def configure(*, episode_data_fn=None):
 
 
 # Keyed stream cache: (show_id, ep_id, ttype, provider_id) -> dict
+_MAX_CACHE_ENTRIES = 50
 _streams_cache: dict[tuple, dict] = {}
 _active_stream_key: tuple | None = None
 
@@ -107,13 +105,81 @@ _bg_lock = threading.RLock()  # reentrant lock guards _bg_thread and _bg_stats
 _bg_generation = 0
 _bg_stats = {"resolved": 0, "failed": 0, "total": 0, "current": ""}
 
+# Periodic revalidation
+_revalidation_thread = None  # type: Optional[threading.Thread]
+_revalidation_lock = threading.RLock()
+_revalidation_interval = 300  # 5 minutes
+_revalidation_stop_event = threading.Event()
 
-def make_stream_key(show_id=None, ep=None, ttype="sub", provider_id=None) -> tuple:
+
+def _start_revalidation_timer():
+    """Start the periodic stream revalidation timer."""
+    global _revalidation_thread
+    with _revalidation_lock:
+        if _revalidation_thread is not None and _revalidation_thread.is_alive():
+            return
+        _revalidation_stop_event.clear()
+        _revalidation_thread = threading.Thread(target=_revalidation_worker, daemon=True)
+        _revalidation_thread.start()
+
+
+def _stop_revalidation_timer():
+    """Stop the periodic stream revalidation timer."""
+    _revalidation_stop_event.set()
+    global _revalidation_thread
+    with _revalidation_lock:
+        if _revalidation_thread is not None:
+            _revalidation_thread.join(timeout=2)
+            _revalidation_thread = None
+
+
+def _revalidation_worker():
+    """Background worker that periodically revalidates stale streams for active episode."""
+    while not _revalidation_stop_event.wait(_revalidation_interval):
+        try:
+            with _streams_lock:
+                if _active_stream_key is None:
+                    continue
+                entry = _streams_cache.get(_active_stream_key)
+                if not entry or not entry.get("streams"):
+                    continue
+                now = time.time()
+                stale_streams = []
+                for s in entry["streams"]:
+                    # Check if stream is past soft TTL (needs revalidation)
+                    validated_at = float(s.get("validated_at") or 0)
+                    if validated_at == 0:
+                        continue
+                    sname = str(s.get("source_name") or s.get("sourceName") or "")
+                    surl = str(s.get("link") or s.get("streamUrl") or s.get("sourceUrl") or "")
+                    from ..media.sources import get_stream_soft_ttl
+                    soft_ttl = get_stream_soft_ttl(sname, surl)
+                    if (now - validated_at) >= soft_ttl:
+                        stale_streams.append(s)
+
+                if not stale_streams:
+                    continue
+
+                # Copy for processing outside lock
+                streams_to_check = list(stale_streams)
+
+            # Revalidate outside lock to avoid blocking UI
+            for stream in streams_to_check:
+                if _revalidation_stop_event.is_set():
+                    break
+                check_stream_health_and_refresh(stream, time.time())
+
+        except Exception:
+            pass  # Silent fail, timer continues
+
+
+def make_stream_key(show_id=None, ep=None, ttype="sub", provider_id=None, quality="best") -> tuple:
     return (
         str(show_id or ""),
         str(ep or ""),
         str(ttype or "sub").lower(),
         str(provider_id or "").lower(),
+        str(quality or "best").lower(),
     )
 
 
@@ -121,8 +187,27 @@ def _normalize_key(key) -> tuple | None:
     if key is None:
         return None
     if isinstance(key, tuple):
+        # Handle old 4-tuple and new 5-tuple format
+        if len(key) == 4:
+            return make_stream_key(key[0], key[1], key[2], key[3], "best")
         return make_stream_key(*key)
     return make_stream_key(key)
+
+
+def _compute_ep_data_version(ep_data: dict) -> str:
+    """Compute a hash of the source URLs to detect provider mirror list changes."""
+    if not ep_data or not isinstance(ep_data, dict):
+        return ""
+    source_urls = ep_data.get("episode", {}).get("sourceUrls", [])
+    if not source_urls:
+        return ""
+    # Create a stable hash from source names and URLs
+    import hashlib
+    content = "".join(
+        f"{s.get('sourceName', '')}|{s.get('link', '')}|{s.get('streamUrl', '')}"
+        for s in source_urls
+    )
+    return hashlib.md5(content.encode()).hexdigest()[:12]
 
 
 def _clear_streams(key=None):
@@ -136,6 +221,8 @@ def _clear_streams(key=None):
         else:
             _active_stream_key = None
             _streams_cache.clear()
+            # Stop revalidation timer when all streams cleared
+            _stop_revalidation_timer()
         return _streams_generation
 
 
@@ -151,30 +238,50 @@ def _extend_streams(streams, key=None):
         if key is not None:
             k = _normalize_key(key)
             if k not in _streams_cache:
+                # LRU eviction: remove oldest entries if cache is full
+                if len(_streams_cache) >= _MAX_CACHE_ENTRIES:
+                    oldest_keys = list(_streams_cache.keys())[:len(_streams_cache) - _MAX_CACHE_ENTRIES + 1]
+                    for old_k in oldest_keys:
+                        _streams_cache.pop(old_k, None)
                 _streams_cache[k] = {"streams": [], "resolved_at": now, "ep_data": None}
             _streams_cache[k]["streams"].extend(streams)
 
 
-def _stream_snapshot(show_id=None, ep=None, ttype="sub", provider_id=None) -> list:
+def _stream_snapshot(show_id=None, ep=None, ttype="sub", provider_id=None, quality="best", ep_data=None) -> list:
     now = time.time()
     with _streams_lock:
         if show_id is not None:
-            k = make_stream_key(show_id, ep, ttype, provider_id)
+            k = make_stream_key(show_id, ep, ttype, provider_id, quality)
             entry = _streams_cache.get(k)
             if not entry:
                 return []
-            valid = [s for s in entry.get("streams", []) if is_stream_valid_fast(s, now)]
+            # If caller provides ep_data, check version matches cached version
+            if ep_data is not None:
+                current_version = _compute_ep_data_version(ep_data)
+                cached_version = entry.get("ep_data_version", "")
+                if current_version and cached_version and current_version != cached_version:
+                    return []  # Version mismatch - treat as stale
+            valid = [s for s in entry.get("streams", []) if check_stream_health_and_refresh(s, now)]
             entry["streams"] = valid
             return list(valid)
         elif _active_stream_key is not None:
             entry = _streams_cache.get(_active_stream_key)
             if entry:
-                valid = [s for s in entry.get("streams", []) if is_stream_valid_fast(s, now)]
+                if ep_data is not None:
+                    current_version = _compute_ep_data_version(ep_data)
+                    cached_version = entry.get("ep_data_version", "")
+                    if current_version and cached_version and current_version != cached_version:
+                        return []
+                valid = [s for s in entry.get("streams", []) if check_stream_health_and_refresh(s, now)]
                 entry["streams"] = valid
                 return list(valid)
-        valid_all = [s for s in all_streams if is_stream_valid_fast(s, now)]
+        valid_all = [s for s in all_streams if check_stream_health_and_refresh(s, now)]
         all_streams[:] = valid_all
         return list(valid_all)
+
+
+def _stream_count(show_id=None, ep=None, ttype="sub", provider_id=None, quality="best") -> int:
+    return len(_stream_snapshot(show_id, ep, ttype, provider_id, quality))
 
 
 def _prune_dead_stream(key, stream_link: str):
@@ -188,16 +295,12 @@ def _prune_dead_stream(key, stream_link: str):
             entry["streams"] = [s for s in entry["streams"] if (s.get("link") != stream_link and s.get("streamUrl") != stream_link)]
 
 
-def _stream_count(show_id=None, ep=None, ttype="sub", provider_id=None) -> int:
-    return len(_stream_snapshot(show_id, ep, ttype, provider_id))
-
-
-def _get_cached_ep_data(key=None, show_id=None, ep=None, ttype="sub", provider_id=None) -> dict | None:
+def _get_cached_ep_data(key=None, show_id=None, ep=None, ttype="sub", provider_id=None, quality="best") -> dict | None:
     with _streams_lock:
         if key is not None:
             k = _normalize_key(key)
         elif show_id is not None:
-            k = make_stream_key(show_id, ep, ttype, provider_id)
+            k = make_stream_key(show_id, ep, ttype, provider_id, quality)
         elif _active_stream_key is not None:
             k = _active_stream_key
         else:
@@ -206,21 +309,40 @@ def _get_cached_ep_data(key=None, show_id=None, ep=None, ttype="sub", provider_i
         return entry.get("ep_data") if entry else None
 
 
-def _set_cached_ep_data(ep_data: dict, key=None, show_id=None, ep=None, ttype="sub", provider_id=None):
-    if not ep_data:
-        return
-    now = time.time()
+def _get_cached_ep_data_with_version(key=None, show_id=None, ep=None, ttype="sub", provider_id=None, quality="best") -> tuple[dict | None, str]:
+    """Get cached ep_data and its version. Returns (ep_data, version)."""
     with _streams_lock:
         if key is not None:
             k = _normalize_key(key)
         elif show_id is not None:
-            k = make_stream_key(show_id, ep, ttype, provider_id)
+            k = make_stream_key(show_id, ep, ttype, provider_id, quality)
+        elif _active_stream_key is not None:
+            k = _active_stream_key
+        else:
+            return None, ""
+        entry = _streams_cache.get(k)
+        if not entry:
+            return None, ""
+        return entry.get("ep_data"), entry.get("ep_data_version", "")
+
+
+def _set_cached_ep_data(ep_data: dict, key=None, show_id=None, ep=None, ttype="sub", provider_id=None, quality="best"):
+    if not ep_data:
+        return
+    now = time.time()
+    ep_data_version = _compute_ep_data_version(ep_data)
+    with _streams_lock:
+        if key is not None:
+            k = _normalize_key(key)
+        elif show_id is not None:
+            k = make_stream_key(show_id, ep, ttype, provider_id, quality)
         else:
             return
         if k not in _streams_cache:
-            _streams_cache[k] = {"state": "READY", "streams": [], "resolved_at": now, "ep_data": ep_data}
+            _streams_cache[k] = {"state": "READY", "streams": [], "resolved_at": now, "ep_data": ep_data, "ep_data_version": ep_data_version}
         else:
             _streams_cache[k]["ep_data"] = ep_data
+            _streams_cache[k]["ep_data_version"] = ep_data_version
 def _publish_stream(stream, generation, key=None):
     """Publish a resolved stream only while its episode generation is current."""
     now = time.time()
@@ -290,7 +412,8 @@ def start_bg_resolve(
     show_id=None,
     ep=None,
     ttype="sub",
-    provider_id=None
+    provider_id=None,
+    quality="best"
 ):
     """
     Start resolving all remaining sources in background for a specific show/ep.
@@ -306,6 +429,15 @@ def start_bg_resolve(
     sources = ep_data.get("episode", {}).get("sourceUrls", []) if isinstance(ep_data, dict) else []
     sources = expand_direct_sources(sources)
 
+    # Get preferred mirror for this show to prioritize in background
+    pref_mirror = None
+    if show_id:
+        try:
+            from .storage import get_preferred_mirror
+            pref_mirror = get_preferred_mirror(show_id)
+        except Exception:
+            pass
+
     def _bg_sort_key(s):
         sname = str(s.get("sourceName") or "").lower()
         res = str(s.get("resolution") or sname)
@@ -319,36 +451,49 @@ def start_bg_resolve(
             sub_rank = 0 if is_hard else (2 if is_soft else 1)
         else:
             sub_rank = 0 if is_soft else (2 if is_hard else 1)
+
+        # Preferred mirror gets highest priority
+        pref_boost = 0
+        if pref_mirror:
+            src_name = s.get("sourceName") or s.get("source_name") or ""
+            pref_name = pref_mirror.get("source_name", "")
+            pref_res = pref_mirror.get("resolution", "")
+            if src_name and pref_name and src_name.startswith(pref_name) and (not pref_res or res == pref_res):
+                pref_boost = -100  # Very high priority
+
         prio = source_priority(s)
-        q_key = quality_preference_key(res, "best")
-        return (sub_rank, audio_penalty, q_key, prio)
+        q_key = quality_preference_key(res, quality)
+        return (pref_boost, sub_rank, audio_penalty, q_key, prio)
 
     sources = sorted(sources, key=_bg_sort_key)
     now = time.time()
-    
-    stream_key = make_stream_key(show_id, ep, ttype, provider_id) if show_id is not None else None
+
+    ep_data_version = _compute_ep_data_version(ep_data)
+    stream_key = make_stream_key(show_id, ep, ttype, provider_id, quality) if show_id is not None else None
 
     with _streams_lock:
         _streams_generation += 1
         generation = _streams_generation
+        _bg_generation = generation
         _active_stream_key = stream_key
+        _start_revalidation_timer()
         all_streams.clear()
         if stream_key is not None:
             if stream_key not in _streams_cache:
-                _streams_cache[stream_key] = {"state": "RESOLVING", "streams": [], "resolved_at": now, "ep_data": ep_data}
+                _streams_cache[stream_key] = {"state": "RESOLVING", "streams": [], "resolved_at": now, "ep_data": ep_data, "ep_data_version": ep_data_version}
             else:
                 curr_state = _streams_cache[stream_key].get("state", "READY")
                 _streams_cache[stream_key]["state"] = "REFRESHING" if curr_state in ("READY", "STALE") else "RESOLVING"
                 if ep_data:
                     _streams_cache[stream_key]["ep_data"] = ep_data
-            # Populate all_streams with still-valid existing cached streams
-            existing_valid = [s for s in _streams_cache[stream_key].get("streams", []) if is_stream_valid(s, now)]
+                    _streams_cache[stream_key]["ep_data_version"] = ep_data_version
+            # Populate all_streams with still-valid existing cached streams (full health check)
+            existing_valid = [s for s in _streams_cache[stream_key].get("streams", []) if check_stream_health_and_refresh(s, now)]
             _streams_cache[stream_key]["streams"] = existing_valid
             all_streams.extend(existing_valid)
         seen_keys = {(s.get("source_name"), s.get("resolution")) for s in all_streams}
 
     with _bg_lock:
-        _bg_generation = generation
         _bg_stats = {
             "resolved": len(exclude_names),
             "failed": 0,
@@ -385,7 +530,7 @@ def start_bg_resolve(
             clean_sname = sname.title()
             if sname in exclude_names or clean_sname in exclude_names or any(sname.lower() in ex.lower() for ex in exclude_names):
                 continue
-            
+
             display_name = sname
             if not _update_bg_stats(generation, current=display_name, status_msg=f"checking {display_name.lower()}..."):
                 return
@@ -398,14 +543,14 @@ def start_bg_resolve(
                     if s_key not in seen_keys and _publish_stream(stream, generation, key=stream_key):
                         seen_keys.add(s_key)
                         found = True
-                        
+
                 if not found:
                     if not is_final_pass:
                         failed_queue.append(src)
-                
+
                 inc_failed = 1 if not found and is_final_pass else 0
                 inc_resolved = 1 if found else 0
-                
+
                 status_msg = f"checking {display_name.lower()}..." if found else f"{display_name} unavailable"
                 if inc_resolved or inc_failed:
                     if not _update_bg_stats(
@@ -421,7 +566,7 @@ def start_bg_resolve(
                 else:
                     if not _update_bg_stats(generation, failed=1, status_msg=f"{display_name} unavailable"):
                         return
-        
+
         with _streams_lock:
             if generation == _streams_generation and stream_key in _streams_cache:
                 entry = _streams_cache[stream_key]
@@ -538,3 +683,63 @@ def fetch_episode_stream(show_id, ep_number, ttype="sub", quality="best", provid
 
     reporting.warn("All mirrors were tested and failed.")
     return None
+
+
+# ── Cache Stats / Debugging ─────────────────────────────────────────────
+
+def get_cache_stats() -> dict:
+    """Return statistics about the stream cache for debugging."""
+    with _streams_lock:
+        total_entries = len(_streams_cache)
+        total_streams = sum(len(entry.get("streams", [])) for entry in _streams_cache.values())
+        states = {}
+        for entry in _streams_cache.values():
+            state = entry.get("state", "unknown")
+            states[state] = states.get(state, 0) + 1
+        return {
+            "total_entries": total_entries,
+            "total_streams": total_streams,
+            "states": states,
+            "active_stream_key": _active_stream_key,
+            "max_entries": _MAX_CACHE_ENTRIES,
+            "bg_thread_alive": _bg_thread.is_alive() if _bg_thread else False,
+            "revalidation_thread_alive": _revalidation_thread.is_alive() if _revalidation_thread else False,
+        }
+
+
+def debug_dump_cache() -> str:
+    """Return a formatted string dump of the entire cache for debugging."""
+    lines = ["=== Stream Cache Debug Dump ==="]
+    with _streams_lock:
+        lines.append(f"Active stream key: {_active_stream_key}")
+        lines.append(f"Generation: {_streams_generation}")
+        lines.append(f"Max entries: {_MAX_CACHE_ENTRIES}")
+        lines.append(f"Current entries: {len(_streams_cache)}")
+        lines.append(f"BG thread alive: {_bg_thread.is_alive() if _bg_thread else False}")
+        lines.append(f"Revalidation thread alive: {_revalidation_thread.is_alive() if _revalidation_thread else False}")
+        lines.append("")
+        for i, (key, entry) in enumerate(_streams_cache.items()):
+            lines.append(f"Entry {i}: {key}")
+            lines.append(f"  State: {entry.get('state', 'unknown')}")
+            lines.append(f"  Resolved at: {entry.get('resolved_at')}")
+            lines.append(f"  EP data version: {entry.get('ep_data_version', 'N/A')}")
+            lines.append(f"  Streams: {len(entry.get('streams', []))}")
+            for j, stream in enumerate(entry.get("streams", [])):
+                sname = stream.get("source_name", "?")
+                sres = stream.get("resolution", "?")
+                created = stream.get("created_at")
+                validated = stream.get("validated_at")
+                expires = stream.get("expires_at")
+                lines.append(f"    [{j}] {sname} ({sres}) created={created} validated={validated} expires={expires}")
+            lines.append("")
+    return "\n".join(lines)
+
+
+def clear_cache() -> None:
+    """Clear the entire stream cache (for testing)."""
+    global _streams_cache, _active_stream_key, _streams_generation, all_streams
+    with _streams_lock:
+        _streams_cache.clear()
+        _active_stream_key = None
+        _streams_generation = 0
+        all_streams.clear()

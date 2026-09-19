@@ -7,8 +7,8 @@ from .dailymotion import DailymotionExtractor
 from .doodstream import DoodExtractor
 from .filemoon import FilemoonExtractor
 from .kwik import KwikExtractor
-from .mixdrop import MixDropExtractor
 from .misterdonghua import MisterDonghuaExtractor
+from .mixdrop import MixDropExtractor
 from .mp4upload import Mp4UploadExtractor
 from .okru import OkruExtractor
 from .streamtape import StreamTapeExtractor

@@ -16,22 +16,46 @@ per-module convention (download.py, playback.py, …); there is no shared
 colours module to depend on yet.
 """
 
-import getpass
 
 from ..context import FLAGS
-from ..core import reporting
-from ..core import storage
-from ..state import paths
+from ..core import reporting, storage
 from ..core.api import (
+    SearchFailure,
     anilist_account_cache_key,
     read_json_response,
     search_failure_message,
 )
-from ..core.api import SearchFailure
 from ..services import anilist as anilist_service
 from ..services import normalize as anilist_normalize
+from ..services.anilist_auth import (
+    save_anilist_token,
+    clear_anilist_token,
+    anilist_token_storage_status,
+    mask_token,
+    anilist_auth_status_lines,
+    stored_anilist_token,
+    anilist_auth_login_existing_lines,
+    anilist_auth_token_lines,
+    prompt_anilist_token,
+)
+from ..services.anilist_queue import (
+    _load_anilist_queue,
+    _save_anilist_queue,
+    _anilist_mutation_key,
+    _enqueue_anilist_progress,
+    _update_queued_mutation,
+    _remove_queued_mutation,
+    _checkpoint_queued_progress,
+    _finish_queued_pending_completion,
+    _run_anilist_callback,
+    _run_queued_anilist_progress,
+    _start_queued_anilist_progress,
+    queue_anilist_progress,
+    retry_queued_anilist_writes,
+    flush_anilist_writes,
+)
 from ..services.http import anilist_urlopen
-from ..state import secrets as secret_state
+from ..state import paths
 
 GREEN = "\033[1;32m"
 RED = "\033[1;31m"
@@ -53,17 +77,6 @@ def _is_incognito():
 # Token / auth
 # ---------------------------------------------------------------------------
 
-from ..services.anilist_auth import (
-    save_anilist_token,
-    clear_anilist_token,
-    anilist_token_storage_status,
-    mask_token,
-    anilist_auth_status_lines,
-    stored_anilist_token,
-    anilist_auth_login_existing_lines,
-    anilist_auth_token_lines,
-    prompt_anilist_token,
-)
 
 
 
@@ -96,6 +109,9 @@ def get_show_anilist_id(show):
         match = show.get("anilistMatch")
         if isinstance(match, dict) and match.get("id"):
             return int(match["id"])
+        prov = str(show.get("_provider") or show.get("provider") or "").lower()
+        if str(show.get("_id", "")).isdigit() and prov in ("anikoto", "miruro"):
+            return int(show.get("_id"))
         return None
     except (ValueError, TypeError):
         return None
@@ -196,7 +212,7 @@ def search_anilist(token, query, raise_errors=False):
 def fetch_anilist_by_ids(token, anilist_ids=None, mal_ids=None, raise_errors=False):
     if not anilist_ids and not mal_ids:
         return []
-        
+
     # We could implement a cache here by exact IDs, but for now just pass through
     try:
         raw_shows = anilist_service.fetch(
@@ -475,26 +491,10 @@ def save_and_sync_watched(show, episode, ttype, token, title, progress, media_id
 # Durable write-queue (mutations survive crashes; one worker thread drains)
 # ---------------------------------------------------------------------------
 
-import threading
 import time as _time
 
 from ..services.anilist_queue import (
     configure_queue,
-    _load_anilist_queue,
-    _save_anilist_queue,
-    _anilist_mutation_key,
-    _enqueue_anilist_progress,
-    _update_queued_mutation,
-    _remove_queued_mutation,
-    _checkpoint_queued_progress,
-    _finish_queued_pending_completion,
-    _run_anilist_callback,
-    _run_queued_anilist_progress,
-    _anilist_write_worker,
-    _start_queued_anilist_progress,
-    queue_anilist_progress,
-    retry_queued_anilist_writes,
-    flush_anilist_writes,
 )
 
 configure_queue(
@@ -594,6 +594,8 @@ def refresh_history_anilist_airing_batch(history_entries):
             needs_refresh = True
         elif last_checked == 0:
             needs_refresh = True
+        elif not show.get("description") or not show.get("genres") or not show.get("thumbnail"):
+            needs_refresh = True
         elif status in ("RELEASING", "NOT_YET_RELEASED", "UNKNOWN", "") and (now - last_checked) > COOLDOWN:
             needs_refresh = True
 
@@ -603,67 +605,108 @@ def refresh_history_anilist_airing_batch(history_entries):
                 entry_map[str(al_id)] = []
             entry_map[str(al_id)].append({"entry": entry, "old_next_airing_at": next_airing_at})
 
-    if not media_ids_to_fetch:
-        return False
-
-    # Deduplicate IDs
-    media_ids_to_fetch = list(set(media_ids_to_fetch))
-
-    try:
-        raw_shows = anilist_service.fetch(
-            anilist_urlopen,
-            read_json_response,
-            token="",
-            anilist_ids=media_ids_to_fetch,
-        )
-        batch_results = {str(media["id"]): media for media in raw_shows if "id" in media}
-    except Exception as e:
-        debug_warn("AniList batch fetch failed", e)
-        return False
-
     changed = False
-    for al_id, media in batch_results.items():
-        items = entry_map.get(str(al_id), [])
-        for item in items:
-            entry = item["entry"]
-            old_next_airing_at = item["old_next_airing_at"]
-            show = entry.get("show")
-            if not show: continue
 
-            show["_anilist_airing_checked_at"] = now
-            changed = True
+    if media_ids_to_fetch:
+        # Deduplicate IDs
+        media_ids_to_fetch = list(set(media_ids_to_fetch))
 
-            airing = media.get("nextAiringEpisode")
-            if airing:
-                new_ep = airing.get("episode")
-                new_time = airing.get("timeUntilAiring")
-                new_at = airing.get("airingAt")
-                if not new_at and new_time:
-                    new_at = now + new_time
-                if new_ep != show.get("_next_airing_ep"):
-                    show["_next_airing_ep"] = new_ep
-                if new_at != show.get("_next_airing_at"):
-                    show["_next_airing_at"] = new_at
-                if new_time != show.get("_next_airing_time"):
-                    show["_next_airing_time"] = new_time
-            else:
-                show.pop("_next_airing_ep", None)
-                show.pop("_next_airing_time", None)
-                show.pop("_next_airing_at", None)
+        try:
+            raw_shows = anilist_service.fetch(
+                anilist_urlopen,
+                read_json_response,
+                token="",
+                anilist_ids=media_ids_to_fetch,
+            )
+            batch_results = {str(media["id"]): media for media in raw_shows if "id" in media}
+        except Exception as e:
+            debug_warn("AniList batch fetch failed", e)
+            batch_results = {}
 
-            new_count = media.get("episodes")
-            if new_count is not None and new_count != show.get("_anilist_episode_count"):
-                show["_anilist_episode_count"] = new_count
+        for al_id, media in batch_results.items():
+            items = entry_map.get(str(al_id), [])
+            for item in items:
+                entry = item["entry"]
+                old_next_airing_at = item["old_next_airing_at"]
+                show = entry.get("show")
+                if not show: continue
 
-            new_status = media.get("status")
-            if new_status and show.get("_anilist_status") != new_status:
-                show["_anilist_status"] = new_status
+                show["_anilist_airing_checked_at"] = now
                 changed = True
 
-            if new_status in ("RELEASING", "NOT_YET_RELEASED") or (old_next_airing_at and old_next_airing_at <= now):
-                if _provider_catalog_refresh_fn and _provider_catalog_refresh_fn(entry):
+                # Additive full metadata enrichment
+                try:
+                    norm_media = anilist_normalize.normalize_media(media)
+                    if norm_media:
+                        from .enrichment import _merge_anilist_into_provider
+                        _merge_anilist_into_provider(show, norm_media)
+                        show["_title_enriched"] = True
+                except Exception as e:
+                    debug_warn("AniList batch metadata merge failed", e)
+
+                airing = media.get("nextAiringEpisode")
+                if airing:
+                    new_ep = airing.get("episode")
+                    new_time = airing.get("timeUntilAiring")
+                    new_at = airing.get("airingAt")
+                    if not new_at and new_time:
+                        new_at = now + new_time
+                    if new_ep != show.get("_next_airing_ep"):
+                        show["_next_airing_ep"] = new_ep
+                    if new_at != show.get("_next_airing_at"):
+                        show["_next_airing_at"] = new_at
+                    if new_time != show.get("_next_airing_time"):
+                        show["_next_airing_time"] = new_time
+                else:
+                    show.pop("_next_airing_ep", None)
+                    show.pop("_next_airing_time", None)
+                    show.pop("_next_airing_at", None)
+
+                new_count = media.get("episodes")
+                if new_count is not None and new_count != show.get("_anilist_episode_count"):
+                    show["_anilist_episode_count"] = new_count
+
+                new_status = media.get("status")
+                if new_status and show.get("_anilist_status") != new_status:
+                    show["_anilist_status"] = new_status
                     changed = True
+
+                if new_status in ("RELEASING", "NOT_YET_RELEASED") or (old_next_airing_at and old_next_airing_at <= now):
+                    if _provider_catalog_refresh_fn and _provider_catalog_refresh_fn(entry):
+                        changed = True
+
+    # Second pass: background-enrich shows missing AniList IDs via fallback title search
+    for entry in history_entries:
+        show = entry.get("show")
+        if not show:
+            continue
+        if not get_show_anilist_id(show) and (not show.get("description") or not show.get("genres")):
+            title_name = show.get("name") or show.get("englishName")
+            if title_name and not show.get("_anilist_search_checked"):
+                show["_anilist_search_checked"] = True
+                try:
+                    candidates = search_anilist("", title_name)
+                    if not candidates:
+                        import re
+                        clean_name = re.sub(r'\s*[\(\[]\s*\d{4}\s*[\)\]]', '', title_name).strip()
+                        if clean_name and clean_name != title_name:
+                            candidates = search_anilist("", clean_name)
+                    if candidates:
+                        from ..domain.matching import choose_confident_match
+                        from .enrichment import _merge_anilist_into_provider
+                        best = choose_confident_match(show, candidates) or candidates[0]
+                        _merge_anilist_into_provider(show, best)
+                        show["_title_enriched"] = True
+                        changed = True
+                except Exception as e:
+                    debug_warn("Background title search fallback failed", e)
 
     if changed:
         storage._atomic_write_json(paths.HISTORY_PATH, storage.sanitize_history_list(history_entries), indent=2)
+        storage._history_cache = history_entries
+        try:
+            from ..ui.info_panel import invalidate_panel_cache
+            invalidate_panel_cache()
+        except Exception:
+            pass
     return changed

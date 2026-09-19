@@ -2,6 +2,7 @@
 
 from ..domain.metadata import set_next_airing_fields
 
+
 def _fuzzy_date(media, field):
     d = media.get(field)
     if not d or not d.get("year"):

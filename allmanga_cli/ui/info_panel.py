@@ -14,7 +14,6 @@ from ..domain.metadata import (
 from .panels import render_header_card
 
 
-
 def buildEpStr(show: dict, ttype: str) -> str:
     return format_progress(show) or format_available_episodes(show, ttype)
 
@@ -124,9 +123,9 @@ def make_info_fn(shows_getter: Callable[[], list[dict]], ui: Any) -> Callable[[i
 
 
 def make_shows_info_fn(shows_getter: Callable[[], list[dict]], ui: Any) -> Callable[[int], str]:
+    from ..core.enrichment import enrich_show_if_missing
     from ..ui import display
     from ..ui.modals import make_shows_info_fn as _make_shows_info_fn
-    from ..core.enrichment import enrich_show_if_missing
     return _make_shows_info_fn(
         shows_getter,
         ui,
@@ -136,9 +135,9 @@ def make_shows_info_fn(shows_getter: Callable[[], list[dict]], ui: Any) -> Calla
 
 
 def make_single_show_info_fn(show: dict, ui: Any) -> Callable[[int], str]:
+    from ..core.enrichment import enrich_show_if_missing
     from ..ui import display
     from ..ui.modals import make_single_show_info_fn as _make_single_show_info_fn
-    from ..core.enrichment import enrich_show_if_missing
     return _make_single_show_info_fn(
         show,
         ui,

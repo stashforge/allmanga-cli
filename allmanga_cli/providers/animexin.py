@@ -7,10 +7,10 @@ import re
 import urllib.parse
 import urllib.request
 
+from ..services.http import UA
 from .shared.models import normalize_episode_catalog, normalize_episode_sources, normalize_titles
 from .shared.schema import build_title
 from .shared.wordpress import WordPressAnimeProvider, fetch_html
-from ..services.http import UA
 
 
 class AnimeXinProvider(WordPressAnimeProvider):

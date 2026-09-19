@@ -25,10 +25,9 @@ import atexit
 import os
 import re
 import sys
-import threading
 import termios
+import threading
 import time
-import tty
 
 from ..context import FLAGS
 from ..core.storage import cover_cache_dir, cover_read_cache_dirs
@@ -36,10 +35,10 @@ from . import terminal_images
 from .anilist_menu import loading_frame as _anilist_menu_loading_frame
 from .picker_render import (
     loading_frame as _loading_frame,
-    loading_line as _loading_line,
 )
 from .poster import PosterManager
 from .spinner import DEFAULT_SPINNER, spinner_from_config
+from .spinner import loading_line as _loading_line
 
 _hovered_show_id_fn = None
 
@@ -135,8 +134,8 @@ def _poster_footer_line(show, default_text, width):
 
     # Inject Provider name into navigation footer line only when show is actually linked to a provider
     provider_name = ""
-    if show and isinstance(show, dict) and show.get("_provider") and show.get("_has_provider_link") is not False:
-        provider_name = show.get("_provider_name") or (show.get("_provider") or "").title()
+    if show and isinstance(show, dict) and (show.get("_provider") or show.get("provider")) and show.get("_has_provider_link") is not False:
+        provider_name = show.get("_provider_name") or (show.get("_provider") or show.get("provider") or "").title()
 
     if provider_name and provider_name not in default_text and "result(s)" not in default_text:
         default_text = f"{provider_name} • {default_text}"

@@ -5,9 +5,9 @@ from __future__ import annotations
 import getpass
 from typing import Any
 
-from ..state import secrets as secret_state
 from ..core import storage
 from ..state import paths
+from ..state import secrets as secret_state
 
 GREEN = "\033[1;32m"
 RED = "\033[1;31m"

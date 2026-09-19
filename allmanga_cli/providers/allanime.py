@@ -223,7 +223,7 @@ class AllAnimeProvider:
             for src in data["sourceUrls"]:
                 name = src.get("sourceName", "").strip().casefold()
                 url = src.get("sourceUrl", "")
-                
+
                 if "yt-mp4" in name or "fast4speed" in url or "wixstatic" in url:
                     src["priority"] = 2
                 elif name == "default":
@@ -240,7 +240,7 @@ class AllAnimeProvider:
                     src["priority"] = 7
                 else:
                     src["priority"] = 8
-                    
+
         return normalize_episode_sources(
             data,
             provider_id=self.id,

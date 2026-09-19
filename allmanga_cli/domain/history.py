@@ -2,9 +2,9 @@
 
 import time
 
+from .episodes import clean_episode_identifier, episode_id_at, episode_index_for_id
 from .metadata import positive_int
 from .titles import get_show_display_title
-from .episodes import clean_episode_identifier, episode_id_at, episode_index_for_id
 
 
 def format_relative_time(timestamp, now=None):
@@ -113,7 +113,7 @@ def playback_episode(
     show = entry.get("show", {})
     show_id = show.get("_id")
     history_episode = entry.get("episode", 1)
-    selected_type = (
+    (
         translation_type
         or entry.get("translation_type", "sub")
     )
@@ -177,6 +177,7 @@ def history_entry_progress(
     try:
         progress_num = decimal.Decimal(str(progress_val))
     except decimal.InvalidOperation:
+        progress_val = "0"
         progress_num = decimal.Decimal(0)
 
     available = history_available_episode_count(entry)
@@ -210,7 +211,7 @@ def format_history_entry(
 
 
 def history_provider_is_completed(show):
-    status = str(show.get("status") or "").upper()
+    status = str(show.get("status") or show.get("_anilist_status") or "").upper()
     return status in ("COMPLETED", "FINISHED", "ENDED")
 
 def history_available_episode_count(entry):
@@ -247,7 +248,7 @@ def history_available_episode_count(entry):
 def history_full_episode_count(entry):
     show = entry.get("show", {})
     try:
-        count = int(show.get("episodeCount"))
+        count = int(show.get("episodeCount") or show.get("_anilist_episode_count") or 0)
         if count > 0:
             return count
     except (TypeError, ValueError):
@@ -342,10 +343,16 @@ def playback_ep_from_history_entry(h, ttype=None, *, ensure_episode_ids_fn=None,
 
 def refresh_history_entry_provider_catalog(entry):
     import time
-    from ..providers.shared.models import title_provider_key
-    from ..services.catalog import get_allanime_show, fetch_episode_catalog, update_available_count_from_episode_ids, _provider_for_title
-    from .metadata import apply_provider_metadata_to_history_show
+
     from ..core.reporting import debug_warn
+    from ..providers.shared.models import title_provider_key
+    from ..services.catalog import (
+        _provider_for_title,
+        fetch_episode_catalog,
+        get_allanime_show,
+        update_available_count_from_episode_ids,
+    )
+    from .metadata import apply_provider_metadata_to_history_show
 
     show = (entry or {}).get("show", {})
     ttype = entry.get("translation_type", "sub")
@@ -394,6 +401,10 @@ def refresh_history_entry_provider_catalog(entry):
                     changed = True
         except Exception as e:
             debug_warn("Failed to fetch episode catalog during AllAnime refresh", e)
+            # Ensure state is set even on failure to prevent repeated retries
+            if show.get("_episode_catalog_state") != "loaded":
+                show["_episode_catalog_state"] = "loaded"
+            show["_provider_catalog_checked_at"] = int(time.time())
     else:
         try:
             prov = _provider_for_title(show)
@@ -426,15 +437,28 @@ def refresh_history_entry_provider_catalog(entry):
                                 entry["has_new_release"] = True
                         except (ValueError, TypeError):
                             pass
-                if show.get("_episode_catalog_state") != "loaded":
-                    show["_episode_catalog_state"] = "loaded"
-                    changed = True
-                show["_provider_catalog_checked_at"] = int(time.time())
-                if "aniListId" not in show and catalog.get("aniListId"):
-                    show["aniListId"] = str(catalog["aniListId"])
-                    changed = True
+            # Always mark catalog as checked, even if fetch failed
+            if show.get("_episode_catalog_state") != "loaded":
+                show["_episode_catalog_state"] = "loaded"
+                changed = True
+            show["_provider_catalog_checked_at"] = int(time.time())
+            if "aniListId" not in show and catalog and catalog.get("aniListId"):
+                show["aniListId"] = str(catalog["aniListId"])
+                changed = True
         except Exception as e:
             debug_warn(f"Failed to refresh episode catalog for {pkey}", e)
+            # Ensure state is set even on failure to prevent repeated retries
+            if show.get("_episode_catalog_state") != "loaded":
+                show["_episode_catalog_state"] = "loaded"
+            show["_provider_catalog_checked_at"] = int(time.time())
+
+    if not show.get("description") or not show.get("genres"):
+        try:
+            from ..core.enrichment import enrich_show_if_missing
+            if enrich_show_if_missing(show):
+                changed = True
+        except Exception:
+            pass
 
     return changed
 

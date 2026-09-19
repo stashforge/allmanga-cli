@@ -8,8 +8,8 @@ import re
 import urllib.parse
 from typing import Any
 
-from .base import BaseExtractor
 from ..services.http import UA
+from .base import BaseExtractor
 
 _logger = logging.getLogger(__name__)
 

@@ -3,28 +3,25 @@ Search and History state handlers for allmanga-cli.
 """
 
 from __future__ import annotations
-from allmanga_cli import app_core
-from allmanga_cli.ui.picker import tui_pick
 
 import os
 import threading
 import time
 from typing import TYPE_CHECKING, Any
 
-if TYPE_CHECKING:
-    from ..context import CliFlags, UiState, MachineState
+from allmanga_cli import app_core
+from allmanga_cli.ui.picker import tui_pick
 
+if TYPE_CHECKING:
+    from ..context import CliFlags, MachineState, UiState
+
+from ..domain import history as history_domain
 from ..domain.episodes import episode_id_at, episode_index_for_id
 from ..domain.titles import get_show_display_title
-from . import playback as playback_mod
-from ..ui.help import picker_help, search_input_help
 from ..ui import picker as _picker_mod
+from ..ui.help import picker_help, search_input_help
 from ..ui.spinner import spinner_frame, spinner_from_config
-from ..ui.picker_render import loading_frame as _loading_frame
-from ..core.terminal import fit_terminal_line as _fit_terminal_line
-from ..core.terminal import sanitize_terminal_text as _sanitize_terminal_text
-from ..core.terminal import truncate_display as _truncate_display
-
+from . import playback as playback_mod
 
 # ---------------------------------------------------------------------------
 # Colors
@@ -70,6 +67,8 @@ def handle_history_state(
     shows = [h.get("show") for h in hist if isinstance(h.get("show"), dict)]
     if shows:
         app_core.batch_prepare_shows_display_state(shows, ttype)
+        if hasattr(app_core, "_poster_manager") and hasattr(app_core._poster_manager, "prewarm_shows"):
+            app_core._poster_manager.prewarm_shows(shows)
 
     history_modes = ["Active", "Up to date", "Completed", "All"]
     history_mode = ui.history_filter
@@ -103,6 +102,7 @@ def handle_history_state(
             try:
                 if app_core.refresh_history_anilist_airing_batch(hist):
                     _rebuild_history_view()
+                    _picker_mod._needs_redraw = True
                 for entry in hist:
                     s_obj = entry.get("show", {})
                     s_id = str(s_obj.get("_id") or "")
@@ -111,16 +111,42 @@ def handle_history_state(
                         or s_obj.get("_anilist_airing_checked_at", 0) >= _history_open_time
                     ):
                         _refreshed_history_ids.add(s_id)
+
+                # Background-check provider episode catalogs for active non-AniList titles
+                batch_changed = False
+                for entry in list(hist):
+                    s_obj = entry.get("show", {})
+                    s_id = str(s_obj.get("_id") or "")
+                    if not s_id or s_id in _refreshed_history_ids:
+                        continue
+                    status = str(s_obj.get("status") or "").upper()
+                    if status in ("FINISHED", "COMPLETED", "ENDED") and s_obj.get("episodeCount") and s_obj.get("description"):
+                        _refreshed_history_ids.add(s_id)
+                        continue
+                    try:
+                        changed = app_core.refresh_history_entry_provider_catalog(entry)
+                        _refreshed_history_ids.add(s_id)
+                        s_obj["_episode_catalog_state"] = "loaded"
+                        if changed:
+                            app_core.patch_history_entry_show(s_id, entry.get("translation_type", "sub"), s_obj)
+                            history_domain.history_entry_category(entry)
+                            batch_changed = True
+                    except Exception:
+                        pass
+                if batch_changed:
+                    _rebuild_history_view()
+                    _picker_mod._needs_redraw = True
             except Exception:
                 pass
             finally:
                 history_refresh_status.pop("BATCH", None)
+                _rebuild_history_view()
                 _picker_mod._needs_redraw = True
 
         threading.Thread(target=_worker, daemon=True).start()
 
     global _history_session_refreshed
-    if not _history_session_refreshed and not getattr(flags, "plain_mode", False):
+    if not _history_session_refreshed and not getattr(flags, "plain_mode", False) and not flags.incognito_mode:
         _history_session_refreshed = True
         _start_batch_refresh()
 
@@ -139,18 +165,18 @@ def handle_history_state(
             return
 
         # AniList-backed titles are already handled by the AniList batch check
-        if app_core.get_show_anilist_id(show):
+        if app_core.get_show_anilist_id(show) and show.get("description") and show.get("genres"):
             _refreshed_history_ids.add(show_id)
             return
 
         # Finished titles with known episode counts don't have new episodes to check
         status = str(show.get("status") or "").upper()
-        if status in ("FINISHED", "COMPLETED", "ENDED") and show.get("episodeCount"):
+        if status in ("FINISHED", "COMPLETED", "ENDED") and show.get("episodeCount") and show.get("description") and show.get("genres"):
             _refreshed_history_ids.add(show_id)
             return
 
         if (
-            (status not in ("RELEASING", "NOT_YET_RELEASED", "") and show.get("_episode_catalog_state") == "loaded")
+            show.get("_episode_catalog_state") == "loaded"
             or show.get("_provider_catalog_checked_at", 0) >= _history_open_time
             or show.get("_anilist_airing_checked_at", 0) >= _history_open_time
             or show.get("_allanime_checked_at", 0) >= _history_open_time
@@ -169,7 +195,9 @@ def handle_history_state(
                 show["_episode_catalog_state"] = "loaded"
                 if changed:
                     app_core.patch_history_entry_show(show_id, entry.get("translation_type", "sub"), show)
+                    history_domain.history_entry_category(entry)
                     _rebuild_history_view()
+                    _picker_mod._needs_redraw = True
             except Exception:
                 pass
             finally:
@@ -181,7 +209,9 @@ def handle_history_state(
 
     def _history_footer(entry, width):
         updated = app_core.format_history_updated_time(entry)
+        incog_badge = "\033[38;2;155;125;185mINCOGNITO (READ-ONLY)\033[0m" if flags.incognito_mode else ""
         default = _footer_parts(
+            incog_badge,
             f"Updated {updated}" if updated else "",
             "Enter/Right open",
             "Left search",
@@ -280,7 +310,7 @@ def handle_history_state(
     def _hist_refresh(_selected=None):
         _refreshed_history_ids.clear()
         _start_batch_refresh()
-        _trigger_hover_refresh_if_needed()
+        _rebuild_history_view()
         return hopts, _hist_hdr(0)
 
     def _hist_tick():
@@ -293,14 +323,23 @@ def handle_history_state(
         )
 
     def _hist_item_prefix(oi):
+        has_any_new = any(e.get("has_new_release") for e in filtered_hist)
         if 0 <= oi < len(filtered_hist):
             if filtered_hist[oi].get("has_new_release"):
                 return "\033[38;2;166;227;161m◆\033[0m "
-        return "  "
+            if has_any_new:
+                return "  "
+        return ""
+
+    def _hist_prompt():
+        base = f"Watch History · {history_mode}"
+        if flags.incognito_mode:
+            return f"\033[38;2;155;125;185mINCOGNITO\033[0m · {base}"
+        return base
 
     hidx = tui_pick(
         flags, ui,
-        lambda: f"Watch History · {history_mode}", hopts,
+        _hist_prompt, hopts,
         header_fn=_hist_hdr,
         top_header_fn=_hist_top_hdr,
         tab_fn=_hist_tab,
@@ -382,7 +421,7 @@ def handle_search_state(
     app_core._clear_poster_downloads()
     provider_id = app_core.provider_key(getattr(args, "provider", "allanime"))
     provider_name = app_core.provider_display_name(provider_id)
-    
+
     # Determine category: Anime, Donghua, Movies/Shows
     category = "Anime"
     try:
@@ -498,8 +537,100 @@ def handle_search_state(
     shows_list = get_results()
     if shows_list:
         app_core.batch_prepare_shows_display_state(shows_list, ttype)
+        if hasattr(app_core, "_poster_manager") and hasattr(app_core._poster_manager, "prewarm_shows"):
+            app_core._poster_manager.prewarm_shows(shows_list)
     initial_opts = [f"{app_core.get_show_display_title(s)}" for s in shows_list]
     hd2 = picker_help("Select anime", "New search", "Quit")
+
+    # Pre-compute headers for all shows (0-delay cursor navigation)
+    _precomputed_headers: dict[int, str] = {}
+    _get_error_fn = lambda: (get_error() or ui.search_error)
+    if not get_loading():
+        for i, show in enumerate(shows_list):
+            _precomputed_headers[i] = app_core.render_search_header(
+                provider_name,
+                ms.query_str,
+                ttype,
+                get_results,
+                get_loading,
+                selected_idx=i,
+                esc_action="quit",
+                get_error_fn=_get_error_fn,
+                filter_query="",
+                badges=_session_badges(flags, args, search_context=True),
+            )
+
+    _last_loading_msg = ""
+
+    def _cached_header_fn(si):
+        nonlocal _last_loading_msg
+        if ui.active_picker_query:
+            return app_core.render_search_header(
+                provider_name,
+                ms.query_str,
+                ttype,
+                get_results,
+                get_loading,
+                selected_idx=si,
+                esc_action="quit",
+                get_error_fn=_get_error_fn,
+                filter_query=ui.active_picker_query or "",
+                badges=_session_badges(flags, args, search_context=True),
+            )
+        current_results = get_results()
+        if not (0 <= si < len(current_results)):
+            return app_core.render_search_header(
+                provider_name,
+                ms.query_str,
+                ttype,
+                get_results,
+                get_loading,
+                selected_idx=si,
+                esc_action="quit",
+                get_error_fn=_get_error_fn,
+                filter_query=ui.active_picker_query or "",
+                badges=_session_badges(flags, args, search_context=True),
+            )
+
+        current_loading = get_loading()
+        if current_loading != _last_loading_msg:
+            _last_loading_msg = current_loading
+            _precomputed_headers.clear()
+
+        show = current_results[si]
+        cached = _precomputed_headers.get(si)
+
+        if (
+            cached is None
+            or bool(current_loading)
+            or show.get("_poster_status") == "loading"
+            or "Loading cover" in cached
+            or "Enriching metadata" in cached
+            or "Searching…" in cached
+        ):
+            hdr = app_core.render_search_header(
+                provider_name,
+                ms.query_str,
+                ttype,
+                get_results,
+                get_loading,
+                selected_idx=si,
+                esc_action="quit",
+                get_error_fn=_get_error_fn,
+                filter_query="",
+                badges=_session_badges(flags, args, search_context=True),
+            )
+            if (
+                not current_loading
+                and show.get("_poster_status") != "loading"
+                and "Loading cover" not in hdr
+                and "Enriching metadata" not in hdr
+                and "Searching…" not in hdr
+            ):
+                _precomputed_headers[si] = hdr
+            return hdr
+
+        return cached
 
     loaded_episodes_map: dict[str, list[str]] = {}
 
@@ -524,10 +655,10 @@ def handle_search_state(
     idx = tui_pick(
             flags, ui,
             search_title, initial_opts,
-            header_fn=_search_result_header(provider_name, ms.query_str, ttype, get_results, get_loading, get_error_fn=lambda: (get_error() or ui.search_error)),
+            header_fn=_cached_header_fn,
             top_header_fn=_search_cover_header(get_results),
             live_fn=live_fn,
-            initial_query=ms.query_str,
+            initial_query="",
             is_search=False,
             help_dict=hd2,
             auto_select_single_when_done=ms.just_searched,
@@ -573,6 +704,7 @@ def handle_search_state(
 
         requested_episode_missing = False
         if args.episode:
+            args._cli_episode_passed = True
             requested_ep = str(args.episode)
             requested_idx = episode_index_for_id(
                 episode_ids, requested_ep, labels=s.get("_episode_labels")

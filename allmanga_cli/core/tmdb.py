@@ -1,9 +1,9 @@
 """TMDB API client for searching and retrieving movie metadata."""
 
-import urllib.request
-import urllib.parse
 import json
 import logging
+import urllib.parse
+import urllib.request
 from typing import Any
 
 from allmanga_cli.core.storage import load_config
@@ -60,7 +60,7 @@ class TMDBClient:
             except Exception as e:
                 last_error = e
                 time.sleep(0.5)
-                
+
         raise TMDBError(f"Failed to fetch data from TMDB after 3 attempts: {last_error}")
 
     def search_multi(self, query: str) -> list[dict[str, Any]]:

@@ -6,6 +6,7 @@ import base64
 import json
 import re
 import urllib.parse
+
 from bs4 import BeautifulSoup
 
 from .base import BaseExtractor

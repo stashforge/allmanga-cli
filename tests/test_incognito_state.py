@@ -129,3 +129,40 @@ def test_incognito_menu_advances_from_play_to_play_next():
     # Verify action_show local progress is 1
     assert action_show.get("_local_progress") == "1"
     assert storage.get_local_progress(action_show, "sub") == "1"
+
+
+def test_incognito_reads_existing_history_read_only(monkeypatch):
+    """Existing history on disk is readable in incognito, but modifications never write to disk."""
+    import json
+
+    storage.reset_caches()
+    original_disk_data = [
+        {
+            "show": {"_id": "disk-show-1", "name": "Existing Show"},
+            "episode": "5",
+            "translation_type": "sub",
+            "timestamp": 123456789,
+        }
+    ]
+    with open(paths.HISTORY_PATH, "w") as f:
+        json.dump(original_disk_data, f)
+
+    # 1. Incognito can read existing history from disk
+    hist = storage.load_history()
+    assert len(hist) == 1
+    assert hist[0]["show"]["name"] == "Existing Show"
+    assert hist[0]["episode"] == "5"
+
+    # 2. Watch episode 6 in incognito
+    show = hist[0]["show"]
+    storage.save_history(show, "6", "sub")
+
+    # In-memory history is updated to episode 6
+    assert str(storage.get_local_progress(show, "sub")) == "6"
+
+    # 3. Disk file is 100% UNTOUCHED byte-for-byte!
+    with open(paths.HISTORY_PATH) as f:
+        disk_content = json.load(f)
+    assert disk_content[0]["episode"] == "5"
+    assert disk_content == original_disk_data
+

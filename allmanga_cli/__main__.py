@@ -2,5 +2,4 @@
 
 from .cli.main import run
 
-
 raise SystemExit(run())

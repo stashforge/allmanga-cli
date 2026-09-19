@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Sequence
-
 # Separator characters that define word boundaries
 _BOUNDARY_CHARS = frozenset(" \t\n\r-_:./\\()[]{}'\",+*~`!?<>|#@$%^&=")
 
@@ -23,12 +21,12 @@ def _is_word_boundary(text: str, idx: int) -> bool:
 
 def _fuzzy_match_single(term: str, text: str) -> tuple[int, list[int]] | None:
     """Match a single search term against target text with FZF-style scoring.
-    
+
     Returns (score, matched_indices) or None if no match.
     """
     if not term:
         return 0, []
-    
+
     t_len = len(term)
     text_len = len(text)
     if t_len > text_len:
@@ -91,11 +89,11 @@ def _fuzzy_match_single(term: str, text: str) -> tuple[int, list[int]] | None:
 
     for i, idx in enumerate(chosen_matches):
         char_score = 10
-        
+
         # Word boundary bonus
         if _is_word_boundary(text, idx):
             char_score += 80
-        
+
         # Consecutive character bonus
         if prev_idx != -1 and idx == prev_idx + 1:
             consecutive += 1
@@ -121,7 +119,7 @@ def _fuzzy_match_single(term: str, text: str) -> tuple[int, list[int]] | None:
 
 def fuzzy_match(query: str, text: str) -> tuple[int, set[int]] | None:
     """Match multi-term query against text.
-    
+
     All terms in query must match. Returns (combined_score, matched_indices_set)
     or None if any term fails to match.
     """

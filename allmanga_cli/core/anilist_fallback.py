@@ -114,8 +114,8 @@ def search_anilist_authenticated(
     """
     if not token:
         try:
-            from .storage import load_config
             from ..services.anilist_auth import stored_anilist_token
+            from .storage import load_config
             token = stored_anilist_token(load_config())
         except Exception:
             token = ""

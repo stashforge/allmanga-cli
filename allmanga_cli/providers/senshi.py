@@ -1,12 +1,12 @@
 import json
-import urllib.request
-import urllib.parse
-import urllib.error
-from typing import Any
 import logging
+import urllib.error
+import urllib.parse
+import urllib.request
+from typing import Any
 
 from .shared.base import Provider
-from .shared.models import normalize_title, normalize_episode_catalog, normalize_episode_sources
+from .shared.models import normalize_episode_catalog, normalize_episode_sources, normalize_title
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:146.0) Gecko/20100101 Firefox/146.0",
@@ -65,16 +65,16 @@ class Senshi(Provider):
         data = search_anilist_with_fallback(query, graphql_query, {"search": query})
 
         media_list = data.get("data", {}).get("Page", {}).get("media", [])
-        
+
         results = []
         for media in media_list:
             mal_id = media.get("idMal")
             if not mal_id:
                 continue
-                
+
             title_obj = media.get("title", {})
             title_str = title_obj.get("romaji") or title_obj.get("english") or title_obj.get("native") or "Unknown"
-            
+
             results.append(normalize_title(
                 {
                     "_id": str(mal_id),
@@ -91,7 +91,7 @@ class Senshi(Provider):
                 provider_id=self.id,
                 provider_name=self.name
             ))
-            
+
         return results
 
     def get_title(self, provider_id: str) -> dict[str, Any]:
@@ -116,14 +116,14 @@ class Senshi(Provider):
 
         for ep in episodes_data:
             ep_num = str(ep.get("ep_id"))
-            
+
             ids.append(ep_num)
             labels[ep_num] = ep_num
             eps_formatted.append({
                 "id": ep_num,
                 "label": ep_num
             })
-            
+
         def _parse_ep(val):
             try: return float(val)
             except ValueError: return 0.0
@@ -149,7 +149,7 @@ class Senshi(Provider):
             return None
 
         want_dub = (ttype.lower() == "dub")
-        
+
         # Filter by status (HardSub vs Dub)
         def is_dub(status):
             return str(status).lower() == "dub"

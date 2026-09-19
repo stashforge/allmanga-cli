@@ -4,9 +4,9 @@ Response shaping (normalize_media, apply_media_update) lives in normalize.py.
 """
 
 import json
-import urllib.request
-import urllib.error
 import time
+import urllib.error
+import urllib.request
 
 from ..core.api import SearchFailure
 
@@ -80,7 +80,7 @@ def _post(urlopen, read_json, query, variables=None, token=""):
     payload = {"query": query}
     if variables is not None:
         payload["variables"] = variables
-        
+
     try:
         with urlopen(_request(token), json.dumps(payload).encode()) as response:
             return read_json(response)

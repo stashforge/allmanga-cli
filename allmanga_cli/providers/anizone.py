@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import logging
-import urllib.request
 import urllib.parse
+import urllib.request
 from typing import Any
+
 from bs4 import BeautifulSoup
 
 _logger = logging.getLogger(__name__)
@@ -16,6 +17,7 @@ from .shared.models import (
     normalize_title,
     normalize_titles,
 )
+
 
 class AniZoneProvider:
     id = "anizone"
@@ -40,7 +42,8 @@ class AniZoneProvider:
         return self.metadata.get("name", "AniZone")
 
     def search(self, query: str, ttype: str = "sub") -> list[dict[str, Any]]:
-        import re, json
+        import json
+        import re
         search_url = f"{self.base_url}/anime?search={urllib.parse.quote(query)}"
         req = urllib.request.Request(search_url, headers=self.headers)
         try:
@@ -57,7 +60,7 @@ class AniZoneProvider:
                     cleaned_json = raw_json.encode('utf-8').decode('unicode_escape')
                 except Exception:
                     cleaned_json = raw_json.replace('\\"', '"').replace('\\/', '/')
-                
+
                 try:
                     items = json.loads(cleaned_json)
                 except Exception:
@@ -106,13 +109,13 @@ class AniZoneProvider:
             return []
 
     def get_title(self, provider_id: str) -> dict[str, Any] | None:
-        import re, json
+        import json
+        import re
         anime_url = f"{self.base_url}/anime/{provider_id}"
         req = urllib.request.Request(anime_url, headers=self.headers)
         description = ""
         title = provider_id.replace('-', ' ').title()
         cover = ""
-        ep_count = 0
         try:
             html = urllib.request.urlopen(req, timeout=8).read().decode('utf-8', errors='ignore')
             soup = BeautifulSoup(html, 'html.parser')
@@ -149,8 +152,8 @@ class AniZoneProvider:
                 "name": title,
                 "description": description,
                 "thumbnail": cover,
-            }, 
-            provider_id=self.id, 
+            },
+            provider_id=self.id,
             provider_name=self.name,
             id_key="_id"
         )
@@ -207,10 +210,11 @@ class AniZoneProvider:
         episode: str,
         ttype: str = "sub",
     ) -> dict[str, Any] | None:
-        import re, json
+        import json
+        import re
         ep_url = f"{self.base_url}/anime/{provider_id}/{episode}"
         req = urllib.request.Request(
-            ep_url, 
+            ep_url,
             headers={
                 **self.headers,
                 "Referer": f"{self.base_url}/",

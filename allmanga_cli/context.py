@@ -16,11 +16,12 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass, field
-
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # CliFlags
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class CliFlags:
@@ -69,6 +70,7 @@ FLAGS = CliFlags(
 # ---------------------------------------------------------------------------
 # UiState
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class UiState:
@@ -135,10 +137,14 @@ class UiState:
     initial_sources_prompted: bool = False
     """Whether the ``--sources`` mirror picker has been shown for this episode."""
 
+    aniskip_android_hint_shown: bool = False
+    """Whether the Android aniskip instructions hint has been shown."""
+
 
 # ---------------------------------------------------------------------------
 # MachineState
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class MachineState:
@@ -219,6 +225,27 @@ class MachineState:
     last_al_shows: list = field(default_factory=list)
     """Cached results of the last AniList search."""
 
+    # Smart Downloads options
+    auto_download_next: bool = False
+    """Auto-download next episode in background/binge mode if missing locally."""
+    auto_delete_watched: bool = False
+    """Auto-delete watched episodes once beyond the rolling safety buffer."""
+    auto_delete_buffer: int = 1
+    """Number of watched episodes to retain before deleting older ones."""
+
+    _is_downloads: bool = False
+    """Whether the current session is in Downloads mode."""
+    _download_files: dict = field(default_factory=dict)
+    """Map of episode identifiers to local downloaded file paths."""
+    _binge_auto_downloading: bool = False
+    """Flag indicating whether background binge auto-download is currently active."""
+    _failed_mirrors: set = field(default_factory=set)
+    """Set of stream indices/mirrors that failed during playback."""
+
+    _android_pending_show_id: str | None = None
+    _android_pending_watched_ep: str | None = None
+    _android_pending_watched_idx: int | None = None
+
 
 def set_ui_context(ui: Any, show: dict | None, ttype: str) -> None:
     ui.ui_show_ctx = show
@@ -232,10 +259,19 @@ def get_ui_show(ui: Any, default: dict | None = None) -> dict:
 
 
 def get_ui_ttype(ui: Any, default: str = "sub") -> str:
-    return getattr(ui, "ui_ttype_ctx", None) if getattr(ui, "ui_ttype_ctx", None) is not None else default
+    return (
+        getattr(ui, "ui_ttype_ctx", None)
+        if getattr(ui, "ui_ttype_ctx", None) is not None
+        else default
+    )
 
 
-def set_navigation_context(ui: Any, search_prev: str | None = None, ep_prev: str | None = None, action_prev: str | None = None) -> None:
+def set_navigation_context(
+    ui: Any,
+    search_prev: str | None = None,
+    ep_prev: str | None = None,
+    action_prev: str | None = None,
+) -> None:
     if search_prev is not None:
         ui.search_prev_state = search_prev
     if ep_prev is not None:
@@ -254,4 +290,3 @@ def get_ep_prev(ui: Any, default: str = "SEARCH") -> str:
 
 def get_action_prev(ui: Any, default: str = "SEARCH") -> str:
     return ui.action_prev_state if getattr(ui, "action_prev_state", None) else default
-

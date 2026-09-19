@@ -141,7 +141,7 @@ def _extract_item_season(item, titles):
             return num
     if item.get("_season") and isinstance(item.get("_season"), int) and item.get("_season") > 0:
         return item.get("_season")
-        
+
     # 2. Secondary fallback: parse from titles
     return explicit_season_number(titles)
 
@@ -412,14 +412,13 @@ def extract_matching_queries(anilist_show: dict) -> list[str]:
 
 
 def match_anilist_show_to_provider(anilist_show, ttype="sub", provider_id=None, status_cb=None):
-    from ..core.storage import get_al_match, save_al_match
     from ..core.enrichment import _merge_anilist_into_provider
+    from ..core.storage import get_al_match, save_al_match
     from ..providers import (
         _DEFAULT_PROVIDER_ID,
-        provider_key,
-        provider_display_name,
         is_provider_active,
-        get_provider,
+        provider_display_name,
+        provider_key,
     )
     from ..services.catalog import get_show_by_id, search_anime
 
@@ -556,11 +555,11 @@ def _find_fuzzy_anilist_candidate(provider_show, token):
 
 
 def _run_anilist_match_search(flags, ui, provider_show, token):
+    from ..core.enrichment import _merge_anilist_into_provider
+    from ..core.storage import save_source_anilist_match
+    from ..state.preferences import set_action_feedback
     from ..ui.display import with_loading
     from ..ui.modals import confirm_auto_anilist_match
-    from ..core.storage import save_source_anilist_match
-    from ..core.enrichment import _merge_anilist_into_provider
-    from ..state.preferences import set_action_feedback
 
     candidate = with_loading(
         "Finding AniList match…",
@@ -587,20 +586,21 @@ def _run_anilist_match_search(flags, ui, provider_show, token):
 
 
 def _run_manual_anilist_match(flags, ui, provider_show, token, initial_error=""):
-    from ..ui.picker import tui_pick
-    from ..ui.help import search_input_help, picker_help
-    from ..ui.display import with_loading
-    from ..ui.modals import (
-        manual_anilist_input_header,
-        search_result_header,
-        search_cover_header,
-    )
-    from ..ui.info_panel import make_info_fn
     from ..core.anilist import search_anilist
     from ..core.api import SearchFailure
-    from ..core.storage import save_source_anilist_match
     from ..core.enrichment import _merge_anilist_into_provider
+    from ..core.storage import save_source_anilist_match
     from ..state.preferences import set_action_feedback
+    from ..ui.display import with_loading
+    from ..ui.help import picker_help, search_input_help
+    from ..ui.info_panel import make_info_fn
+    from ..ui.modals import (
+        manual_anilist_input_header,
+        search_cover_header,
+        search_result_header,
+    )
+    from ..ui.panels import render_search_header
+    from ..ui.picker import tui_pick
 
     source_title = provider_show.get("_allanime_name") or provider_show.get("name") or ""
     query = source_title
@@ -636,13 +636,44 @@ def _run_manual_anilist_match(flags, ui, provider_show, token, initial_error="")
             search_error = f'No results found for "{query}"'
             continue
         options = [show.get("name", "Unknown") for show in results]
+
+        # Pre-compute headers for all shows (0-delay cursor navigation)
+        _precomputed_headers: dict[int, str] = {}
+        _get_error_fn = lambda: search_error
+        for i, show in enumerate(results):
+            _precomputed_headers[i] = render_search_header(
+                "AniList",
+                query,
+                "sub",
+                lambda: results,
+                lambda: "",
+                selected_idx=i,
+                esc_action="cancel",
+                get_error_fn=_get_error_fn,
+                filter_query="",
+                badges=None,
+            )
+
+        def _cached_header_fn(si):
+            if ui.active_picker_query:
+                return render_search_header(
+                    "AniList",
+                    query,
+                    "sub",
+                    lambda: results,
+                    lambda: "",
+                    selected_idx=si,
+                    esc_action="cancel",
+                    get_error_fn=_get_error_fn,
+                    filter_query=ui.active_picker_query or "",
+                    badges=None,
+                )
+            return _precomputed_headers.get(si, "")
+
         idx = tui_pick(
             flags, ui, "Match AniList",
             options,
-            header_fn=search_result_header(
-                "AniList", query, "sub",
-                lambda: results, lambda: "", "cancel"
-            ),
+            header_fn=_cached_header_fn,
             top_header_fn=search_cover_header(lambda: results),
             help_dict=picker_help("Link title", "Search again", "Cancel", info_label="View show info"),
             info_fn=make_info_fn(lambda: results, ui),
@@ -661,11 +692,10 @@ def _run_manual_anilist_match(flags, ui, provider_show, token, initial_error="")
 
 
 def match_provider_show_to_anilist(flags, ui, provider_show, token, manual_on_fail=False):
-    from ..core.storage import get_source_anilist_match, save_source_anilist_match
     from ..core.anilist import fetch_anilist_media, search_anilist
-    from ..services import normalize as anilist_normalize
     from ..core.enrichment import _merge_anilist_into_provider
-
+    from ..core.storage import get_source_anilist_match, save_source_anilist_match
+    from ..services import normalize as anilist_normalize
     from ..state.preferences import set_action_feedback
 
     show_id = str(provider_show.get("_id") or provider_show.get("id") or "")
@@ -729,22 +759,23 @@ def match_provider_show_to_anilist(flags, ui, provider_show, token, manual_on_fa
 
 
 def _run_manual_match_search(flags, ui, anilist_show, ttype, provider_id=None, allow_provider_change=False):
-    from ..ui.picker import tui_pick
-    from ..ui.help import search_input_help, picker_help
-    from ..ui.display import with_loading
-    from ..ui.modals import (
-        select_provider_for_match,
-        confirm_auto_match,
-        no_match_prompt,
-        manual_match_input_header,
-        search_result_header,
-        search_cover_header,
-    )
-    from ..ui.info_panel import make_info_fn
-    from ..providers import provider_key, provider_display_name
-    from ..core.storage import save_al_match
-    from ..core.enrichment import _merge_anilist_into_provider
     from ..app.search_coordinator import make_provider_oneshot_search
+    from ..core.enrichment import _merge_anilist_into_provider
+    from ..core.storage import save_al_match
+    from ..providers import provider_display_name, provider_key
+    from ..ui.display import with_loading
+    from ..ui.help import picker_help, search_input_help
+    from ..ui.info_panel import make_info_fn
+    from ..ui.modals import (
+        confirm_auto_match,
+        manual_match_input_header,
+        no_match_prompt,
+        search_cover_header,
+        search_result_header,
+        select_provider_for_match,
+    )
+    from ..ui.panels import render_search_header
+    from ..ui.picker import tui_pick
 
 
     al_title = anilist_show.get("name") or anilist_show.get("englishName") or ""
@@ -807,10 +838,45 @@ def _run_manual_match_search(flags, ui, anilist_show, ttype, provider_id=None, a
 
             live_fn, get_results, get_loading, get_error = make_provider_oneshot_search(query, ttype, target_pid)
             initial_opts = [s.get("name", "Unknown") for s in get_results()]
+
+            # Pre-compute headers for all shows (0-delay cursor navigation)
+            _precomputed_headers: dict[int, str] = {}
+            _get_error_fn = lambda: get_error()
+            shows_list = get_results()
+            for i, show in enumerate(shows_list):
+                _precomputed_headers[i] = render_search_header(
+                    p_name,
+                    query,
+                    ttype,
+                    get_results,
+                    get_loading,
+                    selected_idx=i,
+                    esc_action="cancel",
+                    get_error_fn=_get_error_fn,
+                    filter_query="",
+                    badges=None,
+                )
+
+            def _cached_header_fn(si):
+                if ui.active_picker_query:
+                    return render_search_header(
+                        p_name,
+                        query,
+                        ttype,
+                        get_results,
+                        get_loading,
+                        selected_idx=si,
+                        esc_action="cancel",
+                        get_error_fn=_get_error_fn,
+                        filter_query=ui.active_picker_query or "",
+                        badges=None,
+                    )
+                return _precomputed_headers.get(si, "")
+
             idx = tui_pick(
                 flags, ui, f"Match {p_name}",
                 initial_opts,
-                header_fn=search_result_header(p_name, query, ttype, get_results, get_loading, get_error_fn=get_error),
+                header_fn=_cached_header_fn,
                 top_header_fn=search_cover_header(get_results),
                 live_fn=live_fn,
                 help_dict=picker_help("Link title", "Search again", "Cancel", info_label="View show info"),

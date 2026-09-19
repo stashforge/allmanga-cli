@@ -64,9 +64,9 @@ allanime_episode_url = provider_episode_url
 
 def open_external_url(url):
     import os
-    import sys
     import shutil
     import subprocess
+    import sys
     try:
         url = validate_http_url(url)
     except ValueError:

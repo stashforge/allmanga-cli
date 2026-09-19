@@ -127,6 +127,7 @@ complete -F _allmanga_cli_completion allmanga-cli
 
 
 def zsh_completion():
+    newline = "\n"
     return f"""#compdef allmanga-cli
 
 local -a commands
@@ -139,7 +140,7 @@ commands=(
   'continue:Continue the last watched title'
   'auth:Login or logout from AniList'
   'completion:Generate shell completion'
-{"".join(f"  '{provider}:Search {provider}'\n" for provider in PROVIDERS)}
+    {"".join(f"  '{provider}:Search {provider}'{newline}" for provider in PROVIDERS)}
 )
 
 case $words[2] in

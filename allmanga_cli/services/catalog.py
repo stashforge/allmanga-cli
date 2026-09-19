@@ -3,31 +3,33 @@
 from __future__ import annotations
 
 import sys
-from typing import Any, Callable
+from typing import Callable
 
 from ..core.api import (
     ProviderDependencyError,
     SearchFailure,
     search_failure_message,
 )
+from ..core.enrichment import enrich_show_if_missing
+from ..core.reporting import debug_warn, err
 from ..domain.episodes import (
     is_contiguous_legacy_catalog as _is_contiguous_legacy_catalog,
+)
+from ..domain.episodes import (
     normalize_episode_ids as _normalize_episode_ids,
 )
+from ..providers import allanime as allanime_service
 from ..providers import (
     get_provider,
-    provider_key,
     provider_display_name,
+    provider_key,
 )
 from ..providers.shared.models import (
     title_provider_id,
     title_provider_key,
 )
-from ..providers import allanime as allanime_service
 from ..services.http import request_json as _req
-from ..core.reporting import err, debug_warn
-from ..ui.display import with_loading, exit_alt_screen, restore_terminal, fatal_terminal_exit
-from ..core.enrichment import enrich_show_if_missing
+from ..ui.display import fatal_terminal_exit, with_loading
 
 
 def _current_provider():
@@ -182,6 +184,12 @@ def ensure_episode_ids(show: dict, ttype: str, status_cb: Callable[[str], None] 
         _normalize_episode_ids(show.get("_episode_ids"))
         if cached_ttype == ttype else []
     )
+    if not cached_ids and (show.get("_downloaded_episodes") or show.get("_folder_name")):
+        eps = show.get("_episode_ids") or show.get("_downloaded_episodes") or []
+        cached_ids = _normalize_episode_ids(eps)
+        if cached_ids:
+            show["_episode_ids_ttype"] = ttype
+
     if cached_ids:
         show["_episode_catalog_state"] = "loaded"
         update_available_count_from_episode_ids(show, ttype, cached_ids)
@@ -237,7 +245,9 @@ def episode_catalog_needs_fetch(show: dict, ttype: str) -> bool:
 
 def load_episode_ids_for_selection(show: dict, ttype: str) -> list[str]:
     if episode_catalog_needs_fetch(show, ttype):
-        initial_msg = "Loading episodes…" if show.get("_title_enriched") or show.get("aniListId") else "Loading title info…"
+        # If enrichment was attempted (even if failed), don't say "loading title info"
+        # since there's no more title metadata to fetch
+        initial_msg = "Loading episodes…" if (show.get("_title_enriched") or show.get("aniListId") or show.get("_enrichment_attempted")) else "Loading title info…"
         return with_loading(
             initial_msg,
             ensure_episode_ids,
@@ -264,6 +274,8 @@ def get_episode_data(show_id: str, ep: str, ttype: str = "sub", provider_id: str
     except ProviderDependencyError as exc:
         fatal_terminal_exit(str(exc))
     except Exception as e:
+        import traceback
+        sys.stderr.write(f"[Catalog] Episode fetch failed for {show_id} ep {ep} ({provider_id}): {e}\n{traceback.format_exc()}\n")
         err(f"Episode fetch failed: {e}")
         return None
 

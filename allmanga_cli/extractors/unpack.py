@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 
-
 _ALPHABET_62 = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
 

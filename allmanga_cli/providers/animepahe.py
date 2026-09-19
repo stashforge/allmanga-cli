@@ -10,9 +10,9 @@ import re
 import sqlite3
 import urllib.parse
 from typing import Any
+
 from bs4 import BeautifulSoup
 
-from ..media.urls import validate_stream_url
 from ..services.http import SSL_CTX, UA
 from .shared.base import Provider
 from .shared.models import (

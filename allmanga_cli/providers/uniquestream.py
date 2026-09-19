@@ -148,8 +148,8 @@ class _UniqueStreamHlsServer:
             body = resp.read().decode("utf-8").strip()
 
         ciphertext = base64.b64decode(body)
-        k = hashlib.sha256(f"key{mid}".encode("utf-8")).digest()[:16]
-        iv = hashlib.sha256(f"iv{mid}".encode("utf-8")).digest()[:16]
+        k = hashlib.sha256(f"key{mid}".encode()).digest()[:16]
+        iv = hashlib.sha256(f"iv{mid}".encode()).digest()[:16]
 
         recovered = _decrypt_aes_cbc(k, iv, ciphertext)
 
@@ -648,7 +648,6 @@ class UniqueStreamProvider(Provider):
             media_path, default_locale = episode.split("|", 1)
         else:
             media_path = episode
-            default_locale = "ja-JP"
 
         media_url = f"{self.api_url}/{media_path}/media/hls/ja-JP"
         try:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-import urllib.parse
+
 from bs4 import BeautifulSoup
 
 from .base import BaseExtractor

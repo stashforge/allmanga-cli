@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import html
 import re
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -14,8 +15,8 @@ from typing import Callable
 from bs4 import BeautifulSoup
 
 from ...media.source_entries import build_direct_source, build_embed_source
-from .schema import build_catalog, build_episode, build_title
 from ...services.http import UA
+from .schema import build_catalog, build_episode, build_title
 
 
 @dataclass(frozen=True)
@@ -108,12 +109,12 @@ def parse_cards(base_url: str, page_html: str, *, only_main: bool = False, valid
             title = clean_text(headline.get_text(" ", strip=True) if headline else link.get_text(" ", strip=True))
         if not title or title in {"View All", "Next"}:
             continue
-        
+
         img = link.select_one("img")
         image_url = ""
         if img:
             image_url = img.get("data-src") or img.get("data-lazy-src") or img.get("src") or ""
-            
+
         seen.add(href)
         entries.append(Entry(title=title, url=href, image=image_url))
     return entries
@@ -124,6 +125,8 @@ def parse_series(base_url: str, page_html: str, valid_domains: list[str] = None,
     section = soup.select_one("div.eplister, div.episodelist") or soup
     items: list[Entry] = []
     seen: set[str] = set()
+    # Tracks whether we've already done one extra episode-page HTTP fetch this call.
+    _extra_fetch_done = [False]
 
     # Detect the latest released episode number from div.lastend (e.g. "New Episode: Episode 22")
     last_end_node = (
@@ -167,10 +170,12 @@ def parse_series(base_url: str, page_html: str, valid_domains: list[str] = None,
             ep_num = None
 
         if latest_released_num is not None and ep_num is not None and ep_num > latest_released_num:
-            # Check if this episode is truly an unreleased countdown or an early release
+            # Check if this episode is truly an unreleased countdown or an early release.
+            # Limit to ONE extra fetch total per parse_series call to avoid N+1 slowdown.
             is_unreleased = False
-            if fetch_fn:
+            if fetch_fn and not _extra_fetch_done[0]:
                 try:
+                    _extra_fetch_done[0] = True
                     ep_page_html = fetch_fn(href)
                     ep_soup = BeautifulSoup(ep_page_html, "html.parser")
                     mirrors = ep_soup.select("select.mirror option[value], div.player-embed iframe, div.megavid iframe, video")
@@ -184,6 +189,9 @@ def parse_series(base_url: str, page_html: str, valid_domains: list[str] = None,
                         is_unreleased = True
                 except Exception:
                     pass
+            elif fetch_fn and _extra_fetch_done[0]:
+                # Already determined the boundary — treat remaining over-limit eps as unreleased.
+                is_unreleased = True
             if is_unreleased:
                 continue
             else:
@@ -440,7 +448,7 @@ class WordPressAnimeProvider:
 
                 from bs4 import BeautifulSoup
                 soup = BeautifulSoup(html, "html.parser")
-                
+
                 desc_div = soup.find("div", {"itemprop": "description"})
                 if desc_div and not title.get("description"):
                     paragraphs = []
@@ -453,7 +461,7 @@ class WordPressAnimeProvider:
                         paragraphs.append(text)
                     if paragraphs:
                         title["description"] = " ".join(paragraphs)
-                
+
                 spe_div = soup.find("div", class_="spe")
                 if spe_div:
                     for span in spe_div.find_all("span"):

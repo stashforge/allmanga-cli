@@ -4,22 +4,22 @@ import json
 import logging
 import urllib.parse
 import urllib.request
-from typing import Dict, List, Optional
+from typing import Optional
 
 from ..core.reporting import debug_warn
 
 log = logging.getLogger(__name__)
 ANISKIP_API_URL = "https://api.aniskip.com/v2/skip-times"
-_ANISKIP_CACHE: Dict[str, List[dict]] = {}
+_ANISKIP_CACHE: dict[str, list[dict]] = {}
 
 
 def fetch_skip_times(
     mal_id: Optional[int],
     episode_number: float,
     *,
-    skip_types: Optional[List[str]] = None,
+    skip_types: Optional[list[str]] = None,
     timeout: float = 3.0,
-) -> List[dict]:
+) -> list[dict]:
     """Fetch skip intervals for a given MAL anime ID and episode number.
 
     Returns a list of dicts with:
@@ -128,7 +128,7 @@ def fetch_skip_times(
     return results
 
 
-def generate_chapters_file(skip_intervals: List[dict], filepath: str) -> str:
+def generate_chapters_file(skip_intervals: list[dict], filepath: str) -> str:
     """Generate a chapters file in FFMETADATA format for MPV progress marks.
     Always overwrites the file, writing empty metadata if no intervals exist.
     """

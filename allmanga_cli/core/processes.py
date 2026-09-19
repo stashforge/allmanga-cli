@@ -3,7 +3,6 @@
 import subprocess
 import threading
 
-
 MAX_YTDLP_JSON_BYTES = 8 * 1024 * 1024
 
 
@@ -112,7 +111,8 @@ def unregister_subprocess(proc):
 
 
 def kill_active_subprocesses():
-    import os, signal
+    import os
+    import signal
     for proc in _active_subprocesses:
         try:
             if os.name == 'posix':
@@ -130,9 +130,9 @@ def is_termux():
 
 
 def check_deps():
-    import os
-    import sys
     import shutil
+    import sys
+
     from .reporting import err
     needed = ["openssl"] + (["am"] if is_termux() else ["mpv"])
     for p in needed:

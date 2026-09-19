@@ -51,10 +51,10 @@ def play_desktop(
         default_sub = next((s.get("url") or s.get("file") for s in subtitles if s.get("default")), None)
         subtitle_url = default_sub or (subtitles[0].get("url") or subtitles[0].get("file") or "")
     resolution = stream.get("resolution", "Adaptive")
-    from allmanga_cli.domain.episodes import episode_label, clean_episode_identifier, episode_progress_number
+    from allmanga_cli.domain.episodes import clean_episode_identifier, episode_label, episode_progress_number
     raw_ep = str(episode_label(episode)).strip()
     ep_str = clean_episode_identifier(raw_ep) or raw_ep
-    
+
     if ep_str.lower() in ("movie", "full"):
         media_title = f"{title} ({resolution})"
     else:
@@ -105,7 +105,7 @@ def play_desktop(
         or "akirax.buzz" in url
     ):
         try:
-            from ..media.local_proxy import start_local_proxy, replace_active_local_proxy
+            from ..media.local_proxy import replace_active_local_proxy, start_local_proxy
             url, proxy_server = start_local_proxy(
                 url,
                 referer,

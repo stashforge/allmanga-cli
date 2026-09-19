@@ -1,20 +1,21 @@
 """Movies streaming provider (VidSrc, VidNest, etc)."""
 
 import re
-import urllib.request
 import urllib.parse
+import urllib.request
 from typing import Any
 from urllib.parse import urljoin
 
-from .shared.movie import MovieProvider
-from ..media.source_entries import build_direct_source
 from allmanga_cli.providers.shared.models import normalize_episode_sources
+
+from ..media.source_entries import build_direct_source
+from .shared.movie import MovieProvider
 
 
 class MoviesProvider(MovieProvider):
     id = "movies"
     audio_mode = "embedded_multi_audio"
-    
+
     HEADERS = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",
     }
@@ -40,25 +41,25 @@ class MoviesProvider(MovieProvider):
 
     def _fetch_vidsrc(self, media_type: str, tmdb_id: str, s: str = "1", e: str = "1") -> list[dict]:
         headers = {**self.HEADERS, "Referer": f"{self.base_url}/"}
-        
+
         if media_type == "movie":
             url = f"{self.base_url}/embed/movie?tmdb={tmdb_id}"
         else:
             url = f"{self.base_url}/embed/tv?tmdb={tmdb_id}&season={s}&episode={e}"
-                
+
         html1 = self._fetch_page(url, headers)
         if not html1: return []
 
         iframe_match = re.search(r'<iframe[^>]*\s+src=["\']([^"\']+)["\'][^>]*>', html1, re.IGNORECASE)
         if not iframe_match: return []
-        
+
         second_url = iframe_match.group(1)
         html2 = self._fetch_page(second_url, headers)
         if not html2: return []
 
         rel_match = re.search(r'src:\s*[\'"]([^\'"]+)[\'"]', html2, re.IGNORECASE)
         if not rel_match: return []
-            
+
         third_url = urljoin(second_url, rel_match.group(1))
         html3 = self._fetch_page(third_url, headers)
         if not html3: return []
@@ -95,7 +96,7 @@ class MoviesProvider(MovieProvider):
                 url = url.replace(k, v)
             if token:
                 url = url.replace("__TOKEN__", token)
-            
+
             if '{' not in url and '}' not in url:
                 name_suffix = f" {idx+1}" if len(raw_urls) > 1 else ""
                 sources.append(
@@ -118,12 +119,12 @@ class MoviesProvider(MovieProvider):
         try:
             import json
             import urllib.request
-            
+
             headers = {
                 "User-Agent": self.HEADERS["User-Agent"],
                 "Referer": "https://vidnest.fun/"
             }
-            
+
             VIDNEST_ALPHABET = "RB0fpH8ZEyVLkv7c2i6MAJ5u3IKFDxlS1NTsnGaqmXYdUrtzjwObCgQP94hoeW+/="
             VIDNEST_REVERSE_MAP = {c: i for i, c in enumerate(VIDNEST_ALPHABET)}
 
@@ -152,7 +153,7 @@ class MoviesProvider(MovieProvider):
                 if "data" in data:
                     dec = decode_vidnest(data["data"])
                     js = json.loads(dec)
-                    
+
                     # Allmovies / Hollymoviehd format
                     streams_list = js.get("streams", [])
                     for idx, stream in enumerate(streams_list):
@@ -168,7 +169,7 @@ class MoviesProvider(MovieProvider):
                                 resolution="Auto",
                                 headers=stream_headers
                             ))
-                            
+
                     # Moviebox format
                     url_list = js.get("url", [])
                     for idx, stream in enumerate(url_list):
@@ -182,7 +183,7 @@ class MoviesProvider(MovieProvider):
                                 resolution="Auto",
                                 headers=headers
                             ))
-                    
+
                     # Klikxxi format
                     src_list = js.get("sources", [])
                     for idx, stream in enumerate(src_list):
@@ -209,15 +210,15 @@ class MoviesProvider(MovieProvider):
             media_type, tmdb_id = provider_id.split(":", 1)
         else:
             media_type, tmdb_id = "movie", provider_id
-            
+
         s, e = "1", "1"
         if media_type != "movie":
             m = re.match(r"s(\d+)e(\d+)", episode, re.IGNORECASE)
             if m:
                 s, e = m.group(1), m.group(2)
 
-        import random
         import concurrent.futures
+        import random
 
         # 3 highly reliable Primary sources
         primary_pool = [
@@ -225,19 +226,19 @@ class MoviesProvider(MovieProvider):
             lambda: self._fetch_vidsrc(media_type, tmdb_id, s, e),
             lambda: self._fetch_vidnest_endpoint("allmovies", media_type, tmdb_id, s, e)
         ]
-        
+
         # 12 experimental Backup sources
         vidnest_backups = [
-            "moviebox", "klikxxi", "vidsrc", "vidplay", 
-            "filemoon", "embed", "novaflow", "vidbinge", 
+            "moviebox", "klikxxi", "vidsrc", "vidplay",
+            "filemoon", "embed", "novaflow", "vidbinge",
             "smashystream", "mycloud", "upcloud", "superembed"
         ]
         backup_pool = [
             lambda ep=endpoint: self._fetch_vidnest_endpoint(ep, media_type, tmdb_id, s, e)
             for endpoint in vidnest_backups
         ]
-            
-        # Shuffle backups randomly, but DO NOT shuffle the primary pool! 
+
+        # Shuffle backups randomly, but DO NOT shuffle the primary pool!
         # The primary pool order dictates their strict UI display priority.
         random.shuffle(backup_pool)
         pool = primary_pool + backup_pool
@@ -245,13 +246,13 @@ class MoviesProvider(MovieProvider):
         sources = []
         successful_apis = 0
         target_apis = 7  # We want at least 7 working APIs total
-        
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
             active_futures = set()
             primary_futures = set()
             future_indices = {}
             pool_idx = 0
-            
+
             # fill pipeline initially up to 3 threads
             while pool_idx < len(pool) and len(active_futures) < 3:
                 future = executor.submit(pool[pool_idx])
@@ -260,12 +261,12 @@ class MoviesProvider(MovieProvider):
                 if pool_idx < len(primary_pool):
                     primary_futures.add(future)
                 pool_idx += 1
-                
+
             while active_futures:
                 done, active_futures = concurrent.futures.wait(
                     active_futures, return_when=concurrent.futures.FIRST_COMPLETED
                 )
-                
+
                 for f in done:
                     if f in primary_futures:
                         primary_futures.remove(f)
@@ -279,29 +280,29 @@ class MoviesProvider(MovieProvider):
                             successful_apis += 1
                     except Exception:
                         pass
-                        
+
                 # Fill the gap back up to 3 active threads
                 # ONLY launch backup tasks if we haven't reached our quota
                 while pool_idx < len(pool) and len(active_futures) < 3:
                     if successful_apis >= target_apis and pool_idx >= len(primary_pool):
                         break  # Stop launching backup tasks!
-                        
+
                     future = executor.submit(pool[pool_idx])
                     active_futures.add(future)
                     future_indices[future] = pool_idx
                     if pool_idx < len(primary_pool):
                         primary_futures.add(future)
                     pool_idx += 1
-                    
+
                 # We stop querying IF we hit our target quota AND all primary sources have finished
                 if successful_apis >= target_apis and not primary_futures:
                     break
-                    
+
         # No cap on total mirrors! We return everything we scraped from the successful APIs.
-        
+
         if not sources:
             return None
-            
+
         # Strictly sort the mirrors so that VidSrc (0) is ALWAYS above MovieBox (1) in the UI
         sources.sort(key=lambda s: s.get("_priority", 999))
 

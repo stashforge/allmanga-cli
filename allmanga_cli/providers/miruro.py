@@ -5,8 +5,8 @@ from __future__ import annotations
 import base64
 import gzip
 import json
-import urllib.request
 import urllib.parse
+import urllib.request
 from typing import Any
 
 from ..core import reporting
@@ -89,16 +89,16 @@ def _fetch_pipe(payload: dict, domains: list[str]) -> dict | None:
     global ACTIVE_DOMAIN
     encoded_req = _encode_pipe_request(payload)
     curl_requests = _load_curl_requests()
-    
+
     if not domains:
         domains = ["https://www.miruro.tv"]
-        
+
     if ACTIVE_DOMAIN not in domains:
         ACTIVE_DOMAIN = domains[0]
-    
+
     # Put the active domain first
     domains_to_try = [ACTIVE_DOMAIN] + [d for d in domains if d != ACTIVE_DOMAIN]
-    
+
     for domain in domains_to_try:
         headers = _get_headers(domain)
         if curl_requests is not None:
@@ -133,7 +133,7 @@ class MiruroProvider:
 
     def __init__(self, request_json_fn=request_json):
         self._request_json = request_json_fn
-        
+
         if not hasattr(self, 'domains'):
             self.domains = []
         if not hasattr(self, 'metadata'):
@@ -174,7 +174,7 @@ class MiruroProvider:
         from ..core.anilist_fallback import search_anilist_with_fallback
         res = search_anilist_with_fallback(query, gql, {"search": query, "page": 1, "perPage": 20})
         media_list = res.get("data", {}).get("Page", {}).get("media", [])
-        
+
         results = []
         for media in media_list:
             results.append({
@@ -195,7 +195,7 @@ class MiruroProvider:
                 "genres": media.get("genres"),
                 "aniListId": media["id"],
             })
-            
+
         return normalize_titles(results, provider_id=self.id, provider_name=self.name)
 
     def get_title(self, provider_id: str) -> dict[str, Any] | None:
@@ -237,7 +237,7 @@ class MiruroProvider:
         media = res.get("data", {}).get("Media")
         if not media:
             return None
-            
+
         title_dict = {
             "_id": str(media["id"]),
             "name": media["title"].get("romaji") or media["title"].get("english"),
@@ -266,34 +266,34 @@ class MiruroProvider:
             "body": None,
             "version": "0.1.0",
         }
-        
+
         data = _fetch_pipe(payload, self.domains)
-                
+
         if not data:
             return normalize_episode_catalog({"state": "error", "error": "Miruro API blocked request or failed"}, provider_id=self.id, provider_title_id=provider_id)
-            
+
         providers = data.get("providers", {})
-        
+
         episodes_map = {}
         for p, p_data in providers.items():
             for ep in p_data.get("episodes", {}).get(ttype, []):
                 ep_num = str(ep.get("number", ""))
                 if ep_num and ep_num not in episodes_map:
                     episodes_map[ep_num] = ep
-                    
+
         # Sort episodes by number
         sorted_eps = sorted(episodes_map.values(), key=lambda x: float(x.get("number", 0)))
-        
+
         ids = []
         labels = {}
         eps_formatted = []
-        
+
         for ep in sorted_eps:
             ep_num = str(ep.get("number", ""))
             ids.append(ep_num)
             labels[ep_num] = ep_num
             eps_formatted.append({"id": ep_num, "label": ep_num})
-            
+
         catalog = {
             "state": "loaded",
             "ids": ids,
@@ -316,39 +316,39 @@ class MiruroProvider:
             "body": None,
             "version": "0.1.0",
         }
-        
+
         data = _fetch_pipe(payload, self.domains)
-                
+
         if not data:
             return None
-            
+
         providers = data.get("providers", {})
         fetch_tasks = []
-        
+
         for p, p_data in providers.items():
             for ep in p_data.get("episodes", {}).get(ttype, []):
                 if str(ep.get("number", "")) == str(episode):
                     fetch_tasks.append((p, ep["id"]))
                     break
-                    
+
         # Prioritize 'pewe' provider as default since it has higher success rate
         fetch_tasks.sort(key=lambda x: 0 if x[0].lower() == 'pewe' else 1)
-                    
+
         grouped_streams = {}
         for p, raw_id in fetch_tasks:
-            
+
             try:
                 padded_raw_id = raw_id + '=' * (4 - len(raw_id) % 4)
                 decoded_id = base64.urlsafe_b64decode(padded_raw_id).decode('utf-8', errors='ignore')
                 scraper_name = decoded_id.split(':')[0]
             except Exception:
                 scraper_name = raw_id.split('/')[-1].rsplit('-', 1)[0]
-                
+
             if not scraper_name:
                 scraper_name = p
             scraper_name = scraper_name.title()
             reporting.info(f"[Miruro] Querying source: {scraper_name}...")
-            
+
             spayload = {
                 "path": "sources",
                 "method": "GET",
@@ -362,7 +362,7 @@ class MiruroProvider:
                 "version": "0.1.0"
             }
             sdata = _fetch_pipe(spayload, self.domains)
-            
+
             if sdata:
                 subtitles = []
                 for sub in sdata.get("subtitles", []):
@@ -372,25 +372,25 @@ class MiruroProvider:
                             "label": sub.get("label", "Unknown"),
                             "kind": sub.get("kind", "captions")
                         })
-                        
+
                 streams_found = 0
                 for idx, stream in enumerate(sdata.get("streams", [])):
                     if stream.get("url"):
                         url = stream["url"]
                         is_direct = ".m3u8" in url or ".mp4" in url
                         server = stream.get("server", "Video")
-                        
+
                         parts = [p.title()]
                         if scraper_name.casefold() != p.casefold():
                             parts.append(scraper_name)
                         if server.casefold() != scraper_name.casefold() and server.casefold() != p.casefold():
                             parts.append(server)
                         parts.append("Direct" if is_direct else "Embed")
-                        
+
                         server_key = " ".join(parts)
                         if server_key in grouped_streams:
                             continue
-                            
+
                         source_dict = {
                             "sourceName": server_key,
                             "priority": len(grouped_streams),
@@ -403,7 +403,7 @@ class MiruroProvider:
                         }
                         if stream.get("referer"):
                             source_dict["referer"] = stream.get("referer")
-                            
+
                         if is_direct:
                             source_dict["link"] = url
                         else:
@@ -417,9 +417,9 @@ class MiruroProvider:
                     reporting.warn(f"[Miruro] {scraper_name}: No valid streams found")
             else:
                 reporting.warn(f"[Miruro] {scraper_name}: Unavailable / returned 0 streams")
-                
+
         sourceUrls = list(grouped_streams.values())
-        
+
         def _miruro_sort(src):
             name = src.get("sourceName", "").lower()
             if "pewe" in name or "anidbapp" in name:
@@ -429,7 +429,7 @@ class MiruroProvider:
             if "allmanga" in name:
                 return 2
             return 3
-            
+
         sourceUrls.sort(key=_miruro_sort)
         for idx, src in enumerate(sourceUrls):
             src["priority"] = idx

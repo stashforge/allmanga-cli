@@ -10,7 +10,7 @@ from ..context import FLAGS as runtime_flags
 def run():
     exit_code = 0
     try:
-        app.main()
+        app.app_main()
     except KeyboardInterrupt:
         app.restore_terminal()
         exit_code = 130

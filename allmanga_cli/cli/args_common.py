@@ -1,10 +1,10 @@
 """Common argument parsing helpers, formatters, and reusable option groups."""
 
 import argparse
+import importlib.metadata
 import os
 import re
 import sys
-import importlib.metadata
 
 try:
     from .. import __version__
@@ -14,7 +14,7 @@ except Exception:
     except Exception:
         __version__ = "0.8.6"
 
-from allmanga_cli.providers import available_providers, _DEFAULT_PROVIDER_ID
+from allmanga_cli.providers import available_providers
 
 _ANSI_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
@@ -93,7 +93,9 @@ def _configure_help_parser(parser):
 
 class CLIParser(argparse.ArgumentParser):
     def error(self, message):
-        import re, sys, difflib
+        import difflib
+        import re
+        import sys
         if "invalid choice: " in message and "(choose from" in message:
             m = re.search(r"invalid choice: '([^']+)'", message)
             if m:
@@ -104,14 +106,14 @@ class CLIParser(argparse.ArgumentParser):
                     matches = difflib.get_close_matches(bad_cmd, choices, n=3, cutoff=0.2)
                 except Exception:
                     matches = []
-                
+
                 print(f"\n\033[31mUnknown command:\033[0m {bad_cmd}\n")
                 if matches:
                     print("Did you mean:")
                     for match in matches:
                         print(f"  {match}")
                     print()
-                
+
                 print("Run 'allmanga-cli -h' to see all commands.")
                 print("Run 'allmanga-cli providers' to see available providers.\n")
                 sys.exit(2)

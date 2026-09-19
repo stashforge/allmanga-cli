@@ -1,17 +1,17 @@
 import json
+import logging
 import re
+import urllib.error
 import urllib.parse
 import urllib.request
-import urllib.error
 from typing import Any
-import logging
 
 from .shared.base import Provider
 from .shared.models import (
-    normalize_title,
-    normalize_titles,
     normalize_episode_catalog,
     normalize_episode_sources,
+    normalize_title,
+    normalize_titles,
 )
 
 log = logging.getLogger(__name__)
@@ -83,26 +83,27 @@ class AniDBApp(Provider):
         with urllib.request.urlopen(req, timeout=8) as response:
             if response.status != 200:
                 import http.client
+
                 from ..core.api import SearchFailure
                 reason = getattr(response, "reason", None) or http.client.responses.get(response.status, "")
                 reason_suffix = f": {reason}" if reason else ""
                 raise SearchFailure(f"{self.name} request failed (HTTP {response.status}{reason_suffix}).")
             html = response.read().decode("utf-8")
-            
+
         results = []
         seen = set()
-        
+
         # Parse the raw HTML for grid cards
         # <a href="https://anidb.app/anime/slug" class="anime-card..." title="Title">
         for match in re.finditer(r'<a\b[^>]*href=["\'](?:https://anidb\.app)?/anime/([^"\']+)["\'][^>]*class=["\'][^"\']*anime-card[^"\']*["\']([^>]*)>([\s\S]*?)</a>', html, re.IGNORECASE):
             slug = match.group(1)
             attrs = match.group(2)
             content = match.group(3)
-            
+
             if slug in seen:
                 continue
             seen.add(slug)
-            
+
             title_match = re.search(r'title=["\']([^"\']+)["\']', attrs, re.IGNORECASE)
             if title_match:
                 title = title_match.group(1).replace("&amp;", "&").replace("&#039;", "'")
@@ -110,7 +111,7 @@ class AniDBApp(Provider):
                 title_match2 = re.search(r'<p\b[^>]*class=["\'][^"\']*font-semibold[^"\']*["\'][^>]*>([\s\S]*?)</p>', content, re.IGNORECASE)
                 title = re.sub(r'<[^>]+>', '', title_match2.group(1)).strip() if title_match2 else slug.replace('-', ' ')
                 title = title.replace("&#039;", "'")
-            
+
             # Extract thumbnail
             thumbnail = ""
             img_tag_match = re.search(r'<img\b([^>]+)>', content, re.IGNORECASE)
@@ -124,7 +125,7 @@ class AniDBApp(Provider):
             type_match = re.search(r'<span\b[^>]*badge-orange[^>]*>([\s\S]*?)</span>', content, re.IGNORECASE)
             if type_match:
                 show_type = re.sub(r'<[^>]+>', '', type_match.group(1)).strip()
-            
+
             results.append({
                 "id": slug,
                 "name": title,
@@ -132,7 +133,7 @@ class AniDBApp(Provider):
                 "thumbnail": thumbnail,
                 "startDate": None,
             })
-            
+
         return normalize_titles(results, provider_id=self.id, provider_name=self.name, id_key="id")
 
     def get_title(self, provider_id: str) -> dict[str, Any] | None:
@@ -140,22 +141,22 @@ class AniDBApp(Provider):
         url = f"{self.base_url}/anime/{provider_id}"
         headers = dict(NAV_HEADERS)
         headers["Referer"] = f"{self.base_url}/home"
-        
+
         status, text = self._fetch(url, headers=headers)
         if status != 200:
             return None
-            
+
         title_match = re.search(r'<h1\b[^>]*>([\s\S]*?)</h1>', text, re.IGNORECASE)
         title = re.sub(r'<[^>]+>', '', title_match.group(1)).strip() if title_match else provider_id.replace('-', ' ')
-        
+
         anilist_match = re.search(r'href=["\']https?://anilist\.co/anime/(\d+)/?["\']', text, re.IGNORECASE)
         mal_match = re.search(r'href=["\']https?://myanimelist\.net/anime/(\d+)/?["\']', text, re.IGNORECASE)
-        
+
         description = ""
         alt_names = []
         thumbnail = ""
         genres = []
-        
+
         # Parse ld+json metadata
         ld_match = re.search(r'<script\b[^>]*type=["\']application/ld\+json["\'][^>]*>([\s\S]*?)</script>', text, re.IGNORECASE)
         if ld_match:
@@ -182,7 +183,7 @@ class AniDBApp(Provider):
             img_meta = re.search(r'<meta\b[^>]*property=["\']og:image["\'][^>]*content=["\']([\s\S]*?)["\']', text, re.IGNORECASE)
             if img_meta:
                 thumbnail = img_meta.group(1).strip()
-        
+
         result = {
             "id": provider_id,
             "name": title,
@@ -195,7 +196,7 @@ class AniDBApp(Provider):
             result["aniListId"] = int(anilist_match.group(1))
         if mal_match:
             result["malId"] = int(mal_match.group(1))
-        
+
         return normalize_title(result, provider_id=self.id, provider_name=self.name, id_key="id")
 
     def episode_catalog(self, provider_id: str, ttype: str = "sub") -> dict[str, Any]:
@@ -204,29 +205,29 @@ class AniDBApp(Provider):
         if not m:
             log.debug(f"Could not extract siteId from slug: {provider_id}")
             return normalize_episode_catalog({"state": "error", "error": "Invalid siteId"}, provider_id=self.id, provider_title_id=provider_id)
-            
+
         site_id = m.group(1)
         url = f"{self.base_url}/api/frontend/anime/{site_id}/episodes"
         headers = dict(XHR_HEADERS)
         headers["Referer"] = f"{self.base_url}/anime/{provider_id}"
-        
+
         status, text = self._fetch(url, headers=headers)
         if status != 200:
             log.debug(f"AniDBApp episode catalog failed: HTTP {status}")
             return normalize_episode_catalog({"state": "error", "error": "API failed"}, provider_id=self.id, provider_title_id=provider_id)
-            
+
         try:
             data = json.loads(text)
         except Exception:
             log.error("Failed to parse AniDBApp episode catalog JSON")
             return normalize_episode_catalog({"state": "error", "error": "Invalid JSON"}, provider_id=self.id, provider_title_id=provider_id)
-            
+
         episodes_list = data.get("episodes", [])
         episodes_map = {}
         ids = []
         eps_formatted = []
         labels = {}
-        
+
         for ep in episodes_list:
             ep_num = str(ep.get("number"))
             if ep_num and ep_num not in episodes_map:
@@ -274,7 +275,7 @@ class AniDBApp(Provider):
             "detail": detail,
             "_internal_map": episodes_map,
         }
-            
+
         return normalize_episode_catalog(catalog, provider_id=self.id, provider_title_id=provider_id)
 
     def episode_sources(
@@ -283,34 +284,34 @@ class AniDBApp(Provider):
         episode: str,
         ttype: str = "sub",
     ) -> dict[str, Any] | None:
-        
+
         # First, fetch the catalog to get the internal episode ID
         catalog = self.episode_catalog(provider_id, ttype)
         internal_map = catalog.get("_internal_map", {})
         ep_id = internal_map.get(str(episode))
-        
+
         if not ep_id:
             log.debug(f"Episode {episode} not found in AniDBApp catalog for {provider_id}")
             return None
-            
+
         # Fetch languages for the episode
         url = f"{self.base_url}/api/frontend/episode/{ep_id}/languages"
         headers = dict(XHR_HEADERS)
         headers["Referer"] = f"{self.base_url}/anime/{provider_id}"
-        
+
         status, text = self._fetch(url, headers=headers)
         if status != 200:
             log.debug(f"AniDBApp episode languages failed: HTTP {status}")
             return None
-            
+
         try:
             data = json.loads(text)
         except Exception:
             return None
-            
+
         languages = data.get("languages", [])
         preferred = ["jpn", "ja", "japanese"] if ttype == "sub" else ["eng", "en", "english"]
-        
+
         matched_lang = None
         for lang in languages:
             code = str(lang.get("code", "")).lower()
@@ -318,22 +319,22 @@ class AniDBApp(Provider):
             if code in preferred or name in preferred:
                 matched_lang = lang
                 break
-                
+
         if not matched_lang or not matched_lang.get("embed_url"):
             log.debug(f"No embed URL found for {ttype} in {languages}")
             return None
-            
+
         embed_url = matched_lang["embed_url"]
-        
+
         # Hit the embed URL to extract the HLS stream
         embed_headers = dict(NAV_HEADERS)
         embed_headers["Referer"] = f"{self.base_url}/"
-        
+
         embed_status, html = self._fetch(embed_url, headers=embed_headers)
         if embed_status != 200:
             log.debug(f"AniDBApp embed fetch failed: HTTP {embed_status}")
             return None
-            
+
         hls_url = None
         patterns = [
             r'file\s*:\s*["\'](https?://[^"\']+\.m3u8[^"\']*)["\']',
@@ -341,19 +342,19 @@ class AniDBApp(Provider):
             r'["\'](https?://[^"\']+/master\.m3u8[^"\']*)["\']',
             r'["\'](https?://[^"\']+\.m3u8[^"\']*)["\']',
         ]
-        
+
         for pattern in patterns:
             m = re.search(pattern, html, re.IGNORECASE)
             if m:
                 hls_url = m.group(1).replace("&amp;", "&")
                 break
-                
+
         if not hls_url:
             log.debug(f"Could not extract HLS URL from embed: {embed_url}")
             return None
-            
+
         stream_referer = f"{urllib.parse.urlparse(embed_url).scheme}://{urllib.parse.urlparse(embed_url).netloc}/"
-        
+
         sourceUrls = [{
             "sourceName": "AniDB.app Direct",
             "priority": 0,
@@ -362,7 +363,7 @@ class AniDBApp(Provider):
             "link": hls_url,
             "headers": {"Referer": stream_referer, "User-Agent": NAV_HEADERS["User-Agent"]},
         }]
-        
+
         return normalize_episode_sources(
             {"episode": {"sourceUrls": sourceUrls}},
             provider_id=self.id,

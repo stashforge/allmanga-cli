@@ -4,7 +4,6 @@ import os
 import shutil
 import tempfile
 
-
 TRANSITION_OSD_MS = 60 * 60 * 1000
 
 

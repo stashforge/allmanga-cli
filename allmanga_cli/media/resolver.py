@@ -4,6 +4,7 @@ import re
 import urllib.request
 
 from ..core.terminal import sanitize_terminal_text
+from ..extractors import find_extractor
 from ..providers.allanime import get_clock_links
 from ..services.http import (
     REFERER,
@@ -18,13 +19,14 @@ from .proxy_rules import proxy_filtered_headers
 from .sources import decrypt_url, expand_wixmp, source_priority
 from .urls import validate_optional_referer, validate_stream_url
 from .ytdlp import resolve_ytdlp_embed
-from ..extractors import find_extractor
 
 
-
-_info = lambda message: None
-_ok = lambda message: None
-_warn = lambda message: None
+def _info(message):
+    return None
+def _ok(message):
+    return None
+def _warn(message):
+    return None
 
 
 def configure_reporters(info, ok, warn):
@@ -101,7 +103,14 @@ def _pre_resolved_stream(source, name, priority, warn):
         "source_priority": priority,
         "android_safe": bool(android_safe),
     }
-    if source.get("requires_proxy") or "megap." in stream_url or "akirax.buzz" in stream_url:
+    if (
+        source.get("requires_proxy")
+        or "megap." in stream_url
+        or "akirax.buzz" in stream_url
+        or "owocdn.top" in stream_url
+        or "uwucdn.top" in stream_url
+        or "kwik." in referer
+    ):
         stream_dict["requires_proxy"] = True
     if source.get("subtitle_url"):
         stream_dict["subtitle_url"] = source["subtitle_url"]

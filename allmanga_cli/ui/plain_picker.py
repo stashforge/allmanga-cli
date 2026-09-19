@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import re
 import sys
-from typing import Any, Callable, Sequence
+from collections.abc import Sequence
+from typing import Any, Callable
 
 ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
@@ -64,6 +65,8 @@ def plain_pick(
     tab_fn: Callable[..., Any] | None = None,
     reverse_fn: Callable[..., Any] | None = None,
     delete_fn: Callable[..., Any] | None = None,
+    delete_prompt: Any = None,
+    can_delete_fn: Callable[[int], bool] | None = None,
     info_fn: Callable[[int], Any] | None = None,
     multi_select: bool = False,
     is_search: bool = False,
@@ -84,7 +87,7 @@ def plain_pick(
     **kwargs: Any,
 ) -> int | list[int] | str:
     """Numbered line-by-line picker compatible with tui_pick contract."""
-    
+
     # Prompt string resolution
     prompt_text = str(prompt() if callable(prompt) else prompt)
 
@@ -192,6 +195,8 @@ def plain_pick(
                         hint_str = hints.get(opt) or hints.get(clean_opt) or ""
                     elif isinstance(hints, (list, tuple)) and 0 <= idx < len(hints):
                         hint_str = str(hints[idx] or "")
+                    elif callable(hints):
+                        hint_str = str(hints(idx) or "")
 
                 clean_hint = strip_ansi(hint_str).strip()
                 prefix = item_prefix_fn(idx) if item_prefix_fn else ""
@@ -268,6 +273,9 @@ def plain_pick(
             if len(parts) == 2 and parts[1].isdigit():
                 target_idx = int(parts[1]) - 1
                 if 0 <= target_idx < len(current_options):
+                    if can_delete_fn is not None and not can_delete_fn(target_idx):
+                        output_fn("Cannot delete this item.")
+                        continue
                     res = delete_fn(target_idx)
                     if res and res[0] is not None:
                         current_options = list(res[0])
@@ -305,7 +313,7 @@ def plain_pick(
                     valid = False
                     break
             if valid and selected_indices:
-                return sorted(list(set(selected_indices)))
+                return sorted(set(selected_indices))
             else:
                 _emit(
                     f"\033[31mInvalid selection '{choice_str}'. Use numbers like 1,2 or 1-4.\033[0m",

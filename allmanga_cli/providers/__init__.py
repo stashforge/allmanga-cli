@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import importlib
-import pkgutil
 import json
 import os
-from typing import Iterable, Dict, Any
+import pkgutil
+from collections.abc import Iterable
+from typing import Any, Dict
 
 _PROVIDER_ALIASES = {
     "anidbapp": "anidb",
@@ -29,7 +30,7 @@ class _RegistryDict(dict):
 # Load the JSON registry
 _REGISTRY_PATH = os.path.join(os.path.dirname(__file__), "registry.json")
 try:
-    with open(_REGISTRY_PATH, "r", encoding="utf-8") as _f:
+    with open(_REGISTRY_PATH, encoding="utf-8") as _f:
         PROVIDER_REGISTRY = _RegistryDict(json.load(_f).get("providers", {}))
 except Exception:
     PROVIDER_REGISTRY = _RegistryDict()
@@ -40,10 +41,9 @@ _DISABLED_PROVIDERS = {"senshi", "allanime", "mkissa"}
 _DEFAULT_PROVIDER_ID = "miruro"
 
 from .shared.models import (
-    title_provider_key,
     title_provider_id,
+    title_provider_key,
 )
-
 
 
 def _provider_classes_from_module(module) -> list[type]:
@@ -134,7 +134,7 @@ ALLANIME = PROVIDERS[_DEFAULT_PROVIDER_ID]
 def available_providers():
     return {k: v for k, v in PROVIDERS.items() if k in PROVIDER_REGISTRY}
 
-def get_provider_registry() -> Dict[str, Any]:
+def get_provider_registry() -> dict[str, Any]:
     return PROVIDER_REGISTRY
 
 
@@ -171,7 +171,7 @@ def get_provider(provider_id=_DEFAULT_PROVIDER_ID, request_json_fn=None):
         key = _PROVIDER_ALIASES[key]
     if request_json_fn is None:
         return PROVIDERS[key]
-    
+
     inst = PROVIDER_FACTORIES[key](request_json_fn)
     meta = PROVIDER_REGISTRY.get(key, {})
     inst.metadata = meta

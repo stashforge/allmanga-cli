@@ -7,7 +7,6 @@ from ..core.terminal import (
 )
 from .picker_render import render_item
 
-
 LIST_STATUSES = {
     "Airing": "ANILIST_AIRING",
     "Watching": "CURRENT",
@@ -80,7 +79,8 @@ def loading_frame(status, rows, columns, loading_text=""):
     count = f"{hint}{item_count}/{item_count}{reset}"
     used = display_width(f"{prompt}  {count}")
     separator_width = max(1, columns - used - 2)
-    separator = f" {hint}{'\u2500' * separator_width}{reset}"
+    sep_char = "\u2500"
+    separator = f" {hint}{sep_char * separator_width}{reset}"
     output.append(fit_terminal_line(
         f"{prompt}  {count}{separator}",
         columns,

@@ -3,7 +3,6 @@
 import re
 import unicodedata
 
-
 _ANSI_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 _TERMINAL_STRING_RE = re.compile(
     r"\x1b(?:\].*?(?:\x07|\x1b\\)|[P^_].*?\x1b\\)",

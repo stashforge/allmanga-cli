@@ -9,21 +9,33 @@ from ..core.terminal import truncate_display
 from .display import _get_poster, _poster_footer_line, with_loading
 from .panels import render_modal_card, render_search_header
 from .picker import tui_pick
-from .help import search_input_help, picker_help
 
 
 def _show_needs_enrichment(show: dict[str, Any] | None) -> bool:
     if not show or not isinstance(show, dict):
         return False
-    if show.get("_title_enriched") or show.get("aniListId") or show.get("_anilist_score"):
+    if show.get("_enrichment_attempted"):
         return False
-    return True
+    if (
+        not show.get("description")
+        or not show.get("genres")
+        or not (show.get("aniListId") or show.get("anilistMatch"))
+    ):
+        return True
+    return False
 
 
-def make_shows_info_fn(shows_getter: Callable[[], list[dict[str, Any]]], ui: Any, poster_manager: Any = None, enrich_fn: Any = None):
+def make_shows_info_fn(
+    shows_getter: Callable[[], list[dict[str, Any]]],
+    ui: Any,
+    poster_manager: Any = None,
+    enrich_fn: Any = None,
+):
     """Return an ``info_fn`` for pickers bound to dynamic show lists."""
+
     def _info_fn(idx: int) -> None:
         from allmanga_cli.ui.info_screen import show_info_screen
+
         shows = shows_getter()
         if not shows or not (0 <= idx < len(shows)):
             return
@@ -35,26 +47,39 @@ def make_shows_info_fn(shows_getter: Callable[[], list[dict[str, Any]]], ui: Any
             poster_manager=poster_manager,
             ui=ui,
         )
+
     return _info_fn
 
 
-def make_single_show_info_fn(show: dict[str, Any] | None, ui: Any, poster_manager: Any = None, enrich_fn: Any = None):
+def make_single_show_info_fn(
+    show: dict[str, Any] | None,
+    ui: Any,
+    poster_manager: Any = None,
+    enrich_fn: Any = None,
+):
     """Return an ``info_fn`` for pickers bound to a single show (e.g. details, episodes)."""
+
     def _info_fn(idx: int) -> None:
         if not show:
             return
         if enrich_fn and _show_needs_enrichment(show):
             with_loading("Loading title info…", enrich_fn, show)
         from allmanga_cli.ui.info_screen import show_info_screen
+
         show_info_screen(
             show,
             poster_manager=poster_manager,
             ui=ui,
         )
+
     return _info_fn
 
 
-def search_input_header(source_name: str, esc_action: str = "quit", get_error_fn: Callable[[], str] | None = None):
+def search_input_header(
+    source_name: str,
+    esc_action: str = "quit",
+    get_error_fn: Callable[[], str] | None = None,
+):
     def _hdr(si: int) -> str:
         C_K = "\033[38;5;244m"
         R = "\033[0m"
@@ -67,10 +92,13 @@ def search_input_header(source_name: str, esc_action: str = "quit", get_error_fn
         else:
             parts.append(f"{C_K}Enter=search  ? = Help  Esc={esc_action}{R}")
         return "\n".join(parts)
+
     return _hdr
 
 
-def search_cover_header(get_results_fn: Callable[[], list[dict[str, Any]]], ui: Any = None):
+def search_cover_header(
+    get_results_fn: Callable[[], list[dict[str, Any]]], ui: Any = None
+):
     def _hdr(si: int) -> str:
         shows = get_results_fn()
         if shows and 0 <= si < len(shows):
@@ -81,6 +109,7 @@ def search_cover_header(get_results_fn: Callable[[], list[dict[str, Any]]], ui: 
             if poster:
                 return poster
         return ""
+
     return _hdr
 
 
@@ -108,16 +137,27 @@ def search_result_header(
             filter_query=filter_query,
             badges=badges,
         )
+
     return _hdr
 
 
-def manual_match_input_header(anilist_show: dict[str, Any], target_provider_name: str = "Provider", error: str = "", p_name: str | None = None):
+def manual_match_input_header(
+    anilist_show: dict[str, Any],
+    target_provider_name: str = "Provider",
+    error: str = "",
+    p_name: str | None = None,
+):
     provider_label = p_name or target_provider_name or "Provider"
+
     def _hdr(si: int) -> str:
         C_K = "\033[38;5;244m"
         C_T = "\033[1;97m"
         R = "\033[0m"
-        anilist_title = (anilist_show or {}).get("name") or (anilist_show or {}).get("englishName") or ""
+        anilist_title = (
+            (anilist_show or {}).get("name")
+            or (anilist_show or {}).get("englishName")
+            or ""
+        )
         try:
             w = os.get_terminal_size().columns
         except OSError:
@@ -130,8 +170,8 @@ def manual_match_input_header(anilist_show: dict[str, Any], target_provider_name
         footer_text = f"{error} • Esc=cancel" if error else "Enter=search • Esc=cancel"
         parts.append(_poster_footer_line(anilist_show, footer_text, w))
         return "\n".join(parts)
-    return _hdr
 
+    return _hdr
 
 
 def manual_anilist_input_header(show: dict[str, Any], error: str = ""):
@@ -139,7 +179,11 @@ def manual_anilist_input_header(show: dict[str, Any], error: str = ""):
         C_K = "\033[38;5;244m"
         C_T = "\033[1;97m"
         R = "\033[0m"
-        source_title = show.get("_allanime_name") or show.get("name") or "" if isinstance(show, dict) else str(show or "")
+        source_title = (
+            show.get("_allanime_name") or show.get("name") or ""
+            if isinstance(show, dict)
+            else str(show or "")
+        )
         try:
             w = os.get_terminal_size().columns
         except OSError:
@@ -149,14 +193,31 @@ def manual_anilist_input_header(show: dict[str, Any], error: str = ""):
             f"{C_K}Search AniList and select tracking title.{R}",
             f"{C_T}{truncate_display(source_title, w)}{R}",
         ]
-        footer_text = f"\033[38;5;222m{error}\033[0m • Enter=search • Esc=cancel" if error else "Enter=search • Esc=cancel"
+        footer_text = (
+            f"\033[38;5;222m{error}\033[0m • Enter=search • Esc=cancel"
+            if error
+            else "Enter=search • Esc=cancel"
+        )
         parts.append(_poster_footer_line(show, footer_text, w))
         return "\n".join(parts)
+
     return _hdr
 
 
-def select_provider_for_match(flags: Any, ui: Any, current_pid: str, anilist_show: dict[str, Any], ttype: str = "sub"):
-    from allmanga_cli.providers import available_providers, get_provider_registry, provider_key, provider_display_name
+def select_provider_for_match(
+    flags: Any,
+    ui: Any,
+    current_pid: str,
+    anilist_show: dict[str, Any],
+    ttype: str = "sub",
+):
+    from allmanga_cli.providers import (
+        available_providers,
+        get_provider_registry,
+        provider_display_name,
+        provider_key,
+    )
+
     provs = available_providers()
     if not provs:
         return current_pid
@@ -176,7 +237,11 @@ def select_provider_for_match(flags: Any, ui: Any, current_pid: str, anilist_sho
             opts.append(p_name)
 
     curr_name = provider_display_name(current_key)
-    al_title = (anilist_show or {}).get("name") or (anilist_show or {}).get("englishName") or "Anime Title"
+    al_title = (
+        (anilist_show or {}).get("name")
+        or (anilist_show or {}).get("englishName")
+        or "Anime Title"
+    )
 
     def _hdr(idx: int) -> str:
         C_T = "\033[1;97m"
@@ -197,7 +262,7 @@ def select_provider_for_match(flags: Any, ui: Any, current_pid: str, anilist_sho
         hov_name = provider_display_name(hov_key)
         hov_info = get_provider_registry().get(hov_key, {})
         ptype = str(hov_info.get("type") or "anime").title()
-        langs = "/".join(l.upper() for l in hov_info.get("languages", ["sub"]))
+        langs = "/".join(lang.upper() for lang in hov_info.get("languages", ["sub"]))
         badge = f" [{ptype} • {langs}]" if ptype else ""
         line3 = f"{C_Y}Current: {curr_name}{R}  {C_K}│{R}  {C_C}Target: {hov_name}{badge}{R}"
         line4 = f"{C_K}Enter=select  Left/Esc=cancel{R}"
@@ -205,24 +270,39 @@ def select_provider_for_match(flags: Any, ui: Any, current_pid: str, anilist_sho
         return f"{line1}\n{line2}\n{line3}\n{line4}"
 
     idx = tui_pick(
-        flags, ui, "Select Provider",
+        flags,
+        ui,
+        "Select Provider",
         opts,
         header_fn=_hdr,
-        help_dict={"Enter": "Select provider", "Esc": "Cancel"}
+        help_dict={"Enter": "Select provider", "Esc": "Cancel"},
     )
     if idx is None or idx < 0 or idx >= len(ordered_keys):
         return None
     return ordered_keys[idx]
 
 
-def confirm_auto_match(flags: Any, ui: Any, current_pid: str, target_pid: str, anilist_show: dict[str, Any], matched_show: dict[str, Any], ttype: str = "sub"):
-    from allmanga_cli.providers import provider_display_name, get_provider_registry
+def confirm_auto_match(
+    flags: Any,
+    ui: Any,
+    current_pid: str,
+    target_pid: str,
+    anilist_show: dict[str, Any],
+    matched_show: dict[str, Any],
+    ttype: str = "sub",
+):
+    from allmanga_cli.providers import get_provider_registry, provider_display_name
+
     opts = [
         f'Link "{matched_show.get("name") or matched_show.get("englishName") or "Matched Title"}"',
         "Search Manually",
         "Back to Providers",
     ]
-    target_title = matched_show.get("name") or matched_show.get("englishName") or "Unknown Stream Title"
+    target_title = (
+        matched_show.get("name")
+        or matched_show.get("englishName")
+        or "Unknown Stream Title"
+    )
     al_title = anilist_show.get("name") or anilist_show.get("englishName") or ""
     al_eng = anilist_show.get("englishName")
 
@@ -235,29 +315,47 @@ def confirm_auto_match(flags: Any, ui: Any, current_pid: str, target_pid: str, a
         if al_eng and al_eng.strip().lower() != (target_title or "").strip().lower():
             secondary = al_eng
         else:
-            secondary = f"AniList: {al_title}" if al_title and al_title.lower() != target_title.lower() else ""
+            secondary = (
+                f"AniList: {al_title}"
+                if al_title and al_title.lower() != target_title.lower()
+                else ""
+            )
 
         curr_name = provider_display_name(current_pid)
         t_name = provider_display_name(target_pid)
         trans_line = f"\033[38;5;222m{curr_name}\033[0m  \033[38;5;244m➔\033[0m  \033[36m{t_name}\033[0m"
 
         t_info = get_provider_registry().get(target_pid, {})
-        langs = "/".join(l.upper() for l in t_info.get("languages", ["sub", "dub"]))
+        langs = "/".join(
+            lang.upper() for lang in t_info.get("languages", ["sub", "dub"])
+        )
         avail_eps = matched_show.get("availableEpisodes", {}).get(ttype) or 0
         eps_badge = f"Avail {avail_eps} EPs • " if avail_eps else ""
         source = matched_show.get("_match_source")
-        match_tag = "✔ Matched by ID" if source == "id" else ("✔ Found saved match" if source in ("stored", "manual") else "✔ Suggested match")
+        match_tag = (
+            "✔ Matched by ID"
+            if source == "id"
+            else (
+                "✔ Found saved match"
+                if source in ("stored", "manual")
+                else "✔ Suggested match"
+            )
+        )
         status_line = f"\033[38;5;250m{match_tag} • {eps_badge}{langs}\033[0m"
 
-        return render_modal_card(target_title, secondary, trans_line, status_line, width=w)
+        return render_modal_card(
+            target_title, secondary, trans_line, status_line, width=w
+        )
 
     hints = {"Link Title": target_title}
     idx = tui_pick(
-        flags, ui, "Confirm Match",
+        flags,
+        ui,
+        "Confirm Match",
         opts,
         header_fn=_hdr,
         hints=hints,
-        help_dict={"Enter": "Select", "Esc": "Cancel"}
+        help_dict={"Enter": "Select", "Esc": "Cancel"},
     )
     if idx is None or idx in (-2, -3) or idx == 2:
         return "back"
@@ -268,12 +366,19 @@ def confirm_auto_match(flags: Any, ui: Any, current_pid: str, target_pid: str, a
     return "back"
 
 
-def confirm_auto_anilist_match(flags: Any, ui: Any, provider_show: dict[str, Any], anilist_show: dict[str, Any]):
-    al_romaji = anilist_show.get("name") or anilist_show.get("englishName") or "Unknown Title"
+def confirm_auto_anilist_match(
+    flags: Any, ui: Any, provider_show: dict[str, Any], anilist_show: dict[str, Any]
+):
+    al_romaji = (
+        anilist_show.get("name") or anilist_show.get("englishName") or "Unknown Title"
+    )
     al_eng = anilist_show.get("englishName")
     al_id = str(anilist_show.get("_id") or anilist_show.get("id") or "")
     p_title = provider_show.get("name") or ""
-    p_name = (provider_show.get("_provider_name") or (provider_show.get("_provider") or "").title()) or "Provider"
+    p_name = (
+        provider_show.get("_provider_name")
+        or (provider_show.get("_provider") or "").title()
+    ) or "Provider"
 
     opts = [
         "Link Title",
@@ -298,24 +403,30 @@ def confirm_auto_anilist_match(flags: Any, ui: Any, provider_show: dict[str, Any
         trans_line = f"\033[38;5;222m{p_name}\033[0m  \033[38;5;244m➔\033[0m  \033[36mAniList{id_badge}\033[0m"
 
         al_status = str(anilist_show.get("status") or "").title() or "Finished"
-        al_fmt = str(anilist_show.get("format") or anilist_show.get("type") or "TV").upper()
+        al_fmt = str(
+            anilist_show.get("format") or anilist_show.get("type") or "TV"
+        ).upper()
         al_eps = anilist_show.get("episodeCount")
         eps_str = f" • EP {al_eps}" if al_eps else ""
         al_score = anilist_show.get("score") or anilist_show.get("averageScore")
         score_str = f" • ★ {al_score}" if al_score else ""
         source = anilist_show.get("_match_source")
         tag = "✔ Matched by ID" if source == "id" else "✔ Suggested match"
-        status_line = f"\033[38;5;250m{tag} • {al_status} • {al_fmt}{eps_str}{score_str}\033[0m"
+        status_line = (
+            f"\033[38;5;250m{tag} • {al_status} • {al_fmt}{eps_str}{score_str}\033[0m"
+        )
 
         return render_modal_card(al_romaji, secondary, trans_line, status_line, width=w)
 
     hints = {"Link Title": al_romaji}
     idx = tui_pick(
-        flags, ui, "Confirm Match",
+        flags,
+        ui,
+        "Confirm Match",
         opts,
         header_fn=_hdr,
         hints=hints,
-        help_dict={"Enter": "Select", "Esc": "Cancel"}
+        help_dict={"Enter": "Select", "Esc": "Cancel"},
     )
     if idx is None or idx in (-2, -3) or idx == 2:
         return "back"
@@ -326,8 +437,16 @@ def confirm_auto_anilist_match(flags: Any, ui: Any, provider_show: dict[str, Any
     return "back"
 
 
-def no_match_prompt(flags: Any, ui: Any, current_pid: str, target_pid: str, anilist_show: dict[str, Any], ttype: str = "sub"):
+def no_match_prompt(
+    flags: Any,
+    ui: Any,
+    current_pid: str,
+    target_pid: str,
+    anilist_show: dict[str, Any],
+    ttype: str = "sub",
+):
     from allmanga_cli.providers import provider_display_name
+
     opts = [
         "Search Manually",
         "Back to Providers",
@@ -339,14 +458,24 @@ def no_match_prompt(flags: Any, ui: Any, current_pid: str, target_pid: str, anil
         except OSError:
             w = 80
 
-        t_romaji = anilist_show.get("name") or anilist_show.get("englishName") or "Unknown Title"
+        t_romaji = (
+            anilist_show.get("name")
+            or anilist_show.get("englishName")
+            or "Unknown Title"
+        )
         t_eng = anilist_show.get("englishName")
-        if t_eng and t_eng.strip().lower() != (anilist_show.get("name") or "").strip().lower():
+        if (
+            t_eng
+            and t_eng.strip().lower()
+            != (anilist_show.get("name") or "").strip().lower()
+        ):
             secondary = t_eng
         else:
             al_list = str(anilist_show.get("_anilist_list") or "").upper() or "WATCHING"
             al_prog = anilist_show.get("_anilist_progress", 0)
-            secondary = f"\033[38;5;244mAL {al_list} • EP {al_prog} • {ttype.upper()}\033[0m"
+            secondary = (
+                f"\033[38;5;244mAL {al_list} • EP {al_prog} • {ttype.upper()}\033[0m"
+            )
 
         curr_name = provider_display_name(current_pid)
         t_name = provider_display_name(target_pid)
@@ -356,14 +485,15 @@ def no_match_prompt(flags: Any, ui: Any, current_pid: str, target_pid: str, anil
         return render_modal_card(t_romaji, secondary, trans_line, status_line, width=w)
 
     idx = tui_pick(
-        flags, ui, "Select Option",
+        flags,
+        ui,
+        "Select Option",
         opts,
         header_fn=_hdr,
-        help_dict={"Enter": "Select", "Esc": "Back"}
+        help_dict={"Enter": "Select", "Esc": "Back"},
     )
     if idx is None or idx in (-2, -3) or idx == 1:
         return "back"
     elif idx == 0:
         return "search"
     return "back"
-

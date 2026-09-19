@@ -43,7 +43,8 @@ def print_episode_header(title: str, ep: object, total: int) -> None:
         info_bits.append(stype)
     ep_str = f"episode {ep} / {total}"
     if info_bits:
-        ep_str += f"  \u2022  {' \u2022 '.join(info_bits)}"
+        bullet = "\u2022"
+        ep_str += f"  {bullet}  {f' {bullet} '.join(info_bits)}"
     print(f"\n{LABEL_C}now playing{R}\n{TITLE_C}{clean}{R}")
     print(f"{SUB_C}{ep_str}{R}")
     print()

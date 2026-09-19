@@ -5,34 +5,36 @@ from __future__ import annotations
 import os
 import sys
 import threading
-from typing import Any, Callable
 
+from ..core.anilist import search_anilist
 from ..core.api import SearchFailure, search_failure_message
 from ..core.reporting import debug_warn
 from ..core.storage import load_config, write_exception_log
-
-from ..core.enrichment import enrich_provider_results
-from ..providers import provider_key, provider_display_name
-from ..services.catalog import search_anime
-from ..core.anilist import search_anilist
 from ..domain.titles import get_show_display_title
-from ..ui.spinner import spinner_from_config
-from ..ui.picker_render import loading_line as _loading_line
+from ..providers import provider_display_name, provider_key
+from ..services.catalog import search_anime
 from ..ui import display
+from ..ui.spinner import loading_line as _loading_line
+from ..ui.spinner import spinner_from_config
 
 _provider_search_cache = {}
 
 
-def make_provider_oneshot_search(query: str, ttype: str, provider_id: str | None = None):
+def make_provider_oneshot_search(
+    query: str, ttype: str, provider_id: str | None = None
+):
     loading = True
     results = []
     error = ""
     cfg = load_config()
     spinner_style = spinner_from_config(cfg)
     token = cfg.get("anilist_token")
-    
+
     from ..context import FLAGS as runtime_flags
-    use_sync = runtime_flags.sync_force_on or (cfg.get("sync") and not runtime_flags.sync_force_off)
+
+    use_sync = runtime_flags.sync_force_on or (
+        cfg.get("sync") and not runtime_flags.sync_force_off
+    )
     if not use_sync:
         token = ""
 
@@ -44,13 +46,19 @@ def make_provider_oneshot_search(query: str, ttype: str, provider_id: str | None
         loading = False
         results = _provider_search_cache[cache_key]
         cached_opts = [f"{get_show_display_title(s)}" for s in results]
-        
-        def get_results(): return results
-        def get_loading(): return ""
-        def get_error(): return ""
+
+        def get_results():
+            return results
+
+        def get_loading():
+            return ""
+
+        def get_error():
+            return ""
+
         def live_fn(q=""):
             return cached_opts, "", True
-            
+
         return live_fn, get_results, get_loading, get_error
 
     enriching = False
@@ -73,25 +81,34 @@ def make_provider_oneshot_search(query: str, ttype: str, provider_id: str | None
                 except Exception as exc:
                     error = str(exc)
                     shows = []
+
             def _fetch_al():
                 nonlocal al_shows
                 al_shows = search_anilist(token, query)
 
             from ..context import FLAGS
+
             is_plain = getattr(FLAGS, "plain_mode", False) or not sys.stdin.isatty()
 
             threads = [threading.Thread(target=_fetch_aa)]
             if token and not is_plain:
                 threads.append(threading.Thread(target=_fetch_al))
 
-            for t in threads: t.start()
-            for t in threads: t.join()
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
 
             if shows:
-                from ..core.enrichment import enrich_provider_results_fast, enrich_provider_results_background
+                from ..core.enrichment import (
+                    enrich_provider_results_background,
+                    enrich_provider_results_fast,
+                )
+
                 shows, unmatched = enrich_provider_results_fast(shows, al_shows)
                 prepared = [s for s in shows if s.get("status") != "NOT_YET_RELEASED"]
                 import allmanga_cli.app_core as app_core
+
                 app_core.batch_prepare_shows_display_state(prepared, ttype)
                 results.extend(prepared)
                 _provider_search_cache[cache_key] = list(results)
@@ -99,15 +116,21 @@ def make_provider_oneshot_search(query: str, ttype: str, provider_id: str | None
                 if unmatched and not is_plain:
                     enriching = True
                     from ..ui import picker as _picker_mod
+
                     def _bg_worker():
                         nonlocal enriching
                         try:
+
                             def _on_bg_updated():
                                 _picker_mod._needs_redraw = True
-                            enrich_provider_results_background(unmatched, token, _on_bg_updated)
+
+                            enrich_provider_results_background(
+                                unmatched, token, _on_bg_updated
+                            )
                         finally:
                             enriching = False
                             _picker_mod._needs_redraw = True
+
                     threading.Thread(target=_bg_worker, daemon=True).start()
 
         except Exception as e:
@@ -126,8 +149,10 @@ def make_provider_oneshot_search(query: str, ttype: str, provider_id: str | None
         return results
 
     def get_loading():
-        try: w = os.get_terminal_size().columns
-        except OSError: w = 80
+        try:
+            w = os.get_terminal_size().columns
+        except OSError:
+            w = 80
 
         if loading:
             return _loading_line("Searching…", w, spinner_style)
@@ -148,6 +173,7 @@ def make_provider_oneshot_search(query: str, ttype: str, provider_id: str | None
             last_res_state = current_state
             cached_opts = [f"{get_show_display_title(s)}" for s in results]
         from ..context import FLAGS
+
         is_plain = getattr(FLAGS, "plain_mode", False) or not sys.stdin.isatty()
         is_done = (not loading) if is_plain else (not loading and not enriching)
         return cached_opts, get_loading(), is_done
@@ -155,7 +181,9 @@ def make_provider_oneshot_search(query: str, ttype: str, provider_id: str | None
     return live_fn, get_results, get_loading, get_error
 
 
-def make_allanime_oneshot_search(query: str, ttype: str, provider_id: str | None = None):
+def make_allanime_oneshot_search(
+    query: str, ttype: str, provider_id: str | None = None
+):
     return make_provider_oneshot_search(query, ttype, provider_id)
 
 
@@ -171,6 +199,7 @@ def make_anilist_oneshot_search(token: str, initial_query: str):
             res = search_anilist(token, initial_query, raise_errors=True)
             if res:
                 import allmanga_cli.app_core as app_core
+
                 app_core.batch_prepare_shows_display_state(res, "sub")
                 results.extend(res)
         except SearchFailure as exc:
@@ -183,8 +212,10 @@ def make_anilist_oneshot_search(token: str, initial_query: str):
 
     def get_loading():
         if loading:
-            try: w = os.get_terminal_size().columns
-            except OSError: w = 80
+            try:
+                w = os.get_terminal_size().columns
+            except OSError:
+                w = 80
 
             return _loading_line("Searching…", w, spinner_style)
         return ""
@@ -204,7 +235,10 @@ def make_anilist_oneshot_search(token: str, initial_query: str):
 
 def _cached_search_results(query_str, query_key, shows_key, make_search):
     import allmanga_cli.app_core as app_core
-    if query_str == getattr(app_core, query_key, None) and getattr(app_core, shows_key, None):
+
+    if query_str == getattr(app_core, query_key, None) and getattr(
+        app_core, shows_key, None
+    ):
         shows = getattr(app_core, shows_key)
         return None, lambda: shows, lambda: "", lambda: ""
     return make_search()
@@ -213,5 +247,6 @@ def _cached_search_results(query_str, query_key, shows_key, make_search):
 def _remember_search_results(query_str, shows, query_key, shows_key):
     if shows:
         import allmanga_cli.app_core as app_core
+
         setattr(app_core, query_key, query_str)
         setattr(app_core, shows_key, shows)

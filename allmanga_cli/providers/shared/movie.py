@@ -3,8 +3,9 @@
 from typing import Any
 
 from ...core.tmdb import TMDBClient
-from .schema import build_catalog, build_episode, build_title
 from .base import Provider
+from .schema import build_catalog, build_episode, build_title
+
 
 class MovieProvider(Provider):
     """
@@ -12,7 +13,7 @@ class MovieProvider(Provider):
     Automatically handles TMDB searching and metadata, delegating only
     the stream scraping logic (episode_catalog, episode_sources) to subclasses.
     """
-    
+
     def __init__(self, request_json_fn=None):
         self.request_json_fn = request_json_fn
 
@@ -35,7 +36,7 @@ class MovieProvider(Provider):
             tmdb_id = str(res.get("id"))
             poster_path = res.get("poster_path")
             thumbnail = f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else ""
-            
+
             titles.append(
                 build_title(
                     provider=self.id,
@@ -57,7 +58,7 @@ class MovieProvider(Provider):
                 media_type, tmdb_id = provider_id.split(":", 1)
             else:
                 media_type, tmdb_id = "movie", provider_id
-                
+
             if media_type == "movie":
                 res = self.tmdb.get_movie_details(tmdb_id)
             else:
@@ -88,9 +89,9 @@ class MovieProvider(Provider):
             media_type, tmdb_id = provider_id.split(":", 1)
         else:
             media_type, tmdb_id = "movie", provider_id
-            
+
         episodes_list = []
-        
+
         if media_type == "movie":
             episodes_list.append(
                 build_episode(
@@ -104,13 +105,13 @@ class MovieProvider(Provider):
             try:
                 tv_details = self.tmdb.get_tv_details(tmdb_id)
                 seasons = tv_details.get("seasons", [])
-                
+
                 # Iterate through each season (excluding season 0 which is usually specials if you want, or just include them)
                 for season in seasons:
                     season_number = season.get("season_number", 0)
                     if season_number == 0:
                         continue # Skip specials for now
-                        
+
                     season_data = self.tmdb.get_tv_season(tmdb_id, season_number)
                     for ep in season_data.get("episodes", []):
                         ep_num = ep.get("episode_number")
@@ -125,7 +126,7 @@ class MovieProvider(Provider):
             except Exception as e:
                 import logging
                 logging.getLogger(__name__).warning(f"Failed to fetch TV episodes: {e}")
-                
+
         episodes = {
             "sub": episodes_list
         }

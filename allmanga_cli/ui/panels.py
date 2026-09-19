@@ -21,7 +21,6 @@ from ..domain.titles import get_display_titles, get_show_display_title
 from ..state.preferences import get_active_feedback
 from .display import _poster_footer_line
 
-
 # Styling constants
 C_TITLE = "[1;97m"         # Bold White
 C_ALT = "[38;5;248m"          # Dim / Light Grey

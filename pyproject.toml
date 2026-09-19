@@ -1,41 +1,89 @@
-[build-system]
-requires = ["setuptools>=68"]
-build-backend = "setuptools.build_meta"
-
 [project]
 name = "allmanga-cli"
 version = "0.8.6"
-description = "Terminal anime browser and player with AniList support."
-requires-python = ">=3.10"
+description = "Terminal anime stream player"
+readme = "README.md"
+requires-python = ">=3.9"
 dependencies = [
-    "beautifulsoup4>=4.12",
+    "requests",
+    "curl-cffi",
+    "beautifulsoup4",
+    "lxml",
+    "Pillow",
 ]
 
-[project.optional-dependencies]
-allanime = [
-    "cryptography>=41.0.0",
-]
-allanime-termux = [
-    "pycryptodome>=3.19.0",
-]
-crypto-termux = [
-    "pycryptodome>=3.19.0",
-]
-miruro = [
-    "curl_cffi>=0.7.4",
-]
-
-[project.scripts]
-allmanga-cli = "allmanga_cli.cli.main:run"
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["allmanga_cli*"]
 
-[tool.setuptools.package-data]
-"*" = ["*.json"]
+[tool.ruff]
+target-version = "py39"
+line-length = 120
+indent-width = 4
 
-[dependency-groups]
-dev = [
-    "pytest>=9.1.1",
-    "pytest-mock>=3.15.1",
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+docstring-code-format = true
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "UP", "B", "C4", "T20"]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+    "B008",  # function call in default argument
+    "T201",  # print statements (CLI app uses print)
+    "B006",  # mutable default argument (some intentional)
+    "B007",  # loop control variable not used
+    "C408",  # list comprehension can be generator
+]
+exclude = ["web/", "scratch/", "*.pyc", "__pycache__/"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["T201", "S101"]  # allow print/assert in tests
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = false
+disallow_untyped_decorators = false
+no_implicit_optional = false
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+strict_optional = false
+implicit_optional = false
+ignore_missing_imports = true
+namespace_packages = true
+explicit_package_bases = true
+files = ["allmanga_cli"]
+
+[[tool.mypy.overrides]]
+module = ["allmanga_cli.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+pythonpath = ["."]
+
+[tool.coverage.run]
+source = ["allmanga_cli"]
+omit = ["tests/*", "*/__pycache__/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
 ]

@@ -20,7 +20,7 @@ def resolve_ytdlp_embed(url: str, *, name: str, priority: int, ok, warn, subtitl
     if not shutil.which("yt-dlp"):
         warn(f"[{name}] yt-dlp not found, skipping embed")
         return []
-    
+
     attempts = 5
     command = ["yt-dlp", "-j", "--no-warnings"]
     if "ok.ru" not in url and "odnoklassniki.ru" not in url:
@@ -29,13 +29,13 @@ def resolve_ytdlp_embed(url: str, *, name: str, priority: int, ok, warn, subtitl
     data = None
     last_error = ""
     is_unsupported = False
-    
+
     PERMANENT_ERRORS = [
         b"Unsupported URL",
         b"Cloudflare anti-bot",
         b"Geo-restricted",
     ]
-    
+
     for attempt in range(1, attempts + 1):
         try:
             process = subprocess.Popen(
@@ -48,12 +48,12 @@ def resolve_ytdlp_embed(url: str, *, name: str, priority: int, ok, warn, subtitl
                 if b"Impersonate target" in output and b"not available" in output:
                     command = ["yt-dlp", "-j", "--no-warnings", url]
                     continue
-                
+
                 if any(err in output for err in PERMANENT_ERRORS):
                     is_unsupported = True
                     last_error = "Unsupported/Blocked URL"
                     break
-                
+
                 err_msg = output.strip()[:100].decode("utf-8", errors="replace")
                 last_error = f"yt-dlp exited with {process.returncode}: {err_msg}"
                 continue

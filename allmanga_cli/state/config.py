@@ -5,7 +5,6 @@ import os
 import tempfile
 import time
 
-
 DEFAULT_CONFIG = {
     "quality": "1080p",
     "translation_type": "sub",
@@ -23,6 +22,9 @@ DEFAULT_CONFIG = {
     "title_language": "romaji",
     "aniskip": True,
     "auto_skip": True,
+    "auto_download_next": False,
+    "auto_delete_watched": False,
+    "auto_delete_buffer": 1,
 }
 
 LEGACY_CONFIG_KEY_MAP = {

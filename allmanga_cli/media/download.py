@@ -6,7 +6,6 @@ import subprocess
 
 from .urls import validate_optional_referer, validate_stream_url
 
-
 CYAN = "\033[1;36m"
 GREEN = "\033[1;32m"
 RED = "\033[1;31m"
@@ -36,8 +35,13 @@ def download_episode(title, episode, stream, download_dir="", downloader="auto",
             _error("yt-dlp is not installed or not in PATH.")
         return False
 
+    raw_url = stream.get("link") or stream.get("streamUrl") or stream.get("sourceUrl") or ""
+    if not raw_url:
+        _error("No valid stream URL found in stream object.")
+        return False
+
     try:
-        url = validate_stream_url(stream["link"])
+        url = validate_stream_url(raw_url)
         if audio_url:
             audio_url = validate_stream_url(audio_url)
         referer = validate_optional_referer(stream.get("referer", ""))
@@ -48,7 +52,7 @@ def download_episode(title, episode, stream, download_dir="", downloader="auto",
     safe_title = sanitize_filename(title)
     filename = f"{safe_title} - Episode {episode}.mp4"
 
-    
+
     # Always create an anime-specific folder, even if download_dir is empty
     if not download_dir:
         from allmanga_cli.core.storage import get_default_download_dir, load_config, save_config
@@ -74,46 +78,75 @@ def download_episode(title, episode, stream, download_dir="", downloader="auto",
     if referer and "Referer" not in headers:
         headers["Referer"] = referer
 
+    proxy_server = None
+    if (
+        stream.get("requires_proxy")
+        or "uwucdn.top" in url
+        or "owocdn.top" in url
+        or "kwik." in referer
+        or "megap." in url
+        or "akirax.buzz" in url
+    ):
+        try:
+            from allmanga_cli.media.local_proxy import start_local_proxy
+
+            url, proxy_server = start_local_proxy(
+                url,
+                referer,
+                headers,
+                stream_type=stream.get("type", "mp4"),
+                title=safe_title,
+            )
+        except Exception:
+            proxy_server = None
+
     if downloader == "ffmpeg":
         command = [
             "ffmpeg",
             "-nostdin",
             "-y"
         ]
-        if headers:
+        if headers and not proxy_server:
             header_str = "".join(f"{k}: {v}\r\n" for k, v in headers.items())
             command.extend(["-headers", header_str])
-        
+
         command.extend(["-i", url])
         if audio_url:
             command.extend(["-i", audio_url, "-map", "0:v:0", "-map", "1:a:0"])
-        
+
         command.extend(["-c", "copy", filename])
     else:
         command = ["yt-dlp", url, "-o", filename]
-        
+
         # Auto-inject aria2c if available and user didn't manually override it
         if shutil.which("aria2c") and not any(arg in extra_args for arg in ("--downloader", "--external-downloader")):
             command.extend([
                 "--downloader", "aria2c",
                 "--downloader-args", "aria2c:-x 16 -s 16 -k 1M"
             ])
-            
-        for k, v in headers.items():
-            command.extend(["--add-header", f"{k}:{v}"])
+
+        if not proxy_server:
+            for k, v in headers.items():
+                command.extend(["--add-header", f"{k}:{v}"])
+
+            if "--extractor-args" not in extra_args and not any(
+                isinstance(a, str) and a.startswith("--extractor-args") for a in extra_args
+            ):
+                command.extend(["--extractor-args", "generic:impersonate"])
 
     if extra_args:
         command.extend(extra_args)
 
+    proc = None
     try:
-        from allmanga_cli.app_core import register_subprocess, unregister_subprocess
-        
+        from allmanga_cli.core.processes import register_subprocess, unregister_subprocess
+
         if os.name == 'posix':
             proc = subprocess.Popen(command, preexec_fn=os.setsid)
         else:
             # CREATE_NEW_PROCESS_GROUP is 0x00000200
             proc = subprocess.Popen(command, creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200))
-            
+
         register_subprocess(proc)
         try:
             proc.wait()
@@ -126,3 +159,11 @@ def download_episode(title, episode, stream, download_dir="", downloader="auto",
     except Exception as exc:
         print(f"\n{RED}[Error]{RESET} Download failed: {exc}")
         return False
+    finally:
+        if proxy_server is not None:
+            try:
+                from allmanga_cli.media.local_proxy import stop_local_proxy
+
+                stop_local_proxy(proxy_server)
+            except Exception:
+                pass

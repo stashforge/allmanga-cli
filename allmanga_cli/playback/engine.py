@@ -5,16 +5,16 @@ from __future__ import annotations
 import atexit
 import os
 import sys
-from typing import Any, Callable
+from typing import Callable
 
-from ..playback.mpv import MpvIpc
+from ..core.reporting import err
+from ..core.storage import get_preferred_mirror, get_resume_time
+from ..domain.metadata import positive_int as _positive_int
 from ..playback import desktop as desktop_playback
 from ..playback import local as local_playback
+from ..playback.mpv import MpvIpc
+from ..ui.display import _get_poster, exit_alt_screen
 from ..ui.player_screen import _player_ui_state
-from ..ui.display import exit_alt_screen, _get_poster
-from ..domain.metadata import positive_int as _positive_int
-from ..core.storage import get_resume_time, get_preferred_mirror
-from ..core.reporting import err
 
 
 def _exit_player_screen(close_alt: bool = False) -> None:
@@ -54,12 +54,12 @@ def _get_player_poster(show: dict) -> str:
 def _playback_episode_summary(show: dict, player_state: dict, ttype: str = "sub") -> str:
     if not isinstance(show, dict):
         return ""
-        
+
     fmt = str(show.get("format") or show.get("type") or "").upper()
     total = _positive_int(show.get("episodeCount"))
     if fmt == "MOVIE" or total == 1:
         return ""
-        
+
     available = None
     try:
         available = int((show.get("availableEpisodes") or {}).get(ttype))
@@ -76,7 +76,7 @@ def _playback_episode_summary(show: dict, player_state: dict, ttype: str = "sub"
         if total is not None and total > available:
             return f"{available}/{total}"
         return str(available)
-        
+
     if total is not None:
         return str(total)
     return ""

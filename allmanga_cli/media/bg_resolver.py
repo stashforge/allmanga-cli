@@ -20,11 +20,9 @@ Public API
 from __future__ import annotations
 
 import threading
-from typing import Optional
 
-from .sources import source_priority
 from . import resolver as stream_resolver
-
+from .sources import source_priority
 
 # ---------------------------------------------------------------------------
 # Shared state
@@ -44,7 +42,7 @@ _streams_generation: int = 0
 """Monotonically increasing counter.  Incremented each time a new episode
 begins so that in-flight workers for the previous episode know to stop."""
 
-_bg_thread: Optional[threading.Thread] = None
+_bg_thread: threading.Thread | None = None
 """The currently running background resolver thread, or ``None``."""
 
 _bg_lock = threading.Lock()
@@ -226,14 +224,14 @@ def start_bg_resolve(ep_data: dict, exclude_names: set) -> None:
                         if link not in seen_links and publish_stream(stream, generation):
                             seen_links.add(link)
                             found = True
-                            
+
                 if not found:
                     if not is_final_pass:
                         failed_queue.append(src)
-                        
+
                 inc_failed = 1 if not found and is_final_pass else 0
                 inc_resolved = 1 if found else 0
-                
+
                 if inc_resolved or inc_failed:
                     if not _update_bg_stats(
                         generation,

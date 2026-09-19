@@ -7,7 +7,6 @@ import urllib.error
 
 from .terminal import sanitize_terminal_text
 
-
 MAX_API_JSON_BYTES = 8 * 1024 * 1024
 
 

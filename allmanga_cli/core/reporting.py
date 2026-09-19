@@ -17,10 +17,9 @@ fall back to plain printing.
 """
 
 import logging
-import sys
 
-from .terminal import sanitize_terminal_text
 from ..context import FLAGS
+from .terminal import sanitize_terminal_text
 
 _logger = logging.getLogger("allmanga_cli.reporting")
 _status_sink = None

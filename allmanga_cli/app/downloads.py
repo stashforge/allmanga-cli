@@ -1,13 +1,14 @@
 import os
-import shutil
 import re
+import shutil
 
-from ..core.storage import load_downloads_db, save_downloads_db, get_default_download_dir, load_config, save_config
-
-from ..app_core import build_info_panel, _get_poster, _poster_footer_line, make_info_fn, set_ui_context, warn, info
-from ..ui.picker import tui_pick
-from ..ui.help import picker_help
+from .. import app_core
+from ..app_core import _get_poster, _poster_footer_line, build_info_panel, make_info_fn, set_ui_context, warn
+from ..core.storage import get_default_download_dir, load_config, load_downloads_db, save_config, save_downloads_db
 from ..core.terminal import truncate_display as _truncate_display
+from ..ui.help import picker_help
+from ..ui.picker import tui_pick
+
 _C_HINT = "\033[38;5;244m"
 _RST = "\033[0m"
 VIDEO_EXTS = ('.mp4', '.mkv', '.avi', '.ts', '.webm')
@@ -23,7 +24,7 @@ def extract_offline_episode_info(filepath: str) -> tuple[float, float, str, str]
         m2 = re.search(r'(?:^|[-_.\s])(ova(?:\s*\d+)?|movie(?:\s*\d+)?|\d+(?:\.\d+)?(?:\[\d+\])?)\s*$', stem, re.IGNORECASE)
         raw_label = m2.group(1).strip() if m2 else stem
 
-    from ..domain.episodes import parse_episode_dual_numbers, clean_episode_identifier
+    from ..domain.episodes import clean_episode_identifier, parse_episode_dual_numbers
     prim, sec = parse_episode_dual_numbers(raw_label)
     clean_id = prim or clean_episode_identifier(raw_label) or raw_label
 
@@ -47,34 +48,34 @@ def offline_file_sort_key(filepath: str) -> tuple[float, float, str]:
 
 def handle_downloads_state(flags, ui, ms, cfg, args, ttype, resolveTracking):
     db = load_downloads_db()
-    
+
     download_dir = cfg.get("download_dir", "")
     if not download_dir:
         download_dir = get_default_download_dir()
         live_cfg = load_config()
         live_cfg["download_dir"] = download_dir
         save_config(live_cfg)
-        
+
     download_dir = os.path.expanduser(download_dir)
     shows = db.get("shows", {})
-    
+
     dirty = False
     valid_titles = []
-    
+
     for title, data in list(shows.items()):
         folder_path = os.path.join(download_dir, title)
         if not os.path.isdir(folder_path):
             del shows[title]
             dirty = True
             continue
-            
+
         meta = data.get("metadata", {})
         if "_id" not in meta and "availableEpisodes" not in meta:
             # User requested not to auto-fetch metadata because title match is hard and causes delays
             meta["name"] = title
             data["metadata"] = meta
             dirty = True
-                
+
         try:
             actual_files = [
                 os.path.join(folder_path, f)
@@ -84,7 +85,7 @@ def handle_downloads_state(flags, ui, ms, cfg, args, ttype, resolveTracking):
             actual_files.sort(key=offline_file_sort_key)
         except OSError:
             actual_files = []
-            
+
         discovered_eps = []
         for f in actual_files:
             _, _, clean_id, _ = extract_offline_episode_info(f)
@@ -92,11 +93,11 @@ def handle_downloads_state(flags, ui, ms, cfg, args, ttype, resolveTracking):
                 discovered_eps.append(clean_id)
 
         valid_eps = discovered_eps
-                
+
         if len(valid_eps) != len(data.get("episodes", [])):
             data["episodes"] = valid_eps
             dirty = True
-            
+
         meta = data.get("metadata", {})
         if "originalEpisodeCount" not in meta and "episodeCount" in meta:
             meta["originalEpisodeCount"] = meta["episodeCount"]
@@ -105,7 +106,7 @@ def handle_downloads_state(flags, ui, ms, cfg, args, ttype, resolveTracking):
             data["metadata"] = meta
             dirty = True
         meta["downloadedCount"] = len(valid_eps)
-            
+
         if not valid_eps:
             del shows[title]
             dirty = True
@@ -115,7 +116,7 @@ def handle_downloads_state(flags, ui, ms, cfg, args, ttype, resolveTracking):
                 pass
         else:
             valid_titles.append((title, data))
-            
+
     if dirty:
         save_downloads_db(db)
 
@@ -141,10 +142,10 @@ def handle_downloads_state(flags, ui, ms, cfg, args, ttype, resolveTracking):
                 _, _, clean_id, _ = extract_offline_episode_info(f)
                 if clean_id and clean_id not in episodes:
                     episodes.append(clean_id)
-                    
+
             # Try to fetch real metadata for the discovered folder
             metadata = {"name": folder_name, "episodeCount": len(episodes)}
-            
+
             data = {"metadata": metadata, "episodes": episodes}
             shows[folder_name] = data
             valid_titles.append((folder_name, data))
@@ -173,8 +174,9 @@ def handle_downloads_state(flags, ui, ms, cfg, args, ttype, resolveTracking):
             show["watched_episodes"] = data.get("watched_episodes", [])
             show["_folder_name"] = title
             build_info_panel(show, "sub", w, parts, local_only=True)
-            
-        line = f"Downloaded anime  │  {download_dir}  │  Enter=episodes  Del=delete title  Esc=quit"
+
+        online_badge = "" if app_core.is_online() else "\033[38;2;225;85;85m[Offline]\033[0m │ "
+        line = f"{online_badge}Downloaded anime  │  {download_dir}  │  Enter=episodes  Del=delete title  Esc=quit"
         if 0 <= si < len(valid_titles):
             title, data = valid_titles[si]
             show = data.get("metadata", {})
@@ -182,7 +184,7 @@ def handle_downloads_state(flags, ui, ms, cfg, args, ttype, resolveTracking):
         else:
             parts.append(f"{_C_HINT}{_truncate_display(line, max(1, w - 1))}{_RST}")
         return "\n".join(parts)
-        
+
     def _folders_top_hdr(si):
         if 0 <= si < len(valid_titles):
             title, data = valid_titles[si]
@@ -195,7 +197,7 @@ def handle_downloads_state(flags, ui, ms, cfg, args, ttype, resolveTracking):
             if poster:
                 return poster
         return ""
-        
+
     def _delete_title(si):
         nonlocal valid_titles, folder_opts, db
         if 0 <= si < len(valid_titles):
@@ -215,6 +217,7 @@ def handle_downloads_state(flags, ui, ms, cfg, args, ttype, resolveTracking):
         header_fn=_folders_hdr,
         top_header_fn=_folders_top_hdr,
         delete_fn=_delete_title,
+        delete_prompt="Delete this downloaded title? y/N",
         info_fn=make_info_fn(lambda: [d.get("metadata", {}) for _, d in valid_titles], ui),
         help_dict=picker_help("Open details", "Quit", "Quit", delete_label="Delete title")
     )
@@ -229,7 +232,7 @@ def handle_downloads_state(flags, ui, ms, cfg, args, ttype, resolveTracking):
         files.sort(key=offline_file_sort_key)
     except OSError:
         files = []
-        
+
     if not files:
         warn(f"No downloaded videos found in {title}.")
         return "DOWNLOADS"
@@ -239,7 +242,7 @@ def handle_downloads_state(flags, ui, ms, cfg, args, ttype, resolveTracking):
     episodes_list = []
     if "_episode_labels" not in show or not isinstance(show.get("_episode_labels"), dict):
         show["_episode_labels"] = {}
-    
+
     ms._download_files = {} # map ep_str -> filepath
     for filepath in files:
         _, _, clean_id, raw_label = extract_offline_episode_info(filepath)
@@ -276,13 +279,21 @@ def handle_downloads_state(flags, ui, ms, cfg, args, ttype, resolveTracking):
                         show["episodeCount"] = h_show["episodeCount"]
                     if h_show.get("_id") and not show.get("_id"):
                         show["_id"] = h_show["_id"]
+                    if h_show.get("_provider") and not show.get("_provider"):
+                        show["_provider"] = h_show["_provider"]
+                    if h_show.get("provider") and not show.get("provider"):
+                        show["provider"] = h_show["provider"]
+                    if h_show.get("_provider_name") and not show.get("_provider_name"):
+                        show["_provider_name"] = h_show["_provider_name"]
+                    if h_show.get("_provider_data") and not show.get("_provider_data"):
+                        show["_provider_data"] = h_show["_provider_data"]
                 break
 
     if catalog_eids:
         show["_episode_ids"] = catalog_eids
         show["_episode_ids_ttype"] = ttype
         show["_episode_catalog_state"] = "loaded"
-        from allmanga_cli.domain.episodes import parse_episode_dual_numbers, clean_episode_identifier
+        from allmanga_cli.domain.episodes import clean_episode_identifier, parse_episode_dual_numbers
         for eid in catalog_eids:
             lbl = show["_episode_labels"].get(eid, show["_episode_labels"].get(str(eid)))
             if lbl:
@@ -306,15 +317,18 @@ def handle_downloads_state(flags, ui, ms, cfg, args, ttype, resolveTracking):
         show["_episode_ids"] = episodes_list
         show["_episode_ids_ttype"] = ttype
         show["_episode_catalog_state"] = "loaded"
-    
+
     # Setup state machine variables for the selected offline anime
     ms._is_downloads = True
     ms._download_dir = folder_path
     ms.show_title = title
     ms.show_id = show.get("_id")
+    ms.auto_download_next = cfg.get("auto_download_next", False)
+    ms.auto_delete_watched = cfg.get("auto_delete_watched", False)
+    ms.auto_delete_buffer = int(cfg.get("auto_delete_buffer", 1))
     set_ui_context(ui, show, ttype)
     ui.search_prev_state = "DOWNLOADS"
     ui.action_prev_state = "DOWNLOADS"
     ui.ep_prev_state = "DETAILS"
-    
+
     return "DETAILS"

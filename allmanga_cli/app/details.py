@@ -3,26 +3,28 @@ Details and Update state handlers for allmanga-cli.
 """
 
 from __future__ import annotations
+
+import decimal
 import os
 import time
-import decimal
 from typing import TYPE_CHECKING, Any
+
 from allmanga_cli import app_core
 from allmanga_cli.ui.picker import tui_pick
 
 if TYPE_CHECKING:
-    from ..context import CliFlags, UiState, MachineState
+    from ..context import CliFlags, MachineState, UiState
 
-from ..domain.episodes import episode_id_at, episode_index_for_id, episode_progress_number, detect_next_episode_gap, highest_episode_number
-from ..domain.titles import get_show_display_title
-from ..domain.tracking import (
-    tracking_status_for_progress,
-    apply_tracking_progress_local,
-    completed_media_total,
+from ..domain.episodes import (
+    detect_next_episode_gap,
+    episode_id_at,
+    episode_index_for_id,
+    episode_progress_number,
+    highest_episode_number,
 )
-from ..ui.help import picker_help
+from ..domain.titles import get_show_display_title
 from ..playback.rules import should_clear_query_on_child_left
-from ..core.terminal import fit_terminal_line as _fit_terminal_line
+from ..ui.help import picker_help
 
 # ---------------------------------------------------------------------------
 # Colors
@@ -42,7 +44,8 @@ def handle_details_state(
     s = ui.ui_show_ctx
     ttype_local = ui.ui_ttype_ctx
 
-    has_provider_link = bool(s.get("_provider") and s.get("_has_provider_link") is not False)
+    has_provider_link = bool((s.get("_provider") or s.get("provider")) and s.get("_has_provider_link") is not False)
+    _is_dl = getattr(ms, "_is_downloads", False)
     _just_entered = bool(ms.just_picked_anime)
     if _just_entered and has_provider_link:
         if s.get("_id") and ui.search_prev_state in (
@@ -56,10 +59,18 @@ def handle_details_state(
                     app_core.refresh_history_entry_provider_catalog,
                     entry
                 )
+        if not s.get("description") or not s.get("genres"):
+            app_core.with_loading(
+                "Loading title info…",
+                app_core.enrich_show_if_missing,
+                s,
+            )
 
-    if has_provider_link:
+    if has_provider_link or _is_dl:
         episode_ids = app_core.ensure_episode_ids(s, ttype_local)
-        if not episode_ids and ttype_local in ("dub", "sub"):
+        if not episode_ids and _is_dl:
+            episode_ids = s.get("_episode_ids") or s.get("_downloaded_episodes") or []
+        if not episode_ids and ttype_local in ("dub", "sub") and not _is_dl:
             alt_ttype = "sub" if ttype_local == "dub" else "dub"
             alt_ids = app_core.ensure_episode_ids(s, alt_ttype)
             if alt_ids:
@@ -73,7 +84,7 @@ def handle_details_state(
                 )
     else:
         episode_ids = []
-    ms.total_eps = len(episode_ids) or (ms.total_eps if has_provider_link else 0)
+    ms.total_eps = len(episode_ids) or (ms.total_eps if (has_provider_link or _is_dl) else 0)
 
     if _just_entered and s.get("_id") and has_provider_link:
         app_core.patch_history_entry_show(s.get("_id"), ttype_local, s)
@@ -213,7 +224,7 @@ def handle_details_state(
                 lbl = (s.get("_episode_labels") or {}).get(str(ep), str(ep))
                 if str(lbl) in ms._download_files:
                     return True
-                from ..domain.episodes import parse_episode_dual_numbers, clean_episode_identifier
+                from ..domain.episodes import clean_episode_identifier, parse_episode_dual_numbers
                 prim, sec = parse_episode_dual_numbers(str(lbl))
                 clean = (prim or clean_episode_identifier(str(lbl)) or str(lbl)).lstrip("0") or "0"
                 if clean in ms._download_files:
@@ -242,12 +253,20 @@ def handle_details_state(
 
 
     total = s.get("episodeCount")
-    try: total = int(total) if total is not None else 0
-    except ValueError: total = 0
+    try:
+
+        total = int(total) if total is not None else 0
+    except ValueError:
+
+        total = 0
 
     released = s.get("availableEpisodes", {}).get(ttype_local, 0)
-    try: released = int(released) if released is not None else 0
-    except ValueError: released = 0
+    try:
+
+        released = int(released) if released is not None else 0
+    except ValueError:
+
+        released = 0
     if episode_ids:
         _highest = highest_episode_number(episode_ids)
         try:
@@ -260,10 +279,14 @@ def handle_details_state(
     if nep is not None:
         try:
             inferred = int(nep) - 1
-            if inferred > released: released = inferred
-        except ValueError: pass
+            if inferred > released:
 
-    api_status = str(s.get("status", "")).upper()
+                released = inferred
+        except ValueError:
+
+            pass
+
+    str(s.get("status", "")).upper()
     user_status = str(s.get("_anilist_list", "")).upper()
     playback_status = user_status if use_anilist else ""
     player = args.player or cfg.get("player", "mpv")
@@ -274,6 +297,7 @@ def handle_details_state(
 
     # Find next playable using _episode_ids position, not prog arithmetic
     if from_anilist_context or use_anilist:
+        al_progress = s.get("_anilist_progress") or 0
         current_ep_label = app_core.episode_id_for_progress(s, ttype_local, al_progress) if al_progress > 0 else "0"
     else:
         current_ep_label = s.get("_local_episode_label") or "0"
@@ -292,13 +316,12 @@ def handle_details_state(
     has_gaps, gap_str = detect_next_episode_gap(current_ep_label, detail_next_ep)
 
     # For display totals, use episode labels only — never mix catalog index
-    detail_max_ep_label = released
 
     # next_manual_progress: the episode label to mark when "Mark Next Watched"
     if detail_next_ep:
-        next_manual_progress = episode_progress_number(detail_next_ep, 0)
+        episode_progress_number(detail_next_ep, 0)
     else:
-        next_manual_progress = episode_progress_number(current_ep_label, 0) + 1
+        episode_progress_number(current_ep_label, 0) + 1
 
 
     try:
@@ -307,12 +330,11 @@ def handle_details_state(
         current_num = decimal.Decimal(0)
 
     from ..domain.episodes import parse_episode_label
-    parsed = parse_episode_label(current_ep_label)
+    parse_episode_label(current_ep_label)
     al_prog = s.get("_anilist_progress", 0) if use_anilist else 0
+    prog = local_p or 0  # Use local progress as primary progress indicator
 
     show_anilist_actions = has_token and has_anilist_link and (from_anilist_context or use_anilist)
-    show_sync_toggle = False
-    show_link_action = False
 
 
     if episode_ids and (playback_status == "COMPLETED" or (total and current_num >= total)):
@@ -369,7 +391,9 @@ def handle_details_state(
         prog_hint = local_p_str
 
     def clean_ep_label(ep_id, fallback_idx=None):
-        if not ep_id: return ""
+        if not ep_id:
+
+            return ""
         labels = s.get("_episode_labels", {})
         from allmanga_cli.domain.episodes import clean_episode_identifier
         if str(ep_id) in labels:
@@ -407,8 +431,10 @@ def handle_details_state(
     _hdr_cache = {}
 
     def _details_hdr(si):
-        try: w = os.get_terminal_size().columns
-        except OSError: w = 80
+        try:
+            w = os.get_terminal_size().columns
+        except OSError:
+            w = 80
 
         feedback = app_core.get_active_feedback(s)
         cache_key = (w, feedback, ttype_local)
@@ -488,7 +514,7 @@ def handle_details_state(
 
     idx = tui_pick(
         flags, ui,
-        f"Anime Details", opts,
+        "Anime Details", opts,
         header_fn=_details_hdr,
         tab_fn=_details_tab_fn,
         hints=hints,
@@ -641,9 +667,4 @@ def handle_details_state(
     return "DETAILS"
 
 
-from .details_modals import (
-    handle_update_progress_state,
-    handle_update_status_state,
-    handle_update_score_state,
-)
 

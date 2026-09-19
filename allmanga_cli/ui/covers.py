@@ -1,13 +1,12 @@
 """Cover download validation and terminal rendering helpers."""
 
-import re
 import os
+import re
 import urllib.request
 
 from ..core.terminal import fit_terminal_line
 from ..media.urls import is_supported_image, validate_http_url
 from ..services.http import SSL_CTX_SECURE
-
 
 MAX_COVER_BYTES = 8 * 1024 * 1024
 POSTER_WIDTH = 12
@@ -77,14 +76,35 @@ def poster_symbol_lines(raw, height, columns):
 
 def fetch_cover_bytes(url, max_bytes=MAX_COVER_BYTES):
     validate_http_url(url)
+    parsed = urllib.parse.urlparse(url)
+    headers = {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    }
+    if parsed.scheme and parsed.netloc:
+        headers["Referer"] = f"{parsed.scheme}://{parsed.netloc}/"
     request = urllib.request.Request(
         url,
-        headers={"User-Agent": "Mozilla/5.0"},
+        headers=headers,
     )
-    with urllib.request.urlopen(
+    try:
+        resp_ctx = urllib.request.urlopen(
             request,
             context=SSL_CTX_SECURE,
-            timeout=5) as response:
+            timeout=10,
+        )
+    except Exception:
+        # If a Jetpack i*.wp.com CDN URL fails or times out, try the direct host URL as fallback
+        if parsed.netloc.endswith(".wp.com") and "/" in parsed.path.lstrip("/"):
+            direct_url = f"https://{parsed.path.lstrip('/')}"
+            validate_http_url(direct_url)
+            direct_parsed = urllib.parse.urlparse(direct_url)
+            headers["Referer"] = f"{direct_parsed.scheme}://{direct_parsed.netloc}/"
+            req_direct = urllib.request.Request(direct_url, headers=headers)
+            resp_ctx = urllib.request.urlopen(req_direct, context=SSL_CTX_SECURE, timeout=10)
+        else:
+            raise
+
+    with resp_ctx as response:
         final_url = response.geturl() if hasattr(response, "geturl") else url
         validate_http_url(final_url)
         content_length = response.headers.get("Content-Length")
