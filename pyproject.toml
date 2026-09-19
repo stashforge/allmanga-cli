@@ -12,6 +12,24 @@ dependencies = [
     "Pillow",
 ]
 
+[project.scripts]
+allmanga-cli = "allmanga_cli.cli.main:run"
+allmanga = "allmanga_cli.cli.main:run"
+
+[project.optional-dependencies]
+allanime = [
+    "cryptography>=41.0.0",
+]
+allanime-termux = [
+    "pycryptodome>=3.19.0",
+]
+crypto-termux = [
+    "pycryptodome>=3.19.0",
+]
+miruro = [
+    "curl_cffi>=0.7.4",
+]
+
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
