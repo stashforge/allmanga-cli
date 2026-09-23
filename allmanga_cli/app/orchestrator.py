@@ -204,18 +204,6 @@ def main() -> None:
         handle_config_command(args)
         return
 
-    if getattr(args, "command", "") == "web":
-        globals()["SUPPRESS_FINAL_CURSOR_RESTORE"] = True
-        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-        if repo_root not in sys.path:
-            sys.path.insert(0, repo_root)
-        from web.server import run_torii
-
-        run_torii(
-            host=getattr(args, "host", "127.0.0.1"), port=getattr(args, "port", 8765)
-        )
-        return
-
     if getattr(args, "list_providers", False):
         globals()["SUPPRESS_FINAL_CURSOR_RESTORE"] = True
         cfg = load_config()

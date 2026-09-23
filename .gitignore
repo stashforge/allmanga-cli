@@ -16,6 +16,4 @@ venv/
 .venv/
 scratch/
 .ruff_cache/
-
-# Web UI / Server (separate from CLI codebase)
-/web/
+docs/

@@ -362,28 +362,6 @@ def add_config_subcommand(commands):
     return config
 
 
-def add_web_subcommand(commands):
-    web = commands.add_parser(
-        "web",
-        help="Start the Torii web streaming interface",
-        usage="allmanga-cli web [options]",
-        description="Launch the local Torii Anime web interface in your browser.",
-        epilog=(
-            "Examples:\n"
-            "  allmanga-cli web\n"
-            "  allmanga-cli web --port 8765\n"
-            "  allmanga-cli web --host 0.0.0.0 --port 8080"
-        ),
-        add_help=False,
-        formatter_class=MinimalHelpFormatter,
-    )
-    _configure_help_parser(web)
-    web.add_argument("--port", type=int, default=8765, help="Port to bind server (default: 8765)")
-    web.add_argument("--host", type=str, default="127.0.0.1", help="Host address to bind (default: 127.0.0.1)")
-    web.add_argument("-h", "--help", action="help", help="Show this help message and exit")
-    return web
-
-
 def register_all_subcommands(commands):
     add_search_subcommand(commands)
     add_provider_subcommands(commands)
@@ -396,4 +374,3 @@ def register_all_subcommands(commands):
     add_providers_subcommand(commands)
     add_completion_subcommand(commands)
     add_config_subcommand(commands)
-    add_web_subcommand(commands)

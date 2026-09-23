@@ -781,16 +781,9 @@ def tui_pick(
             elif flags.show_image and top_header_fn is not None and filt:
                 sel_idx = filt[sel] if sel < len(filt) else -1
                 if 0 <= sel_idx < len(options):
-                    # Check poster status for currently selected show directly
-                    # (ui.hovered_show_obj may not be set on first render)
-                    show_obj = ui.hovered_show_obj
-                    if show_obj is None:
-                        show_idx = options[sel_idx]
-                        shows = get_results() if callable(getattr(top_header_fn, '__closure__', [None])[0]) else None
-                        if shows is None:
-                            # Fallback: try to get shows from header_fn closure
-                            pass
-                    if _poster_needs_tick(show_obj):
+                    # Poster status is set by top_header_fn during render()
+                    # (ui.hovered_show_obj is None until the first render)
+                    if _poster_needs_tick(ui.hovered_show_obj):
                         # Redraw every frame while poster is loading for smooth spinner
                         _needs_redraw = True
             elif header_fn is not None and now - last_poster_tick >= 0.1:

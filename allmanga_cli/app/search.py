@@ -323,12 +323,9 @@ def handle_history_state(
         )
 
     def _hist_item_prefix(oi):
-        has_any_new = any(e.get("has_new_release") for e in filtered_hist)
         if 0 <= oi < len(filtered_hist):
             if filtered_hist[oi].get("has_new_release"):
                 return "\033[38;2;166;227;161m◆\033[0m "
-            if has_any_new:
-                return "  "
         return ""
 
     def _hist_prompt():

@@ -37,7 +37,7 @@ except Exception:
 
 
 _SKIPPED_MODULES = {"shared"}
-_DISABLED_PROVIDERS = {"senshi", "allanime", "mkissa"}
+_DISABLED_PROVIDERS = {"senshi"}
 _DEFAULT_PROVIDER_ID = "miruro"
 
 from .shared.models import (
@@ -128,7 +128,7 @@ for p_id, p_inst in PROVIDERS.items():
     p_inst.metadata = meta
     p_inst.domains = meta.get("domains", [])
 
-ALLANIME = PROVIDERS[_DEFAULT_PROVIDER_ID]
+ALLANIME = PROVIDERS.get("mkissa") or PROVIDERS[_DEFAULT_PROVIDER_ID]
 
 
 def available_providers():

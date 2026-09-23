@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 import urllib.parse
 from typing import Any
 
 from ..core.api import SearchFailure
 from ..domain.episodes import normalize_episode_ids
-from ..media.decryption import decrypt_tobeparsed
+from ..media.decryption import decrypt_tobeparsed, encrypt_aa_req
 from ..media.urls import validate_http_url
 from ..services.http import API_BASE, CLOCK_BASE, request_json
 from .shared.models import (
@@ -20,6 +21,11 @@ from .shared.models import (
 )
 
 _logger = logging.getLogger(__name__)
+
+ALLANIME_QUERY_HASH = "1c836a5028e04275c6bc618aa4d1f0ea2290a73bc056ba6a8b93fe72ef42fd04"
+ALLANIME_EPOCH = 2958
+ALLANIME_BUILD_ID = "168"
+ALLANIME_LANE = "k7"
 
 SEARCH_QUERY = (
     "query($search:SearchInput $limit:Int $page:Int "
@@ -126,16 +132,31 @@ def fetch_episode_catalog(request_json, show_id, ttype="sub"):
         }
 
 def get_episode_data(request_json, show_id, episode, ttype="sub"):
-    query_hash = (
-        "d405d0edd690624b66baba3068e0edc3ac90f1597d898a1ec8db4e5c43c00fec"
-    )
     variables = {
         "showId": show_id,
         "translationType": ttype,
         "episodeString": str(episode),
     }
+    ts = int(time.time() // 300 * 300 * 1000)
+    aa_req_payload = json.dumps(
+        {
+            "v": 1,
+            "ts": ts,
+            "epoch": ALLANIME_EPOCH,
+            "buildId": ALLANIME_BUILD_ID,
+            "qh": ALLANIME_QUERY_HASH,
+            "k": ALLANIME_LANE,
+        },
+        separators=(",", ":"),
+    )
+    aa_req_iv_seed = (
+        f"{ALLANIME_EPOCH}:{ALLANIME_BUILD_ID}:"
+        f"{ALLANIME_QUERY_HASH}:{ts}:{ALLANIME_LANE}"
+    )
     extensions = {
-        "persistedQuery": {"version": 1, "sha256Hash": query_hash},
+        "persistedQuery": {"version": 1, "sha256Hash": ALLANIME_QUERY_HASH},
+        "k": ALLANIME_LANE,
+        "aaReq": encrypt_aa_req(aa_req_payload, aa_req_iv_seed),
     }
     variables_json = json.dumps(variables, separators=(",", ":"))
     extensions_json = json.dumps(extensions, separators=(",", ":"))
@@ -146,20 +167,95 @@ def get_episode_data(request_json, show_id, episode, ttype="sub"):
     response = request_json(
         url,
         extra_hdrs={
-            "Origin": "https://allmanga.to",
-            "Referer": "https://allmanga.to/",
+            "Origin": "https://mkissa.to",
+            "Referer": "https://mkissa.to/",
+            "x-build-id": ALLANIME_BUILD_ID,
         },
     )
     if not response or response.get("errors"):
-        return None
+        return get_episode_cdn_data(request_json, show_id, episode, ttype)
     raw = response.get("data", {}).get("tobeparsed")
     if not raw:
         episode_data = response.get("data", {}).get("episode") or {}
         raw = episode_data.get("sourceUrls")
     if not raw:
-        return None
+        return get_episode_cdn_data(request_json, show_id, episode, ttype)
     decoded = decrypt_tobeparsed(raw)
-    return json.loads(decoded) if decoded else None
+    return json.loads(decoded) if decoded else get_episode_cdn_data(request_json, show_id, episode, ttype)
+
+
+def get_episode_cdn_data(request_json, show_id, episode, ttype="sub"):
+    field_by_type = {
+        "sub": "vidInforssub",
+        "dub": "vidInforsdub",
+        "raw": "vidInforsraw",
+    }
+    info_field = field_by_type.get(str(ttype or "sub").lower(), "vidInforssub")
+    try:
+        episode_num = float(str(episode).strip())
+    except ValueError:
+        episode_num = 0.0
+    if episode_num <= 0:
+        return None
+
+    query = (
+        "{episodeInfos(showId:\""
+        + str(show_id)
+        + "\",episodeNumStart:"
+        + str(episode_num)
+        + ",episodeNumEnd:"
+        + str(episode_num)
+        + "){_id episodeIdNum vidInforssub vidInforsdub vidInforsraw}}"
+    )
+    response = request_json(
+        API_BASE,
+        json.dumps({"query": query}).encode(),
+        extra_hdrs={
+            "Origin": "https://mkissa.to",
+            "Referer": "https://mkissa.to/",
+        },
+    )
+    episodes = response.get("data", {}).get("episodeInfos") or []
+    match = next(
+        (
+            item
+            for item in episodes
+            if str(item.get("episodeIdNum")) == str(int(episode_num))
+            or str(item.get("episodeIdNum")) == str(episode_num)
+        ),
+        episodes[0] if episodes else None,
+    )
+    if not isinstance(match, dict):
+        return None
+
+    info = match.get(info_field)
+    if not isinstance(info, dict) or not info.get("vidPath"):
+        return None
+
+    stream_url = "https://allanimenews.com/" + str(info["vidPath"]).lstrip("/")
+    resolution = str(info.get("vidResolution") or "1080")
+    if resolution.isdigit():
+        resolution = f"{resolution}p"
+    return {
+        "episode": {
+            "episodeString": str(episode),
+            "sourceUrls": [
+                {
+                    "sourceName": "AllAnime CDN",
+                    "sourceUrl": stream_url,
+                    "type": "mp4",
+                    "resolution": resolution,
+                    "priority": 1,
+                    "referer": "https://allanimenews.com/",
+                    "headers": {
+                        "Referer": "https://allanimenews.com/",
+                        "Origin": "https://allanimenews.com",
+                    },
+                    "android_safe": True,
+                }
+            ],
+        }
+    }
 
 def get_clock_links(request_json, path):
     return request_json(f"https://{CLOCK_BASE}{path}").get("links", [])

@@ -61,6 +61,12 @@ def positive_int(value):
 
 def format_ep_progress(label, progress, total, local_only=False):
     import decimal as _dec
+    from .episodes import parse_episode_dual_numbers
+
+    progress_text = str(progress).strip()
+    primary, _secondary = parse_episode_dual_numbers(progress_text)
+    if primary:
+        progress = primary
     try:
         p = _dec.Decimal(str(progress))
         if p < 0:
@@ -68,7 +74,7 @@ def format_ep_progress(label, progress, total, local_only=False):
         # Display as int when whole, preserve decimal string otherwise
         progress = int(p) if p == p.to_integral_value() else str(p.normalize())
     except (_dec.InvalidOperation, TypeError, ValueError):
-        progress = str(progress).strip()
+        progress = progress_text
         if progress.lower().startswith("episode "):
             progress = progress[8:].strip()
         elif progress.lower() in ("movie", "special", "ova") or not progress.replace(".", "", 1).isdigit():
@@ -105,13 +111,16 @@ def format_progress(anime, local_only=False, ttype="sub"):
     orig_total = positive_int(anime.get("originalEpisodeCount"))
     if orig_total:
         total = max(total or 0, orig_total)
+
     avail_count = (anime.get("availableEpisodes") or {}).get(ttype) if isinstance(anime.get("availableEpisodes"), dict) else None
-    avail_int = positive_int(avail_count)
-    if avail_int:
-        total = max(total or 0, avail_int)
-    eids_len = len(anime.get("_episode_ids") or [])
-    if eids_len:
-        total = max(total or 0, eids_len)
+    try:
+        avail_count = int(avail_count) if avail_count is not None else None
+    except (TypeError, ValueError):
+        avail_count = None
+    if avail_count is None and anime.get("_episode_ids"):
+        avail_count = len(anime["_episode_ids"])
+    if total and avail_count and total < avail_count:
+        total = None
 
     local_progress = anime.get("_local_progress")
     local_label = anime.get("_local_episode_label")
@@ -207,7 +216,7 @@ def format_available_episodes(anime, ttype="sub", local_only=False):
         if local_only:
             entry = {"show": anime, "translation_type": ttype}
             full = history_full_episode_count(entry)
-            if full and available >= full:
+            if full and available == full:
                 return ""
         if sec_tag:
             return f"Avail {available} [{sec_tag}]"
@@ -226,7 +235,7 @@ def format_available_episodes(anime, ttype="sub", local_only=False):
         if local_only:
             entry = {"show": anime, "translation_type": ttype}
             full = history_full_episode_count(entry)
-            if full and available_count >= full:
+            if full and available_count == full:
                 return ""
         if sec_tag:
             return f"Avail {available_count} [{sec_tag}]"

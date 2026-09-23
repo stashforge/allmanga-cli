@@ -1,12 +1,18 @@
 """AllAnime payload and clock URL decoding."""
 
 import base64
+import binascii
 import hashlib
 
-_ALLANIME_PASSPHRASE = b"Xot36i3lK3:v1"
+_ALLANIME_KEY_HEX = "29f65d91ec588d32262f1905ae4a7d1cfe3f5ab61e77604ca24912c1772ce2e6"
+
+
+def _allanime_key():
+    return binascii.unhexlify(_ALLANIME_KEY_HEX)
+
 
 def decrypt_tobeparsed(encoded):
-    key = hashlib.sha256(_ALLANIME_PASSPHRASE).digest()
+    key = _allanime_key()
     try:
         encrypted = base64.b64decode(encoded)
     except Exception:
@@ -14,18 +20,13 @@ def decrypt_tobeparsed(encoded):
     if len(encrypted) < 30:
         return None
 
-    iv12 = encrypted[1:13]
-    ciphertext = encrypted[13:]
-
-    # Counter for AES-CTR: iv12 + 00 00 00 02
-    nonce = iv12 + b'\x00\x00\x00\x02'
+    nonce = encrypted[1:13]
+    ciphertext = encrypted[13:-16]
+    tag = encrypted[-16:]
 
     try:
-        from cryptography.hazmat.backends import default_backend
-        from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-        cipher = Cipher(algorithms.AES(key), modes.CTR(nonce), backend=default_backend())
-        decryptor = cipher.decryptor()
-        decrypted = decryptor.update(ciphertext) + decryptor.finalize()
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        decrypted = AESGCM(key).decrypt(nonce, ciphertext + tag, None)
         return decrypted.decode("utf-8", errors="ignore")
     except Exception:
         pass
@@ -33,10 +34,8 @@ def decrypt_tobeparsed(encoded):
     for lib in ("Cryptodome", "Crypto"):
         try:
             AES = __import__(f"{lib}.Cipher", fromlist=["AES"]).AES
-            from Crypto.Util import Counter
-            ctr = Counter.new(128, initial_value=int.from_bytes(nonce, byteorder="big"))
-            cipher = AES.new(key, AES.MODE_CTR, counter=ctr)
-            decrypted = cipher.decrypt(ciphertext)
+            cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
+            decrypted = cipher.decrypt_and_verify(ciphertext, tag)
             return decrypted.decode("utf-8", errors="ignore")
         except ImportError:
             continue
@@ -47,3 +46,27 @@ def decrypt_tobeparsed(encoded):
             continue
 
     return None
+
+
+def encrypt_aa_req(payload, iv_seed):
+    key = _allanime_key()
+    nonce = hashlib.sha256(iv_seed.encode("utf-8")).digest()[:12]
+    payload_bytes = payload.encode("utf-8")
+
+    try:
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        encrypted = AESGCM(key).encrypt(nonce, payload_bytes, None)
+        return base64.b64encode(b"\x01" + nonce + encrypted).decode("ascii")
+    except Exception:
+        pass
+
+    for lib in ("Cryptodome", "Crypto"):
+        try:
+            AES = __import__(f"{lib}.Cipher", fromlist=["AES"]).AES
+            cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
+            ciphertext, tag = cipher.encrypt_and_digest(payload_bytes)
+            return base64.b64encode(b"\x01" + nonce + ciphertext + tag).decode("ascii")
+        except ImportError:
+            continue
+
+    return ""
